@@ -1,0 +1,151 @@
+# Cross-family CCIP load tests (Sol <-> EVM). Opt-in: add label "load-test:devenv" to a PR.
+# Does not gate merge. One devenv, both directions sequential.
+name: Load Test (Devenv)
+
+on:
+  pull_request:
+    # opened/reopened: label may already be on the PR; labeled: label added later
+    types: [opened, reopened, labeled, synchronize]
+
+concurrency:
+  group: load-test-devenv-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  detect-changes:
+    name: Detect changes
+    if: contains(github.event.pull_request.labels.*.name, 'load-test:devenv') && !github.event.pull_request.head.repo.fork
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read # dorny/paths-filter lists PR files via the API
+    outputs:
+      contracts: ${{ steps.filter.outputs.contracts }}
+      pkg: ${{ steps.filter.outputs.pkg }}
+      devenv: ${{ steps.filter.outputs.devenv }}
+      deployment: ${{ steps.filter.outputs.deployment }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+        id: filter
+        with:
+          filters: |
+            contracts:
+              - 'contracts/**'
+            pkg:
+              - 'pkg/**'
+              - 'internal/**'
+              - 'cmd/**'
+              - 'go.mod'
+              - 'go.sum'
+              - '.mockery.yaml'
+              - 'Makefile'
+            devenv:
+              - 'devenv/**'
+              - 'scripts/ci/ccv-ref.yaml'
+              - '.github/actions/devenv-test/**'
+              - '.github/actions/run-load-test/**'
+              - '.github/workflows/test-load-devenv.yaml'
+              - '.github/scripts/render-load-metrics.sh'
+            deployment:
+              - 'deployment/**'
+
+  get_anchor_version:
+    name: Get Anchor Version
+    if: contains(github.event.pull_request.labels.*.name, 'load-test:devenv') && !github.event.pull_request.head.repo.fork
+    runs-on: ubuntu-latest
+    outputs:
+      anchor_version: ${{ steps.anchorversion.outputs.anchor }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Get Anchor Version
+        id: anchorversion
+        run: |
+          anchor=$(make anchor_version)
+          echo "anchor=${anchor}" >>$GITHUB_OUTPUT
+
+  contracts-build:
+    needs: [detect-changes, get_anchor_version]
+    if: contains(github.event.pull_request.labels.*.name, 'load-test:devenv') && !github.event.pull_request.head.repo.fork && (needs['detect-changes'].outputs.contracts == 'true' || needs['detect-changes'].outputs.pkg == 'true' || needs['detect-changes'].outputs.devenv == 'true' || needs['detect-changes'].outputs.deployment == 'true')
+    name: Contracts (build)
+    runs-on: ubuntu-latest-8cores-32GB
+    outputs:
+      cache_key: ${{ steps.cache_key.outputs.key }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Compute artifact cache key
+        id: cache_key
+        run: |
+          KEY="${{ runner.os }}-solana-contract-artifacts-anchor-${{ needs.get_anchor_version.outputs.anchor_version }}-${{ hashFiles('**/Cargo.lock', 'contracts/**/Cargo.toml', 'contracts/Anchor.toml', 'contracts/rust-toolchain*', 'contracts/.cargo/config*', '.github/workflows/**') }}-${{ hashFiles('contracts/programs/**/*.rs', 'contracts/crates/**/*.rs') }}"
+          echo "key=$KEY" >>$GITHUB_OUTPUT
+
+      - name: Cache cargo target dir
+        uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+        with:
+          workspaces: contracts
+          save-if: ${{ github.event_name == 'push' }}
+
+      - name: Fix cached build script permissions
+        run: find $(pwd)/contracts/target -name 'build-script-build' -exec chmod 755 {} + 2>/dev/null || true
+
+      - name: Cache artifacts
+        id: cache-artifacts
+        uses: actions/cache@v5
+        with:
+          path: |
+            contracts/target/deploy/**/*.so
+            contracts/target/idl/**
+            contracts/target/types/**
+          key: ${{ steps.cache_key.outputs.key }}
+
+      - name: Build contracts
+        if: steps.cache-artifacts.outputs.cache-hit != 'true'
+        run: |
+          docker run \
+          -v "$(pwd)/contracts":/contracts \
+          quay.io/ottersec/anchor:${{ needs.get_anchor_version.outputs.anchor_version }} bash -c "\
+            set -eoux pipefail &&\
+            RUSTUP_HOME=\"/root/.rustup\" &&\
+            FORCE_COLOR=1 &&\
+            cd /contracts &&\
+            anchor build --ignore-keys"
+
+      - name: Fix target dir permissions
+        run: sudo chown -R $(id -u):$(id -g) contracts/target 2>/dev/null || true
+
+  devenv-load-pinned:
+    needs: [detect-changes, contracts-build]
+    if: |
+      contains(github.event.pull_request.labels.*.name, 'load-test:devenv') &&
+      !github.event.pull_request.head.repo.fork &&
+      always() && needs.contracts-build.result == 'success' &&
+      (needs['detect-changes'].outputs.contracts == 'true' || needs['detect-changes'].outputs.pkg == 'true' || needs['detect-changes'].outputs.devenv == 'true' || needs['detect-changes'].outputs.deployment == 'true')
+    name: Devenv Load
+    timeout-minutes: ${{ fromJSON(vars.LOAD_TEST_TIMEOUT_MINUTES || '30') }}
+    runs-on: ubuntu-latest-8cores-32GB
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Read pinned ref
+        id: refs
+        run: ./scripts/ci/ccv-ref.sh read pinned
+      - uses: ./.github/actions/run-load-test
+        with:
+          artifacts_cache_key: ${{ needs.contracts-build.outputs.cache_key }}
+          ccv_ref: ${{ steps.refs.outputs.pinned }}
+          ccv_iam_role: ${{ secrets.CCV_IAM_ROLE }}
+          jd_registry: ${{ secrets.JD_REGISTRY }}
+          jd_image: ${{ secrets.JD_IMAGE }}
+          pr_number: ${{ github.event.pull_request.number }}
+          load_test_rps: ${{ vars.LOAD_TEST_RPS }}
+          load_test_duration: ${{ vars.LOAD_TEST_DURATION }}
+          load_test_pool_size: ${{ vars.LOAD_TEST_POOL_SIZE }}
+          load_test_send_interval: ${{ vars.LOAD_TEST_SEND_INTERVAL }}
+          load_test_fire_and_forget: ${{ vars.LOAD_TEST_FIRE_AND_FORGET }}

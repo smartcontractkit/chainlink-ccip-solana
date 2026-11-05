@@ -1,0 +1,31 @@
+# TODO: remove once we have org-enforced rulesets
+name: Validate Go Mod Files
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: read
+  id-token: write # setup-github-token assumes the GATI AWS role via OIDC
+
+jobs:
+  go-mod-validation:
+    name: Validate go.mod dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup GATI token
+        id: setup-github-token
+        uses: smartcontractkit/.github/actions/setup-github-token@a5300809cd1fd2087eeaab5547af1acb6da1c19d # setup-github-token/1.5.0
+        with:
+          aws-role-arn: ${{ secrets.GATI_AWS_ROLE_CHAINLINK_CCIP_SOLANA_CICD }}
+          aws-lambda-url: ${{ secrets.GATI_AWS_LAMBDA_URL_INTEGRATIONS }}
+          aws-region: ${{ vars.GATI_AWS_REGION }}
+
+      - name: Validate go.mod
+        uses: smartcontractkit/.github/apps/go-mod-validator@go-mod-validator/v1
+        with:
+          github-token: ${{ steps.setup-github-token.outputs.access-token }}
+          github-pr-read-token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,30 @@
+[package]
+name = "example_ccip_sender"
+version.workspace = true
+description = "Created with Anchor"
+edition = "2021"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "example_ccip_sender"
+
+[features]
+no-entrypoint = []
+cpi = ["no-entrypoint"]
+default = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build", "ccip_router/idl-build"]
+
+[dependencies]
+anchor-lang = { workspace = true }
+solana-address-lookup-table-interface = { workspace = true }
+anchor-spl = { workspace = true }
+ccip_router = { path = "../ccip-router", features = [ "no-entrypoint" ] }
+anchor_discriminator = { path = "../../crates/anchor_discriminator" }
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("anchor-debug", "custom-panic", "custom-heap", "no-idl", "no-log-ix-name"))',
+]

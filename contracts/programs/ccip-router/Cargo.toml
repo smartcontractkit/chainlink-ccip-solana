@@ -1,0 +1,50 @@
+[package]
+name = "ccip_router"
+version.workspace = true
+description = "Created with Anchor"
+edition = "2021"
+license = "BUSL-1.1"
+build = "build.rs"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "ccip_router"
+
+[features]
+no-entrypoint = []
+cpi = ["no-entrypoint"]
+# `entrypoint!` omits its own 32KB bump allocator when this feature is enabled.
+custom-heap = []
+default = ["custom-heap"]
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build", "ccip_common/idl-build", "fee_quoter/idl-build", "rmn_remote/idl-build", "committee_verifier/idl-build"]
+
+[dependencies]
+anchor-lang = { workspace = true }
+solana-keccak-hasher = { workspace = true }
+solana-address-lookup-table-interface = { workspace = true }
+anchor-spl = { workspace = true }
+bytemuck = "1.25"
+ethnum = "1.5"
+fee_quoter = { path = "../fee-quoter", features = [ "cpi" ] }
+rmn_remote = { path = "../rmn-remote", features = [ "cpi" ] }
+committee_verifier = { path = "../committee-verifier", features = [ "cpi" ] }
+executor = { path = "../executor", features = [ "cpi" ] }
+burnmint-token-pool = { path = "../burnmint-token-pool", features = [ "no-entrypoint" ]}
+base-token-pool = { path = "../base-token-pool", features = [ "no-entrypoint" ] }
+ccip_common = { path = "../ccip-common" }
+anchor_discriminator = { path = "../../crates/anchor_discriminator" }
+probing-bump-allocator = { path = "../../crates/probing-bump-allocator" }
+solana-security-txt = "1.1.1"
+
+[dev-dependencies]
+hex = "0.4.3"
+
+[build-dependencies]
+build_commit = { path = "../../crates/build-commit" }
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("anchor-debug", "custom-panic", "custom-heap", "no-idl", "no-log-ix-name"))',
+]

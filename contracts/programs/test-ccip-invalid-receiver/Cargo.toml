@@ -1,0 +1,24 @@
+[package]
+name = "test_ccip_invalid_receiver"
+version.workspace = true
+description = "Created with Anchor"
+edition = "2021"
+license = "BUSL-1.1"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "test_ccip_invalid_receiver"
+
+[features]
+no-entrypoint = []
+cpi = ["no-entrypoint"]
+default = []
+idl-build = ["anchor-lang/idl-build", "example_ccip_receiver/idl-build"]
+
+[dependencies]
+anchor-lang = { workspace = true }
+example_ccip_receiver = { path = "../example-ccip-receiver", features = ["no-entrypoint"] }
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = ['cfg(target_os, values("solana"))', 'cfg(feature, values("anchor-debug", "custom-panic", "custom-heap", "no-idl", "no-log-ix-name"))']

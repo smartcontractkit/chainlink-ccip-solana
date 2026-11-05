@@ -1,0 +1,31 @@
+# Its own workspace: cargo-fuzz builds with nightly and a sanitizer, and pulls in
+# libfuzzer-sys, none of which should reach the contracts workspace or its lockfile.
+[workspace]
+
+[package]
+name = "suffix-eater-allocator-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+rust-version = "1.85"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+suffix-eater-allocator = { path = "..", features = ["host-testing"] }
+
+# Match the contracts workspace: the allocator's address arithmetic is written against
+# checked overflow, so a fuzz build must not silently wrap.
+[profile.release]
+debug = 1
+debug-assertions = true
+overflow-checks = true
+
+[[bin]]
+name = "ops"
+path = "fuzz_targets/ops.rs"
+test = false
+doc = false
+bench = false

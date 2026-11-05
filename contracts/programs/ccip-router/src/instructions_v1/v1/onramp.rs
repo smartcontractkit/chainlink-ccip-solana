@@ -1,0 +1,907 @@
+use std::str::FromStr;
+
+use anchor_lang::prelude::*;
+use anchor_spl::token::spl_token;
+use anchor_spl::token_interface;
+use derive::DeriveAccountsCcipSendStage;
+
+use crate::context::{ViewConfigOnly, ANCHOR_DISCRIMINATOR};
+use crate::events::on_ramp as events;
+use crate::messages::GetFeeResult;
+use crate::rmn::verify_uncursed_cpi;
+use crate::state::{DeriveAccountsCcipSendParams, DeriveAccountsResponse};
+
+use ccip_common::seed;
+use ccip_common::v1::{validate_and_parse_onramp_token_accounts, CcipV1OnrampTokenAccounts};
+use fee_quoter::messages::TokenTransferAdditionalData;
+use fee_quoter::state::DestChain;
+
+use super::super::interfaces::OnRamp;
+use super::fees::{get_fee_cpi, transfer_and_wrap_native_sol, transfer_fee};
+use super::messages::pools::{LockOrBurnInV1, LockOrBurnOutV1};
+use super::pools::{
+    calculate_token_pool_account_indices, interact_with_pool, transfer_token,
+    CCIP_LOCK_OR_BURN_V1_RET_BYTES,
+};
+
+use crate::GetFee;
+use crate::{
+    CcipRouterError, CcipSend, Nonce, RampMessageHeader, SVM2AnyMessage, SVM2AnyRampMessage,
+    SVM2AnyTokenTransfer, SVMTokenAmount,
+};
+
+use helpers::*;
+
+mod derive;
+
+pub struct Impl;
+impl OnRamp for Impl {
+    fn ccip_send<'info>(
+        &self,
+        ctx: Context<'info, CcipSend<'info>>,
+        dest_chain_selector: u64,
+        mut message: SVM2AnyMessage,
+        token_indexes: Vec<u8>,
+    ) -> Result<[u8; 32]> {
+        verify_uncursed_cpi(
+            &ctx.accounts.rmn_remote,
+            &ctx.accounts.rmn_remote_curses,
+            &ctx.accounts.rmn_remote_config,
+            dest_chain_selector,
+        )?;
+
+        let sender = ctx.accounts.authority.key.to_owned();
+        let dest_chain = &mut ctx.accounts.dest_chain_state;
+
+        require!(
+            !dest_chain.config.allow_list_enabled
+                || dest_chain.config.allowed_senders.contains(&sender),
+            CcipRouterError::SenderNotAllowed
+        );
+
+        let mut accounts_per_sent_token: Vec<CcipV1OnrampTokenAccounts> = vec![];
+
+        for (i, token_amount) in message.token_amounts.iter().enumerate() {
+            require_neq!(
+                token_amount.amount,
+                0,
+                CcipRouterError::InvalidInputsTokenAmount
+            );
+
+            // Calculate the indexes for the additional accounts of the current token index `i`
+            let (start, end) = calculate_token_pool_account_indices(
+                i,
+                &token_indexes,
+                ctx.remaining_accounts.len(),
+            )?;
+
+            let current_token_accounts = validate_and_parse_onramp_token_accounts(
+                ctx.accounts.authority.key(),
+                token_amount.token,
+                dest_chain_selector,
+                ctx.program_id.key(),
+                ctx.accounts.config.fee_quoter,
+                &ctx.remaining_accounts[start..end],
+                true,
+            )?;
+
+            accounts_per_sent_token.push(current_token_accounts);
+        }
+
+        let billing_token_config_accs: Vec<AccountInfo<'info>> = accounts_per_sent_token
+            .iter()
+            .map(|a| a.common.fee_token_config.to_account_info())
+            .collect();
+        let per_chain_per_token_config_accs: Vec<AccountInfo<'info>> = accounts_per_sent_token
+            .iter()
+            .map(|a| a.common.per_chain_per_token_config.to_account_info())
+            .collect();
+
+        let mut get_fee_remaining_accounts = billing_token_config_accs;
+        get_fee_remaining_accounts.extend(per_chain_per_token_config_accs);
+
+        let get_fee_result = get_fee_cpi(
+            ctx.accounts.fee_quoter.key(),
+            ctx.accounts.fee_quoter_config.to_account_info(),
+            ctx.accounts.fee_quoter_dest_chain.to_account_info(),
+            ctx.accounts
+                .fee_quoter_billing_token_config
+                .to_account_info(),
+            ctx.accounts.fee_quoter_link_token_config.to_account_info(),
+            dest_chain_selector,
+            &message,
+            get_fee_remaining_accounts,
+        )?;
+
+        let is_paying_with_native_sol = message.fee_token == Pubkey::default();
+        if is_paying_with_native_sol {
+            transfer_and_wrap_native_sol(
+                ctx.accounts.fee_token_program.key(),
+                &mut ctx.accounts.authority,
+                &mut ctx.accounts.fee_token_receiver,
+                get_fee_result.amount,
+            )?;
+            message.fee_token = spl_token::native_mint::id();
+        } else {
+            let transfer = token_interface::TransferChecked {
+                from: ctx
+                    .accounts
+                    .fee_token_user_associated_account
+                    .to_account_info(),
+                to: ctx.accounts.fee_token_receiver.to_account_info(),
+                mint: ctx.accounts.fee_token_mint.to_account_info(),
+                authority: ctx.accounts.fee_billing_signer.to_account_info(),
+            };
+
+            let transferable_fee = SVMTokenAmount {
+                token: get_fee_result.token,
+                amount: get_fee_result.amount,
+            };
+
+            transfer_fee(
+                &transferable_fee,
+                ctx.accounts.fee_token_program.key(),
+                transfer,
+                ctx.accounts.fee_token_mint.decimals,
+                ctx.bumps.fee_billing_signer,
+            )?;
+        }
+
+        let overflow_add = dest_chain.state.message_number.checked_add(1);
+        require!(
+            overflow_add.is_some(),
+            CcipRouterError::ReachedMaxMessageNumber
+        );
+        dest_chain.state.message_number = overflow_add.unwrap();
+
+        let source_chain_selector = ctx.accounts.config.svm_chain_selector;
+
+        let ordered_nonce: u64;
+        let total_nonce: u64;
+        {
+            // Manually handle the nonce. As it may be initialized, realloc'd or just loaded depending
+            // on the case, Anchor can't handle all the cases so we do it manually
+            let mut nonces: Nonce = load_migrate_nonce(
+                &ctx.accounts.nonce,
+                &ctx.accounts.system_program.to_account_info(),
+                &ctx.accounts.authority.to_account_info(),
+                dest_chain_selector,
+                ctx.bumps.nonce,
+            )?;
+            (ordered_nonce, total_nonce) = bump_nonces(
+                &mut nonces,
+                get_fee_result
+                    .processed_extra_args
+                    .allow_out_of_order_execution,
+            )?;
+            // as it was manually loaded, we need to manually write it back
+            nonces.try_serialize(&mut &mut ctx.accounts.nonce.try_borrow_mut_data()?[..])?;
+        }
+
+        let token_count = message.token_amounts.len();
+        require_eq!(
+            token_indexes.len(),
+            token_count,
+            CcipRouterError::InvalidInputsTokenIndices,
+        );
+
+        let mut new_message: SVM2AnyRampMessage = SVM2AnyRampMessage {
+            sender,
+            receiver: message.receiver,
+            data: message.data,
+            header: RampMessageHeader {
+                message_id: [0; 32],
+                source_chain_selector,
+                dest_chain_selector,
+                // 1.6 `RampMessageHeader` keeps the `sequence_number` name (matching EVM 1.6);
+                // the shared counter it reads from is `message_number` per EVM 1.7.
+                sequence_number: dest_chain.state.message_number,
+                nonce: ordered_nonce,
+            },
+            extra_args: get_fee_result.processed_extra_args.bytes,
+            fee_token: message.fee_token,
+            fee_token_amount: get_fee_result.amount.into(),
+            fee_value_juels: get_fee_result.juels.into(),
+            token_amounts: vec![SVM2AnyTokenTransfer::default(); token_count], // this will be set later
+        };
+
+        for (i, (current_token_accounts, token_amount)) in accounts_per_sent_token
+            .iter()
+            .zip(message.token_amounts.iter())
+            .enumerate()
+        {
+            require_keys_eq!(
+                token_amount.token,
+                current_token_accounts.common.mint.key(),
+                CcipRouterError::InvalidInputsTokenAccounts,
+            );
+
+            let transfer_seeds = &[seed::FEE_BILLING_SIGNER, &[ctx.bumps.fee_billing_signer]];
+
+            // CPI: transfer token amount from user to token pool
+            transfer_token(
+                token_amount.amount,
+                current_token_accounts.common.token_program,
+                current_token_accounts.common.mint,
+                current_token_accounts.common.user_token_account,
+                current_token_accounts.common.pool_token_account,
+                &ctx.accounts.fee_billing_signer.to_account_info(),
+                transfer_seeds,
+            )?;
+
+            // CPI: call lockOrBurn on token pool
+            {
+                let lock_or_burn = LockOrBurnInV1 {
+                    receiver: get_fee_result
+                        .processed_extra_args
+                        .token_receiver
+                        .as_ref()
+                        .unwrap_or(&new_message.receiver)
+                        .clone(),
+                    remote_chain_selector: dest_chain_selector,
+                    original_sender: ctx.accounts.authority.key(),
+                    amount: token_amount.amount,
+                    local_token: token_amount.token,
+                    msg_total_nonce: total_nonce,
+                };
+
+                let mut acc_infos = current_token_accounts
+                    .common
+                    .ccip_router_pool_signer
+                    .to_account_infos();
+                acc_infos.extend_from_slice(&[
+                    current_token_accounts.common.pool_config.to_account_info(),
+                    current_token_accounts
+                        .common
+                        .token_program
+                        .to_account_info(),
+                    current_token_accounts.common.mint.to_account_info(),
+                    current_token_accounts.common.pool_signer.to_account_info(),
+                    current_token_accounts
+                        .common
+                        .pool_token_account
+                        .to_account_info(),
+                    ctx.accounts.rmn_remote.to_account_info(),
+                    ctx.accounts.rmn_remote_curses.to_account_info(),
+                    ctx.accounts.rmn_remote_config.to_account_info(),
+                    current_token_accounts
+                        .common
+                        .pool_chain_config
+                        .to_account_info(),
+                ]);
+                acc_infos.extend_from_slice(current_token_accounts.remaining_accounts);
+
+                let pool_seeds = &[
+                    seed::EXTERNAL_TOKEN_POOLS_SIGNER,
+                    current_token_accounts.common.pool_program.key.as_ref(),
+                    &[current_token_accounts.ccip_router_pool_signer_bump],
+                ];
+
+                let return_data = interact_with_pool(
+                    current_token_accounts.common.pool_program.key(),
+                    current_token_accounts.common.ccip_router_pool_signer.key(),
+                    acc_infos,
+                    lock_or_burn,
+                    pool_seeds,
+                )?;
+
+                let lock_or_burn_out_data = LockOrBurnOutV1::try_from_slice(&return_data)?;
+
+                {
+                    // validate the token address based on the destination chain family selector
+                    let dest_chain_info = ctx.accounts.fee_quoter_dest_chain.to_account_info();
+                    let dest_chain = DestChain::try_from_slice(
+                        &dest_chain_info.data.borrow()[ANCHOR_DISCRIMINATOR..],
+                    )?;
+                    let dest_chain_family_selector = dest_chain.config.chain_family_selector;
+
+                    helpers::validate_transfer_dest_address(
+                        dest_chain_family_selector,
+                        &lock_or_burn_out_data.dest_token_address,
+                    )?;
+                }
+
+                new_message.token_amounts[i] = token_transfer(
+                    lock_or_burn_out_data,
+                    current_token_accounts.common.pool_config.key(),
+                    token_amount,
+                    &get_fee_result.token_transfer_additional_data[i],
+                )?;
+            }
+        }
+
+        let message_id = &helpers::hash(&new_message);
+        new_message.header.message_id.clone_from(message_id);
+
+        let ccip_message_sent_event = events::CCIPMessageSent {
+            dest_chain_selector,
+            sequence_number: new_message.header.sequence_number,
+            message: new_message,
+        };
+
+        emit!(ccip_message_sent_event);
+
+        helpers::rmn_emit_cpi_event(&ctx, ccip_message_sent_event)?;
+
+        Ok(*message_id)
+    }
+
+    fn get_fee<'info>(
+        &self,
+        ctx: Context<'info, GetFee<'info>>,
+        dest_chain_selector: u64,
+        message: SVM2AnyMessage,
+    ) -> Result<GetFeeResult> {
+        let fq_result = get_fee_cpi(
+            ctx.accounts.fee_quoter.key(),
+            ctx.accounts.fee_quoter_config.to_account_info(),
+            ctx.accounts.fee_quoter_dest_chain.to_account_info(),
+            ctx.accounts
+                .fee_quoter_billing_token_config
+                .to_account_info(),
+            ctx.accounts.fee_quoter_link_token_config.to_account_info(),
+            dest_chain_selector,
+            &message,
+            ctx.remaining_accounts.to_vec(),
+        )?;
+
+        // not all fields that fee quoter returns are relevant for the user, so just pick the important ones
+        Ok(GetFeeResult {
+            amount: fq_result.amount,
+            juels: fq_result.juels,
+            token: fq_result.token,
+        })
+    }
+
+    fn derive_accounts_ccip_send<'info>(
+        &self,
+        ctx: Context<'info, ViewConfigOnly<'info>>,
+        params: DeriveAccountsCcipSendParams,
+        stage: String,
+    ) -> Result<DeriveAccountsResponse> {
+        match DeriveAccountsCcipSendStage::from_str(stage.as_str())? {
+            DeriveAccountsCcipSendStage::Start => derive::derive_ccip_send_accounts_start(params),
+            DeriveAccountsCcipSendStage::FinishMainAccountList => {
+                derive::derive_ccip_send_accounts_finish_main_account_list(ctx, params)
+            }
+            DeriveAccountsCcipSendStage::RetrieveTokenLUTs => {
+                derive::derive_ccip_send_accounts_retrieve_luts(ctx, &params)
+            }
+            DeriveAccountsCcipSendStage::RetrievePoolPrograms => {
+                derive::derive_ccip_send_accounts_retrieve_pool_programs(ctx)
+            }
+            DeriveAccountsCcipSendStage::TokenTransferStaticAccounts { page, token } => {
+                derive::derive_ccip_send_accounts_additional_tokens_static(ctx, params, page, token)
+            }
+            DeriveAccountsCcipSendStage::NestedTokenDerive {
+                token_substage,
+                token,
+            } => derive::derive_ccip_send_accounts_additional_token_nested(
+                ctx,
+                &params,
+                &token_substage,
+                token,
+            ),
+        }
+    }
+}
+
+pub use helpers::token_transfer;
+mod helpers {
+    use anchor_lang::{system_program, Event};
+    use ccip_common::{
+        v1::{
+            validate_aptos_address, validate_evm_address, validate_sui_address,
+            validate_svm_address, validate_tvm_address,
+        },
+        CommonCcipError, CHAIN_FAMILY_SELECTOR_APTOS, CHAIN_FAMILY_SELECTOR_EVM,
+        CHAIN_FAMILY_SELECTOR_SUI, CHAIN_FAMILY_SELECTOR_SVM, CHAIN_FAMILY_SELECTOR_TVM,
+    };
+
+    use crate::event::events::PdaUpgraded;
+
+    use super::*;
+
+    const LEAF_DOMAIN_SEPARATOR: [u8; 32] = [0; 32];
+
+    pub(super) fn rmn_emit_cpi_event<'info>(
+        ctx: &Context<'info, CcipSend<'_>>,
+        event: events::CCIPMessageSent,
+    ) -> Result<()> {
+        let cpi_program = ctx.accounts.rmn_remote.key();
+        let cpi_accounts = rmn_remote::cpi::accounts::CpiEvent {
+            config: ctx.accounts.rmn_remote_config.to_account_info(),
+            // Re-using the signer from the FQ calls for backwards-compatibility, so we don't introduce
+            // a new account that might break existing user integrations to send messages.
+            authority: ctx.accounts.fee_billing_signer.to_account_info(),
+        };
+        let seeds = &[seed::FEE_BILLING_SIGNER, &[ctx.bumps.fee_billing_signer]];
+        let signer_seeds = &[&seeds[..]];
+        let cpi_context = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer_seeds);
+        rmn_remote::cpi::cpi_event(cpi_context, event.data())
+    }
+
+    pub fn token_transfer(
+        lock_or_burn_out_data: LockOrBurnOutV1,
+        source_pool_address: Pubkey,
+        token_amount: &SVMTokenAmount,
+        additional_data: &TokenTransferAdditionalData,
+    ) -> Result<SVM2AnyTokenTransfer> {
+        let dest_gas_amount = additional_data.dest_gas_overhead;
+
+        let extra_data = lock_or_burn_out_data.dest_pool_data;
+        // SAFETY: extra_data from CPI return, bounded by Solana tx size
+        let extra_data_length = extra_data.len() as u32;
+
+        require!(
+            extra_data_length <= CCIP_LOCK_OR_BURN_V1_RET_BYTES
+                || extra_data_length <= additional_data.dest_bytes_overhead,
+            CcipRouterError::SourceTokenDataTooLarge
+        );
+
+        let dest_exec_data = dest_gas_amount.convert::<u32>().to_be_bytes().to_vec();
+
+        Ok(SVM2AnyTokenTransfer {
+            source_pool_address,
+            dest_token_address: lock_or_burn_out_data.dest_token_address,
+            extra_data,
+            amount: token_amount.amount.into(), // pool on receiver chain handles decimals
+            dest_exec_data,
+        })
+    }
+
+    pub(super) fn bump_nonces(
+        nonces: &mut Nonce,
+        allow_out_of_order_execution: bool,
+    ) -> Result<(u64, u64)> {
+        nonces.total_nonce = nonces.total_nonce.checked_add(1).unwrap();
+
+        // config.enforce_out_of_order checked in `validate_svm2any`
+        let mut ordered_nonce = 0;
+        if !allow_out_of_order_execution {
+            nonces.ordered_nonce = nonces.ordered_nonce.checked_add(1).unwrap();
+            ordered_nonce = nonces.ordered_nonce;
+        }
+        Ok((ordered_nonce, nonces.total_nonce))
+    }
+
+    /// A nonce PDA as it is currently stored on chain, carrying the `Nonce` value that
+    /// `ccip_send` will use for it: for a legacy account that's the *migrated* value, not
+    /// the raw one, so that reading and migrating agree on what the next nonce will be.
+    pub(super) enum NonceState {
+        /// The account doesn't exist yet and must be initialized before use.
+        Uninitialized,
+        /// The account holds the old, shorter layout and must be extended before use.
+        Legacy(Nonce),
+        /// The account already holds the current layout.
+        Current(Nonce),
+    }
+
+    /// Reads a nonce PDA without mutating it. This is the single place where the stored
+    /// layout is interpreted: both [`load_migrate_nonce`], which then performs the writes
+    /// the state calls for, and [`peek_total_nonce`], which performs none, go through it.
+    pub(super) fn peek_nonce(account_info: &AccountInfo) -> Result<NonceState> {
+        if account_info.owner.key() == system_program::ID {
+            return Ok(NonceState::Uninitialized);
+        }
+
+        let mut padded = [0u8; ANCHOR_DISCRIMINATOR + Nonce::INIT_SPACE];
+        let data_len = account_info.data_len();
+
+        if data_len < padded.len() {
+            // Zero-padding the data to the current length reproduces the `resize` that
+            // [`load_migrate_nonce`] performs, so the absent `total_nonce` reads as 0.
+            let data = account_info.try_borrow_data()?;
+            padded[..data_len].copy_from_slice(&data);
+            let mut nonce = Nonce::try_deserialize(&mut &padded[..])?;
+            require_eq!(nonce.version, 1, CcipRouterError::InvalidNonceVersion);
+
+            nonce.version = 2; // migrate to version 2
+            nonce.total_nonce = nonce.ordered_nonce; // we need an initial value for the new total_nonce, and this way
+                                                     // we maintain the invariant that total_nonce >= ordered_nonce
+
+            return Ok(NonceState::Legacy(nonce));
+        }
+
+        let nonce = load_nonce(account_info)?;
+        require_eq!(nonce.version, 2, CcipRouterError::InvalidNonceVersion);
+        Ok(NonceState::Current(nonce))
+    }
+
+    /// The `total_nonce` that [`load_migrate_nonce`] would return for this account, read
+    /// without initializing or migrating it. Account derivation needs to predict the nonce
+    /// `ccip_send` will assign, and it cannot write to the account to find out.
+    pub(super) fn peek_total_nonce(account_info: &AccountInfo) -> Result<u64> {
+        Ok(match peek_nonce(account_info)? {
+            NonceState::Uninitialized => 0,
+            NonceState::Legacy(nonce) | NonceState::Current(nonce) => nonce.total_nonce,
+        })
+    }
+
+    pub(super) fn load_migrate_nonce<'a, 'info>(
+        account_info: &'a AccountInfo<'info>,
+        system_program: &'a AccountInfo<'info>,
+        authority: &'a AccountInfo<'info>,
+        dest_chain_selector: u64,
+        nonce_bump: u8,
+    ) -> Result<Nonce> {
+        let required_space = ANCHOR_DISCRIMINATOR + Nonce::INIT_SPACE;
+
+        match peek_nonce(account_info)? {
+            NonceState::Uninitialized => {
+                // account not initialized, just initialize it to the new version
+                let nonce_seeds: &[&[u8]] = &[
+                    seed::NONCE,
+                    &dest_chain_selector.to_le_bytes(),
+                    authority.key.as_ref(),
+                    &[nonce_bump],
+                ];
+                let signer_seeds = &[nonce_seeds];
+
+                ccip_common::account_management::initialize_from_authority(
+                    account_info,
+                    system_program,
+                    authority,
+                    required_space,
+                    signer_seeds,
+                    &crate::ID,
+                )?;
+
+                Ok(Nonce {
+                    version: 2, // initialize to version 2
+                    ordered_nonce: 0,
+                    total_nonce: 0, // initialize full_counter to 0
+                })
+            }
+            NonceState::Legacy(nonce) => {
+                // account is initialized, but is the old shorter version, so extend it.
+                // `nonce` is already the migrated value, and the caller serializes it back
+                // into the extended account.
+                let current_lamports = account_info.lamports();
+                let minimum_balance = Rent::get()?.minimum_balance(required_space);
+
+                if current_lamports < minimum_balance {
+                    system_program::transfer(
+                        CpiContext::new(
+                            system_program.key(),
+                            system_program::Transfer {
+                                from: authority.to_account_info(),
+                                to: account_info.clone(),
+                            },
+                        ),
+                        minimum_balance.checked_sub(current_lamports).unwrap(),
+                    )?;
+                }
+                account_info.resize(required_space)?;
+
+                emit!(PdaUpgraded {
+                    address: account_info.key(),
+                    old_version: 1,
+                    new_version: 2,
+                    name: "Nonce".to_string(),
+                    seeds: [
+                        seed::NONCE,
+                        dest_chain_selector.to_le_bytes().as_ref(),
+                        authority.key().as_ref()
+                    ]
+                    .concat(),
+                });
+
+                Ok(nonce)
+            }
+            // account is already initialized to the right size and version, so just load it
+            NonceState::Current(nonce) => Ok(nonce),
+        }
+    }
+
+    pub(super) fn load_nonce(account_info: &AccountInfo) -> Result<Nonce> {
+        let data = account_info.try_borrow_data()?;
+        let mut data: &[u8] = &data;
+        Nonce::try_deserialize(&mut data)
+    }
+
+    pub(super) fn hash(msg: &SVM2AnyRampMessage) -> [u8; 32] {
+        use solana_keccak_hasher as keccak;
+
+        // Push Data Size to ensure that the hash is unique
+        // SAFETY: msg.data.len() bounded by Solana tx size (~1232 bytes), fits in u16
+        let data_size = msg.data.len() as u16; // u16 > maximum transaction size, u8 may have overflow
+
+        // RampMessageHeader struct
+        let header_source_chain_selector = msg.header.source_chain_selector.to_be_bytes();
+        let header_dest_chain_selector = msg.header.dest_chain_selector.to_be_bytes();
+        let header_sequence_number = msg.header.sequence_number.to_be_bytes();
+        let header_nonce = msg.header.nonce.to_be_bytes();
+
+        // similar to: https://github.com/smartcontractkit/chainlink/blob/d1a9f8be2f222ea30bdf7182aaa6428bfa605cf7/contracts/src/v0.8/ccip/libraries/Internal.sol#L134
+        let result = keccak::hashv(&[
+            LEAF_DOMAIN_SEPARATOR.as_slice(),
+            // metadata
+            "SVM2AnyMessageHashV1".as_bytes(),
+            &header_source_chain_selector,
+            &header_dest_chain_selector,
+            &crate::ID.to_bytes(), // onramp: ccip_router program
+            // message header
+            &msg.sender.to_bytes(),
+            &header_sequence_number,
+            &header_nonce,
+            &msg.fee_token.to_bytes(),
+            // The cross-chain amounts are encoded in little endian, but
+            // this is irrelevant to the hashing function as long as both
+            // sides agree.
+            &msg.fee_token_amount.to_le_bytes(),
+            &msg.fee_value_juels.to_le_bytes(),
+            // messaging
+            // SAFETY: receiver is a cross-chain address (max ~64 bytes)
+            &[msg.receiver.len() as u8],
+            &msg.receiver,
+            &data_size.to_be_bytes(),
+            &msg.data,
+            // tokens
+            &borsh::to_vec(&msg.token_amounts).unwrap(),
+            // extra args
+            &borsh::to_vec(&msg.extra_args).unwrap(),
+        ]);
+
+        result.to_bytes()
+    }
+
+    pub(super) fn validate_transfer_dest_address(
+        chain_family_selector: [u8; 4],
+        dest_token_address: &[u8],
+    ) -> Result<()> {
+        let selector = u32::from_be_bytes(chain_family_selector);
+        match selector {
+            CHAIN_FAMILY_SELECTOR_APTOS => validate_aptos_address(dest_token_address),
+            CHAIN_FAMILY_SELECTOR_EVM => validate_evm_address(dest_token_address),
+            CHAIN_FAMILY_SELECTOR_SUI => validate_sui_address(dest_token_address, true),
+            CHAIN_FAMILY_SELECTOR_SVM => validate_svm_address(dest_token_address, true),
+            CHAIN_FAMILY_SELECTOR_TVM => validate_tvm_address(dest_token_address),
+            _ => Err(CommonCcipError::InvalidChainFamilySelector.into()),
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use ccip_common::extra_args::GenericExtraArgsV2;
+        use ccip_common::types::CrossChainGas;
+        use ethnum::U256;
+
+        use super::*;
+
+        /// Builds a message and hash it, it's compared with a known hash
+        #[test]
+        fn test_hash() {
+            let message = SVM2AnyRampMessage {
+                header: RampMessageHeader {
+                    message_id: [0; 32],
+                    source_chain_selector: 10,
+                    dest_chain_selector: 20,
+                    sequence_number: 30,
+                    nonce: 40,
+                },
+                sender: Pubkey::try_from("DS2tt4BX7YwCw7yrDNwbAdnYrxjeCPeGJbHmZEYC8RTa").unwrap(),
+                data: vec![4, 5, 6],
+                receiver: [
+                    1, 2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0,
+                ]
+                .to_vec(),
+                extra_args: GenericExtraArgsV2 {
+                    gas_limit: 1,
+                    allow_out_of_order_execution: true,
+                }
+                .serialize_with_tag(),
+                fee_token: Pubkey::try_from("DS2tt4BX7YwCw7yrDNwbAdnYrxjeCPeGJbHmZEYC8RTb")
+                    .unwrap(),
+                fee_token_amount: 50u32.into(),
+                token_amounts: [SVM2AnyTokenTransfer {
+                    source_pool_address: Pubkey::try_from(
+                        "DS2tt4BX7YwCw7yrDNwbAdnYrxjeCPeGJbHmZEYC8RTc",
+                    )
+                    .unwrap(),
+                    dest_token_address: vec![0, 1, 2, 3],
+                    extra_data: vec![4, 5, 6],
+                    amount: U256::from_le_bytes([1; 32]).into(),
+                    dest_exec_data: vec![4, 5, 6],
+                }]
+                .to_vec(),
+                fee_value_juels: 500u32.into(),
+            };
+
+            let hash_result = hash(&message);
+
+            assert_eq!(
+                "46abd733e950b0b0e05b1b4b040cf2df6c38899af71aad058ff08bfa96d4b532",
+                hex::encode(hash_result)
+            );
+        }
+
+        #[test]
+        fn token_transfer_with_no_pool_data() {
+            let source_pool_address = Pubkey::new_unique();
+            let lock_or_burn_out_data = LockOrBurnOutV1 {
+                dest_token_address: Pubkey::new_unique().to_bytes().to_vec(),
+                dest_pool_data: vec![],
+            };
+
+            let additional_token_transfer_data = TokenTransferAdditionalData {
+                dest_bytes_overhead: 640,
+                dest_gas_overhead: CrossChainGas::new(180000),
+            };
+            let token_amount = &SVMTokenAmount {
+                token: Pubkey::new_unique(),
+                amount: 100,
+            };
+
+            let transfer = token_transfer(
+                lock_or_burn_out_data.clone(),
+                source_pool_address,
+                token_amount,
+                &additional_token_transfer_data,
+            )
+            .unwrap();
+
+            let expected_exec_data = additional_token_transfer_data
+                .dest_gas_overhead
+                .convert::<u32>()
+                .to_be_bytes();
+
+            assert!(transfer.extra_data.is_empty());
+            assert_eq!(transfer.dest_exec_data, expected_exec_data);
+        }
+
+        #[test]
+        fn token_transfer_validates_data_length() {
+            let additional_token_transfer_data = TokenTransferAdditionalData {
+                dest_bytes_overhead: 640,
+                dest_gas_overhead: CrossChainGas::new(180000),
+            };
+            let token_amount = &SVMTokenAmount {
+                token: Pubkey::new_unique(),
+                amount: 100,
+            };
+
+            let reasonable_size = CCIP_LOCK_OR_BURN_V1_RET_BYTES as usize;
+            let source_pool_address = Pubkey::new_unique();
+            let lock_or_burn_out_data = LockOrBurnOutV1 {
+                dest_token_address: Pubkey::new_unique().to_bytes().to_vec(),
+                dest_pool_data: vec![b'A'; reasonable_size],
+            };
+
+            token_transfer(
+                lock_or_burn_out_data,
+                source_pool_address,
+                token_amount,
+                &additional_token_transfer_data,
+            )
+            .unwrap();
+
+            let unreasonable_size = (CCIP_LOCK_OR_BURN_V1_RET_BYTES.max(
+                additional_token_transfer_data
+                    .dest_gas_overhead
+                    .convert::<u32>(),
+            ) + 1) as usize;
+            let lock_or_burn_out_data = LockOrBurnOutV1 {
+                dest_token_address: Pubkey::new_unique().to_bytes().to_vec(),
+                dest_pool_data: vec![b'A'; unreasonable_size],
+            };
+
+            assert_eq!(
+                token_transfer(
+                    lock_or_burn_out_data,
+                    source_pool_address,
+                    token_amount,
+                    &additional_token_transfer_data,
+                )
+                .unwrap_err(),
+                CcipRouterError::SourceTokenDataTooLarge.into()
+            );
+        }
+
+        fn v1_nonce_data(ordered_nonce: u64) -> Vec<u8> {
+            let mut data = Nonce::DISCRIMINATOR.to_vec();
+            data.push(1); // version
+            data.extend_from_slice(&ordered_nonce.to_le_bytes());
+            data
+        }
+
+        fn v2_nonce_data(ordered_nonce: u64, total_nonce: u64) -> Vec<u8> {
+            let mut data = v1_nonce_data(ordered_nonce);
+            data[ANCHOR_DISCRIMINATOR] = 2; // version
+            data.extend_from_slice(&total_nonce.to_le_bytes());
+            data
+        }
+
+        fn nonce_acc_info<'a>(
+            key: &'a Pubkey,
+            lamports: &'a mut u64,
+            data: &'a mut [u8],
+            owner: &'a Pubkey,
+        ) -> AccountInfo<'a> {
+            AccountInfo::new(key, false, true, lamports, data, owner, false)
+        }
+
+        #[test]
+        fn peek_total_nonce_on_uninitialized_account() {
+            let (mut lamports, key, mut data) = (0u64, Pubkey::new_unique(), vec![]);
+            let account_info = nonce_acc_info(&key, &mut lamports, &mut data, &system_program::ID);
+
+            assert_eq!(peek_total_nonce(&account_info).unwrap(), 0);
+        }
+
+        #[test]
+        fn peek_total_nonce_on_legacy_account_reports_ordered_nonce() {
+            // A legacy account has no `total_nonce` field, so the value the migration
+            // in `load_migrate_nonce` would seed it with is the `ordered_nonce`, not zero.
+            let mut data = v1_nonce_data(7);
+            let (mut lamports, key) = (0u64, Pubkey::new_unique());
+            let account_info = nonce_acc_info(&key, &mut lamports, &mut data, &crate::ID);
+
+            assert_eq!(peek_total_nonce(&account_info).unwrap(), 7);
+        }
+
+        #[test]
+        fn peek_total_nonce_on_current_account() {
+            let mut data = v2_nonce_data(3, 9);
+            let (mut lamports, key) = (0u64, Pubkey::new_unique());
+            let account_info = nonce_acc_info(&key, &mut lamports, &mut data, &crate::ID);
+
+            assert_eq!(peek_total_nonce(&account_info).unwrap(), 9);
+        }
+
+        #[test]
+        fn peek_total_nonce_rejects_unexpected_versions() {
+            // current length, but claiming to be the legacy version
+            let mut data = v2_nonce_data(3, 9);
+            data[ANCHOR_DISCRIMINATOR] = 1;
+            let (mut lamports, key) = (0u64, Pubkey::new_unique());
+            assert_eq!(
+                peek_total_nonce(&nonce_acc_info(&key, &mut lamports, &mut data, &crate::ID))
+                    .unwrap_err(),
+                CcipRouterError::InvalidNonceVersion.into()
+            );
+
+            // legacy length, but claiming to be the current version
+            let mut data = v1_nonce_data(7);
+            data[ANCHOR_DISCRIMINATOR] = 2;
+            let (mut lamports, key) = (0u64, Pubkey::new_unique());
+            assert_eq!(
+                peek_total_nonce(&nonce_acc_info(&key, &mut lamports, &mut data, &crate::ID))
+                    .unwrap_err(),
+                CcipRouterError::InvalidNonceVersion.into()
+            );
+        }
+
+        #[test]
+        fn peek_total_nonce_agrees_with_migrate_and_bump() {
+            // The derivation adds one to the peeked value, which must match the nonce
+            // `ccip_send` assigns to the message after migrating the same account.
+            let mut data = v1_nonce_data(7);
+            let (mut lamports, key) = (0u64, Pubkey::new_unique());
+            let account_info = nonce_acc_info(&key, &mut lamports, &mut data, &crate::ID);
+
+            let derived = peek_total_nonce(&account_info).unwrap() + 1;
+
+            // `load_migrate_nonce` hands `bump_nonces` the migrated value that
+            // `peek_nonce` reports for a legacy account
+            let NonceState::Legacy(mut migrated) = peek_nonce(&account_info).unwrap() else {
+                panic!("expected a legacy nonce account");
+            };
+            let (_, sent) = bump_nonces(&mut migrated, false).unwrap();
+
+            assert_eq!(derived, sent);
+            assert_eq!(sent, 8);
+        }
+
+        #[test]
+        fn validate_transfer_dest_address_rejects_unknown_selector() {
+            let selector = [0u8; 4];
+            let addr = [1u8; 32];
+            assert_eq!(
+                validate_transfer_dest_address(selector, &addr).unwrap_err(),
+                CommonCcipError::InvalidChainFamilySelector.into()
+            );
+        }
+    }
+}

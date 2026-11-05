@@ -1,0 +1,121 @@
+# Reusable workflow (not an action) because max-parallel requires a job-level strategy.
+name: Smoke (Deployed Env) — Run
+
+on:
+  workflow_call:
+    inputs:
+      direction:
+        required: true
+        type: string
+      test:
+        required: true
+        type: string
+      test_cases:
+        # Which matrix leg to run: 'all' or one leg name (ArbMessaging,
+        # TokenTransfer, PTT, CCTP, Lombard). Non-dispatch callers pass 'all'.
+        required: false
+        type: string
+        default: all
+      target_evm_selector:
+        # Force TARGET_EVM_SELECTOR on every leg. Empty keeps the per-leg matrix value.
+        required: false
+        type: string
+        default: ''
+      use_test_router:
+        # Send EVM-source messages through the TestRouter (USE_TEST_ROUTER).
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      DEPLOYED_ENV_CONFIG:
+        required: true
+      E2E_EVM_PRIVATE_KEY:
+        required: true
+      E2E_SOLANA_PRIVATE_KEY:
+        required: true
+      # rpc proxy access
+      TS_OAUTH_CLIENT_ID_CI:
+        required: true
+      TS_AUDIENCE_CI:
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  run:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # TODO: ideally we would run each test case in parallel, but the test cases are not currently isolated enough to do so
+      # examples: nonces, native/token balance assertions, lane cursed status, etc. are all shared between test cases and can cause race conditions
+      # at minimum we try running each test case sequentially to avoid race
+      max-parallel: 1 
+      matrix:
+        include:
+          - name: ArbMessaging
+            cases: ^ArbMessaging
+            evm_selector: '14767482510784806043' # avalanche-testnet-fuji
+          - name: TokenTransfer
+            cases: ^TokenTransfer/(BurnMint|LockRelease) # Pure TokenTransfer subtests
+            evm_selector: '14767482510784806043' # avalanche-testnet-fuji
+          - name: PTT
+            cases: ^PTT
+            evm_selector: '14767482510784806043' # avalanche-testnet-fuji
+          - name: CCTP
+            cases: ^TokenTransfer/CCTP$
+            evm_selector: '16015286601757825753' # ethereum-testnet-sepolia
+          # Lombard spends real staging liquidity: run it on manual dispatch only.
+          - name: Lombard
+            cases: ^TokenTransfer/Lombard/.*/Router$
+            evm_selector: '16015286601757825753' # ethereum-testnet-sepolia
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4.1.2
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID_CI }}
+          audience: ${{ secrets.TS_AUDIENCE_CI }}
+          tags: tag:chainlink-ccip-solana-gha
+
+      - name: Download test binary
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ccip-smoke-test
+          path: ${{ runner.temp }}
+
+      - name: Make test binary executable
+        run: chmod +x "$RUNNER_TEMP/smoke.test"
+
+      - name: Write deployed environment config
+        env:
+          SMOKE_TEST_CONFIG: ${{ secrets.DEPLOYED_ENV_CONFIG }}
+        run: |
+          set -eu
+          test -n "$SMOKE_TEST_CONFIG"
+          umask 077
+          printf '%s' "$SMOKE_TEST_CONFIG" > "$RUNNER_TEMP/env.deployed.toml"
+
+      - name: Run ${{ inputs.direction }} ${{ matrix.name }}
+        # A leg runs when it matches the test_cases selection and, for Lombard
+        # only, when the run is a manual dispatch (staging liquidity guard).
+        # Step level, because jobs.<id>.if cannot access the matrix context.
+        if: >-
+          (inputs.test_cases == 'all' || matrix.name == inputs.test_cases) &&
+          (github.event_name == 'workflow_dispatch' || matrix.name != 'Lombard')
+        env:
+          SMOKE_TEST_CONFIG: ${{ runner.temp }}/env.deployed.toml
+          TARGET_EVM_SELECTOR: ${{ inputs.target_evm_selector || matrix.evm_selector }}
+          USE_TEST_ROUTER: ${{ inputs.use_test_router }}
+          PRIVATE_KEY: ${{ secrets.E2E_EVM_PRIVATE_KEY }}
+          SOLANA_PRIVATE_KEY: ${{ secrets.E2E_SOLANA_PRIVATE_KEY }}
+        run: |
+          "$RUNNER_TEMP/smoke.test" -test.v -test.count=1 -test.timeout=90m -test.run='${{ inputs.test }}/${{ matrix.cases }}'
+
+      - name: Delete deployed environment config
+        if: always()
+        run: rm -f "$RUNNER_TEMP/env.deployed.toml"

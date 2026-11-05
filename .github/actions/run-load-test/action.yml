@@ -1,0 +1,279 @@
+name: "Run CCIP Load Test"
+description: "Bootstrap devenv and run both cross-family load tests in parallel"
+inputs:
+  artifacts_cache_key:
+    description: "Exact contract artifact cache key, from the contracts build job output"
+    required: true
+  ccv_ref:
+    description: "chainlink-ccv ref (commit SHA or branch name)"
+    required: true
+  ccv_iam_role:
+    description: "IAM role for ECR auth"
+    required: true
+  jd_registry:
+    description: "JD ECR registry"
+    required: true
+  jd_image:
+    description: "JD Docker image"
+    required: true
+  pr_number:
+    description: "PR number for results comment (empty skips comment)"
+    required: false
+    default: ""
+  load_test_rps:
+    description: "Override LOAD_TEST_RPS (empty = Go default 1)"
+    required: false
+    default: ""
+  load_test_duration:
+    description: "Override LOAD_TEST_DURATION (empty = Go default 30s)"
+    required: false
+    default: ""
+  load_test_pool_size:
+    description: "Override LOAD_TEST_POOL_SIZE (empty = Go default 3)"
+    required: false
+    default: ""
+  load_test_send_interval:
+    description: "Override LOAD_TEST_SEND_INTERVAL, e.g. 30s; overrides RPS when set (empty = Go default disabled)"
+    required: false
+    default: ""
+  load_test_fire_and_forget:
+    description: "Override LOAD_TEST_FIRE_AND_FORGET (true/false; empty = Go default true) for EVM->Solana sends"
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    # 1. checkout
+    - name: Free up disk space
+      uses: smartcontractkit/.github/actions/free-disk-space@free-disk-space/v1
+
+    - name: Enable S3 Cache for Self-Hosted Runners
+      uses: runs-on/action@742bf56072eb4845a0f94b3394673e4903c90ff0 # v2.1.0
+
+    - name: Check out chainlink-ccip-solana
+      uses: actions/checkout@v5
+      with:
+        path: chainlink-ccip-solana
+
+    - name: Check out chainlink-ccv
+      uses: actions/checkout@v5
+      with:
+        repository: smartcontractkit/chainlink-ccv
+        path: chainlink-ccv
+        ref: ${{ inputs.ccv_ref }}
+
+    # 2. setup tooling
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+    - name: Install Just
+      uses: extractions/setup-just@f8a3cce218d9f83db3a2ecd90e41ac3de6cdfd9b # v3.1.0
+
+    - name: Authenticate to AWS ECR (JD)
+      uses: ./chainlink-ccip-solana/.github/actions/aws-ecr-auth
+      with:
+        role-to-assume: ${{ inputs.ccv_iam_role }}
+        aws-region: us-west-2
+        registry-type: private
+        registries: ${{ inputs.jd_registry }}
+
+    # Must run before any `make` target — Makefile preamble invokes `go env`,
+    # which can auto-download a toolchain into ~/go/pkg/mod/golang.org/toolchain@...
+    # and conflict with this step's cache restore (tar "File exists").
+    - name: Install Go
+      uses: smartcontractkit/.github/actions/setup-golang@setup-golang/v1
+      with:
+        go-version-file: chainlink-ccip-solana/go.mod
+        go-cache-dep-path: chainlink-ccip-solana/go.sum
+        skip-cache-save: ${{ github.event_name != 'push' }}
+
+    # Fail fast on ccv-ref drift before expensive Docker work.
+    - name: Validate ccv-ref consistency
+      shell: bash
+      working-directory: chainlink-ccip-solana
+      run: make validate-ccv
+
+    # 3. pin go.mod to checked-out ccv ref then download deps
+    # Docker build (solana-verifier) copies go.mod, so replace directives
+    # to ../chainlink-ccv won't work. go get resolves via module proxy.
+    - name: Pin go.mod to checked-out ccv ref
+      shell: bash
+      working-directory: chainlink-ccip-solana
+      run: |
+        CCV_SHA=$(cd ../chainlink-ccv && git rev-parse HEAD)
+        make pin-ccv-all REF="$CCV_SHA"
+
+    - name: Download Go dependencies
+      shell: bash
+      working-directory: chainlink-ccip-solana
+      run: go mod download
+
+    # go test ignores non-*_test.go sources; fail before Docker if the package has no test files.
+    - name: Verify devenv load package has test sources
+      shell: bash
+      working-directory: chainlink-ccip-solana
+      run: |
+        n="$(go list -f '{{len .TestGoFiles}}' ./devenv/tests/load)"
+        if [ "${n:-0}" -eq 0 ]; then
+          echo '::error::devenv/tests/load has no TestGoFiles — Go tests must live in *_test.go'
+          exit 1
+        fi
+
+    - name: Build CCV Docker images
+      shell: bash
+      working-directory: chainlink-ccv/build/devenv
+      run: just build-docker-ci
+      env:
+        DOCKER_BUILDKIT: 1
+
+    # 4. build solana-verifier image from ccip-solana source
+    - name: Restore contract artifacts
+      uses: actions/cache/restore@v5
+      with:
+        fail-on-cache-miss: true
+        # Must match the save's path set — paths are hashed into the cache
+        # fingerprint, so mismatched paths produce a false miss even for
+        # identical keys.
+        path: |
+          contracts/target/deploy/**/*.so
+          contracts/target/idl/**
+          contracts/target/types/**
+        key: ${{ inputs.artifacts_cache_key }}
+
+    - name: Link contract artifacts into checkout
+      shell: bash
+      run: |
+        mkdir -p chainlink-ccip-solana/contracts/target
+        ln -s "$PWD/contracts/target/deploy" chainlink-ccip-solana/contracts/target/deploy
+
+    - name: Build solana verifier docker image
+      shell: bash
+      working-directory: chainlink-ccip-solana
+      run: make build-solana-verifier-image
+
+    - name: Build solana executor docker image
+      shell: bash
+      working-directory: chainlink-ccip-solana
+      run: make build-solana-executor-image
+
+    # 5. spin up devenv
+    - name: Spin up CCIP environment
+      shell: bash
+      working-directory: chainlink-ccip-solana
+      env:
+        JD_IMAGE: ${{ inputs.jd_image }}
+      run: |
+        go run devenv/cmd/ccv/main.go up devenv/env-phased.toml --env-mode phased
+
+    # 6. run both load directions concurrently on one devenv.
+    - name: Run load tests (both directions in parallel)
+      id: load_tests
+      shell: bash
+      working-directory: chainlink-ccip-solana/devenv/tests/load
+      env:
+        LOAD_TEST_RPS: ${{ inputs.load_test_rps }}
+        LOAD_TEST_DURATION: ${{ inputs.load_test_duration }}
+        LOAD_TEST_POOL_SIZE: ${{ inputs.load_test_pool_size }}
+        LOAD_TEST_SEND_INTERVAL: ${{ inputs.load_test_send_interval }}
+        LOAD_TEST_FIRE_AND_FORGET: ${{ inputs.load_test_fire_and_forget }}
+      run: |
+        run_one() {
+          LOAD_TEST_OUT_FILE=../../env-phased-out.toml LOAD_TEST_METRICS_DIR=../../ \
+            go test -v -timeout 360m -count=1 -run "$1" > "$RUNNER_TEMP/$1.log" 2>&1 
+        }
+        run_one TestEVM2SolanaLoad & pid_evm2sol=$!
+        run_one TestSolana2EVMLoad & pid_sol2evm=$!
+        rc_evm2sol=0; rc_sol2evm=0
+        wait "$pid_evm2sol" || rc_evm2sol=$?
+        wait "$pid_sol2evm" || rc_sol2evm=$?
+        echo "::group::TestEVM2SolanaLoad output"; cat "$RUNNER_TEMP/TestEVM2SolanaLoad.log"; echo "::endgroup::"
+        echo "::group::TestSolana2EVMLoad output"; cat "$RUNNER_TEMP/TestSolana2EVMLoad.log"; echo "::endgroup::"
+        if [ "$rc_evm2sol" -eq 0 ]; then echo "evm2sol_outcome=success" >> "$GITHUB_OUTPUT"; else echo "evm2sol_outcome=failure" >> "$GITHUB_OUTPUT"; fi
+        if [ "$rc_sol2evm" -eq 0 ]; then echo "sol2evm_outcome=success" >> "$GITHUB_OUTPUT"; else echo "sol2evm_outcome=failure" >> "$GITHUB_OUTPUT"; fi
+
+    - name: Publish load metrics summary
+      if: always()
+      shell: bash
+      run: |
+        RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        chmod +x chainlink-ccip-solana/.github/scripts/render-load-metrics.sh
+        chainlink-ccip-solana/.github/scripts/render-load-metrics.sh \
+          chainlink-ccip-solana/devenv \
+          "${{ inputs.ccv_ref }}" \
+          "$RUN_URL" \
+          "devenv" >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload load metrics
+      if: always()
+      uses: actions/upload-artifact@v6
+      with:
+        name: ccip-load-metrics-${{ inputs.ccv_ref }}
+        path: chainlink-ccip-solana/devenv/load-metrics-*.json
+        retention-days: 7
+        if-no-files-found: ignore
+
+    # 7. cleanup
+    - name: Dump logs if they're not already dumped
+      if: always()
+      shell: bash
+      working-directory: chainlink-ccip-solana/devenv/tests/load
+      run: |
+        LOG_DIR="../../logs/docker-ccip-load-tests"
+        if [ ! -d "$LOG_DIR" ] || [ -z "$(ls -A "$LOG_DIR" 2>/dev/null)" ]; then
+          echo "Container logs not found or empty. Dumping logs manually..."
+          cd ../.. && go run cmd/ccv/main.go dl --dir-suffix "ccip-load-tests"
+        else
+          echo "Container logs already exist. Skipping manual dump."
+        fi
+
+    - name: Upload Logs
+      if: always()
+      uses: actions/upload-artifact@v6
+      with:
+        name: ccip-load-logs-${{ inputs.ccv_ref }}
+        path: chainlink-ccip-solana/devenv/logs/docker-ccip-load-tests
+        retention-days: 1
+
+    - name: Prepare PR comment body
+      if: always() && inputs.pr_number != ''
+      shell: bash
+      run: |
+        RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        chmod +x chainlink-ccip-solana/.github/scripts/render-load-metrics.sh
+        chainlink-ccip-solana/.github/scripts/render-load-metrics.sh \
+          chainlink-ccip-solana/devenv \
+          "${{ inputs.ccv_ref }}" \
+          "$RUN_URL" \
+          "devenv" > load-results-comment.md
+        if [[ "${{ steps.load_tests.outputs.evm2sol_outcome }}" == "failure" || "${{ steps.load_tests.outputs.sol2evm_outcome }}" == "failure" ]]; then
+          {
+            echo
+            echo "Logs: download artifact \`ccip-load-logs-${{ inputs.ccv_ref }}\`"
+          } >> load-results-comment.md
+        fi
+
+    - name: Find existing load results comment
+      if: always() && inputs.pr_number != ''
+      id: find_load_comment
+      uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4.0.0
+      with:
+        issue-number: ${{ inputs.pr_number }}
+        comment-author: github-actions[bot]
+        body-includes: "## CCIP Load Test Results"
+
+    - name: Update PR with load results
+      if: always() && inputs.pr_number != ''
+      uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
+      with:
+        comment-id: ${{ steps.find_load_comment.outputs.comment-id }}
+        issue-number: ${{ inputs.pr_number }}
+        edit-mode: replace
+        body-path: load-results-comment.md
+
+    - name: Check test results
+      if: always() && (steps.load_tests.outputs.evm2sol_outcome == 'failure' || steps.load_tests.outputs.sol2evm_outcome == 'failure')
+      shell: bash
+      run: |
+        echo "One or more load tests failed."
+        exit 1

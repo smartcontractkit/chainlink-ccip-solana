@@ -1,0 +1,11 @@
+config/envs/*
+!config/envs/.gitkeep
+!config/envs/mainnet.ts
+resources/*
+!resources/.gitkeep
+# Vendored CCIP 1.6 IDLs — entirely local, downloaded via `npm run sync-idls`.
+idls/*
+!idls/.gitkeep
+!idls/1_6/
+idls/1_6/*
+!idls/1_6/.gitkeep

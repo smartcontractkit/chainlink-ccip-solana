@@ -1,0 +1,128 @@
+name: Solana Verified Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build artifacts for (contracts/vX.Y.Z)"
+        required: true
+        type: string
+  push:
+    tags:
+      - "contracts/v*"
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest-8cores-32GB
+    permissions:
+      contents: write # softprops/action-gh-release creates releases and uploads assets
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.sha }}
+          fetch-tags: true
+
+      # Cargo versions must match the release tag
+      - name: Check versions match release tag
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+        working-directory: contracts
+        env:
+          TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+        run: |
+          case "$TAG" in
+            contracts/v*) VERSION="${TAG#contracts/v}" ;;
+            *) echo "::error::Release tag must be contracts/vX.Y.Z, got $TAG"; exit 1 ;;
+          esac
+          status=0
+          # Programs inherit [workspace.package] version
+          programs=$(cargo metadata --no-deps --offline --format-version 1 \
+            | jq -r '.packages[] | select(.manifest_path | contains("/programs/")) | "\(.name) \(.version)"')
+          [ -n "$programs" ] || { echo "::error::No programs found"; exit 1; }
+          while read -r name v; do
+            if [ "$v" != "$VERSION" ]; then
+              echo "::error file=contracts/Cargo.toml::$name version $v does not match tag $TAG"
+              status=1
+            fi
+          done <<< "$programs"
+          for f in target/idl/*.json; do
+            v=$(jq -r '.metadata.version' "$f")
+            if [ "$v" != "$VERSION" ]; then
+              echo "::error file=contracts/$f::metadata.version $v does not match tag $TAG"
+              status=1
+            fi
+          done
+          exit $status
+
+      - name: Get Long and Short SHAs
+        id: get_sha
+        run: |
+          FULL_SHA=$(git rev-parse HEAD)
+          echo "short_sha=${FULL_SHA:0:12}" >> $GITHUB_OUTPUT
+          echo "full_sha=$FULL_SHA" >> $GITHUB_OUTPUT
+
+      - uses: actions-rust-lang/setup-rust-toolchain@9399c7bb15d4c7d47b27263d024f0a4978346ba4 # v1
+
+      - name: Install Solana Verify
+        run: cargo install solana-verify@0.5.2 --locked
+
+      # Uncached, releases should always do a clean build
+      - name: Build Verified Artifacts
+        working-directory: contracts
+        run: bash scripts/verify_build.sh
+
+      - name: Generate release files
+        working-directory: contracts
+        env:
+          # A manual dispatch checks out the tag it was given, not the ref it was
+          # dispatched from, so GITHUB_REF_NAME and GITHUB_SHA would name a
+          # commit that did not produce these binaries. These are the same
+          # expressions the release steps below publish under.
+          # On main pushes the artifacts ship as the `latest` prerelease; record
+          # that name rather than the branch, so provenance stays meaningful.
+          RELEASE_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || (github.ref_name == 'main' && 'latest' || github.ref_name) }}
+          RELEASE_COMMIT: ${{ steps.get_sha.outputs.full_sha }}
+        run: |
+          # Record what produced these artifacts. The deploy path reads this to
+          # register the verified build, and refuses to deploy to a real network
+          # without it, so a hand-built tree cannot be mistaken for a release.
+          cat > target/provenance.json <<JSON
+          {
+            "release": "${RELEASE_NAME}",
+            "commit": "${RELEASE_COMMIT}",
+            "repoUrl": "https://github.com/${GITHUB_REPOSITORY}",
+            "buildArgs": ["--cargo-build-sbf-args=--arch v3"],
+            "verifierVersion": "0.5.2"
+          }
+          JSON
+          mapfile -t programs < <(bash scripts/list_programs.sh)
+          artifacts=()
+          for program in "${programs[@]}"; do
+            artifacts+=("target/deploy/$program.so" "target/idl/$program.json")
+          done
+          tar cfvz artifacts.tar.gz "${artifacts[@]}" target/provenance.json target/executable-hashes.txt
+
+      - name: Publish Release (versioned tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2.2.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+          target_commitish: ${{ steps.get_sha.outputs.full_sha }}
+          files: |
+            contracts/artifacts.tar.gz
+
+      - name: Publish Release (latest)
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2.2.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: latest
+          target_commitish: ${{ steps.get_sha.outputs.full_sha }}
+          prerelease: true
+          files: |
+            contracts/artifacts.tar.gz

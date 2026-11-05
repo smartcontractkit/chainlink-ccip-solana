@@ -1,0 +1,67 @@
+name: Build & Push Main Images
+
+# On every push to main (and on PRs labeled `build-publish-docker`), build the Solana verifier, executor,
+# and token verifier Docker images in parallel and push them to the production ECR tagged with the full git SHA.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [labeled, opened, synchronize, reopened]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-push:
+    name: Build & push (${{ matrix.image.name }})
+    if: |
+      github.event_name != 'pull_request' ||
+      (
+        !github.event.pull_request.head.repo.fork &&
+        contains(github.event.pull_request.labels.*.name, 'build-publish-docker')
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - name: solana-verifier
+            dockerfile: cmd/committeeverifier/Dockerfile
+            repo_var: COMMITTEE_VERIFIER_ECR_REPOSITORY
+          - name: solana-executor
+            dockerfile: cmd/executor/Dockerfile
+            repo_var: EXECUTOR_ECR_REPOSITORY
+          - name: solana-token-verifier
+            dockerfile: cmd/tokenverifier/Dockerfile
+            repo_var: TOKEN_VERIFIER_ECR_REPOSITORY
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Authenticate to AWS ECR
+        uses: ./.github/actions/aws-ecr-auth
+        with:
+          role-to-assume: ${{ secrets.CCV_IAM_ROLE }}
+          aws-region: us-west-2
+          registry-type: private
+
+      - name: Build & push image
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          file: ${{ matrix.image.dockerfile }}
+          push: true
+          tags: ${{ vars.ECR_REGISTRY }}/${{ vars[matrix.image.repo_var] }}:${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          cache-from: type=gha,timeout=10m,scope=${{ matrix.image.name }}
+          cache-to: type=gha,timeout=10m,scope=${{ matrix.image.name }},mode=max

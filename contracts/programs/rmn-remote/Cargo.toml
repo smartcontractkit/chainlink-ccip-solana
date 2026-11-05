@@ -1,0 +1,32 @@
+[package]
+name = "rmn_remote"
+version.workspace = true
+description = "Created with Anchor"
+edition = "2021"
+license = "BUSL-1.1"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "rmn_remote"
+
+[features]
+no-entrypoint = []
+cpi = ["no-entrypoint"]
+default = []
+idl-build = ["anchor-lang/idl-build", "ccip_common/idl-build"]
+
+[dependencies]
+anchor-lang = { workspace = true }
+bytemuck = "1.25"
+ccip_common = { path = "../ccip-common" }
+solana-security-txt = "1.1.1"
+
+[build-dependencies]
+build_commit = { path = "../../crates/build-commit" }
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("anchor-debug", "custom-panic", "custom-heap", "no-idl", "no-log-ix-name"))',
+]

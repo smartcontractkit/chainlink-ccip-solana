@@ -1,0 +1,110 @@
+name: Lint
+
+# verify-go-modules → discover-modules → lint matrix → required-gate.
+# required-gate is the single required status check for lint results
+
+on:
+  pull_request:
+  merge_group:
+
+permissions:
+  checks: write # To annotate code in the PR.
+  contents: read
+  pull-requests: read # For golangci-lint-action's `only-new-issues` option.
+
+jobs:
+  verify-go-modules:
+    name: Verify Go modules
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v5
+
+      - name: Install Go
+        uses: smartcontractkit/.github/actions/setup-golang@setup-golang/v1
+        with:
+          go-version-file: go.mod
+          go-cache-dep-path: go.sum
+          skip-cache-save: ${{ github.event_name != 'push' }}
+
+      - name: Check go.mod tidy
+        run: |
+          make gomodtidy
+          git add --all
+          git diff --minimal --cached --exit-code
+
+  discover-modules:
+    name: Discover Go modules
+    needs: [verify-go-modules]
+    runs-on: ubuntu-latest
+    outputs:
+      modules: ${{ steps.set-matrix.outputs.modules }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v5
+
+      - name: Discover Go modules
+        id: set-matrix
+        run: |
+          MODULES=$(find . -name go.mod -exec dirname {} \; | sort -u | while read -r dir; do
+            if [ "$dir" = "." ]; then
+              label=root
+            else
+              label="${dir#./}"
+            fi
+            jq -n --arg path "$dir" --arg label "$label" '{path: $path, label: $label}'
+          done | jq -s -c '.')
+          echo "go modules: $MODULES"
+          echo "modules=$MODULES" >> "$GITHUB_OUTPUT"
+
+  golangci-lint:
+    name: ${{ matrix.label }}
+    needs: [discover-modules]
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.discover-modules.outputs.modules) }}
+
+    steps:
+      - name: Free Disk Space
+        uses: smartcontractkit/.github/actions/free-disk-space@free-disk-space/v1
+
+      - name: Check out code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install Go
+        uses: smartcontractkit/.github/actions/setup-golang@setup-golang/v1
+        with:
+          go-version-file: ${{ matrix.path }}/go.mod
+          go-cache-dep-path: go.sum
+          skip-cache-save: ${{ github.event_name != 'push' }}
+
+      - name: Fetch lint config
+        run: make fetch-golangci-config
+
+      - name: Resolve golangci-lint version
+        id: gcl
+        run: echo "version=$(make -s print-golangci-version)" >> "$GITHUB_OUTPUT"
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          only-new-issues: true
+          version: ${{ steps.gcl.outputs.version }}
+          working-directory: ${{ matrix.path != '.' && matrix.path || '' }}
+          # TODO: run lint on push to main so that main saves a lint cache, then remove --timeout=30m.
+          args: --config=${{ github.workspace }}/.golangci.yml --whole-files --timeout=30m
+          verify: false
+
+  required-gate:
+    name: Lint Required Gate
+    needs: [golangci-lint]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - if: needs.golangci-lint.result != 'success'
+        run: exit 1

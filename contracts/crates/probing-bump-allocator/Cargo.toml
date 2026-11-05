@@ -1,0 +1,19 @@
+[package]
+name = "probing-bump-allocator"
+version = "0.1.0"
+description = "Custom Solana program heap allocator: unbounded upward bump with a probing write at the end of every allocation"
+edition = "2024"
+license = "MIT"
+rust-version = "1.85"
+
+[lib]
+crate-type = ["rlib"]
+
+[features]
+# Compiles the allocator API and the `harness` module for a host target so the
+# `fuzz/` crate can drive them. Never enabled by an on-chain build.
+host-testing = []
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

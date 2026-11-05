@@ -1,0 +1,55 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "go",
+  "separate-pull-requests": true,
+  "tag-separator": "/",
+  "bump-minor-pre-major": true,
+  "pull-request-title-pattern": "chore: release ${component} ${version}",
+  "bootstrap-sha": "3273844aea47bfd33739bba747e76d44be5dff66",
+  "packages": {
+    ".": {
+      "release-type": "go",
+      "exclude-paths": [
+        "deployment",
+        "contracts",
+        "integration-tests",
+        "devenv",
+        "docs",
+        "scripts",
+        ".github"
+      ]
+    },
+    "deployment": {
+      "release-type": "go",
+      "package-name": "deployment"
+    },
+    "contracts/gobindings": {
+      "release-type": "go",
+      "package-name": "contracts/gobindings"
+    },
+    "contracts": {
+      "release-type": "simple",
+      "package-name": "contracts",
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "Cargo.toml",
+          "jsonpath": "$.workspace.package.version"
+        }
+      ]
+    }
+  },
+  "changelog-sections": [
+    { "type": "build", "section": "Builds", "hidden": true },
+    { "type": "chore", "section": "Miscellaneous", "hidden": true },
+    { "type": "ci", "section": "Continuous Integrations", "hidden": true },
+    { "type": "docs", "section": "Documentation", "hidden": true },
+    { "type": "feat", "section": "Features" },
+    { "type": "fix", "section": "Bug Fixes" },
+    { "type": "perf", "section": "Performance Improvements", "bump": "patch" },
+    { "type": "refactor", "section": "Code Refactoring", "hidden": true },
+    { "type": "revert", "section": "Reverts", "bump": "patch" },
+    { "type": "style", "section": "Styles", "hidden": true },
+    { "type": "test", "section": "Tests", "hidden": true }
+  ]
+}

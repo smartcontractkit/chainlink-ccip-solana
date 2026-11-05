@@ -1,0 +1,371 @@
+{
+  "address": "Lomsq4ZNkZQGysC1pQc2NqNiAbXQm6C8nLmKcUoESEA",
+  "metadata": {
+    "name": "mock_lombard_mailbox",
+    "version": "2.0.0",
+    "spec": "0.1.0",
+    "description": "Deliberately minimal mock of the real Lombard `mailbox` program's on-chain interface, used only by the devenv end-to-end test to exercise lombard-token-pool's bridge/mailbox CPIs. Never deployed for real."
+  },
+  "instructions": [
+    {
+      "name": "handle_message",
+      "discriminator": [
+        91,
+        215,
+        39,
+        71,
+        108,
+        217,
+        94,
+        89
+      ],
+      "accounts": [
+        {
+          "name": "handler",
+          "docs": [
+            "Checked against `message_info.destination_caller`, like the real mailbox program."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "message_info",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  115,
+                  115,
+                  97,
+                  103,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "payload_hash"
+              }
+            ]
+          }
+        },
+        {
+          "name": "recipient_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "payload_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ],
+      "returns": {
+        "option": "bytes"
+      }
+    },
+    {
+      "name": "mark_delivered",
+      "docs": [
+        "Test-only:. Records a `DeliveredMessage` that `handle_message` will later consume."
+      ],
+      "discriminator": [
+        240,
+        118,
+        188,
+        142,
+        64,
+        85,
+        107,
+        18
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "message_info",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  115,
+                  115,
+                  97,
+                  103,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "payload_hash"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "_payload_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "recipient",
+          "type": "pubkey"
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "message",
+          "type": {
+            "option": {
+              "array": [
+                "u8",
+                36
+              ]
+            }
+          }
+        },
+        {
+          "name": "destination_caller",
+          "type": {
+            "option": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "test_setup_config",
+      "docs": [
+        "Single condensed test-setup call."
+      ],
+      "discriminator": [
+        26,
+        136,
+        184,
+        200,
+        32,
+        202,
+        159,
+        241
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  105,
+                  108,
+                  98,
+                  111,
+                  120,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "global_nonce",
+          "type": "u64"
+        },
+        {
+          "name": "treasury",
+          "type": "pubkey"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Config",
+      "discriminator": [
+        155,
+        12,
+        170,
+        224,
+        30,
+        250,
+        204,
+        130
+      ]
+    },
+    {
+      "name": "DeliveredMessage",
+      "discriminator": [
+        206,
+        39,
+        186,
+        14,
+        206,
+        80,
+        140,
+        39
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "AlreadyHandled",
+      "msg": "message has already been handled"
+    },
+    {
+      "code": 6001,
+      "name": "MissingRemainingAccounts",
+      "msg": "not enough remaining_accounts to forward to mock-lombard-bridge's mock_gmp_receive"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidDestinationCaller",
+      "msg": "handler does not match the message's destination caller"
+    }
+  ],
+  "types": [
+    {
+      "name": "Config",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "paused",
+            "type": "bool"
+          },
+          {
+            "name": "consortium",
+            "type": "pubkey"
+          },
+          {
+            "name": "global_nonce",
+            "type": "u64"
+          },
+          {
+            "name": "default_max_payload_size",
+            "type": "u32"
+          },
+          {
+            "name": "fee_per_byte",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DeliveredMessage",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "status",
+            "docs": [
+              "0 = delivered (by `mark_delivered`, not yet handled), 1 = handled (by `handle_message`).",
+              "Mock-internal encoding, not derived from the real mailbox."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "message",
+            "type": {
+              "option": {
+                "array": [
+                  "u8",
+                  36
+                ]
+              }
+            }
+          },
+          {
+            "name": "destination_caller",
+            "docs": [
+              "Mirrors the real mailbox's `MessageV1.destination_caller`: when set, only this handler may",
+              "consume the message."
+            ],
+            "type": {
+              "option": {
+                "array": [
+                  "u8",
+                  32
+                ]
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

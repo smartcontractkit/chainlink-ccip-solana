@@ -1,0 +1,509 @@
+# Phased-runtime devenv config: 2 Solana chains worth of programs on 1 Solana chain + 1 EVM (Anvil).
+# Supports EVM→Solana and Solana→EVM directions. Run with: make start-devenv (passes --env-mode phased).
+#
+# This is the phased equivalent of the former monolith env.toml (the monolith mode is being retired).
+# Service sections use prebuilt images (built by make start-devenv); omit source_code_path to skip
+# hot-reload/build-from-source, except solana-executor which mounts source as before.
+#
+# Chain IDs come from chain-selectors test_selectors_solana.yml and selectors.yml files:
+#   "22222222222222222222222222222222222222222222" → selector 12463857294658392847
+#   "1337" → selector 3379446385462418246
+version = 1
+
+
+
+#############################
+# Observability (Phase 1)   #
+#############################
+[observability]
+version = 1
+
+[observability.Monitoring]
+LogLevel = 'debug'
+
+[observability.Monitoring.Pyroscope]
+Enabled = false
+URL = "http://host.docker.internal:4040"
+
+[observability.Monitoring.Beholder]
+Enabled = true
+InsecureConnection = true
+OtelExporterHTTPEndpoint = "host.docker.internal:4318"
+LogStreamingEnabled = true
+LogStreamingLevel = "debug"
+MetricReaderInterval = 5
+TraceSampleRatio = 1.0
+TraceBatchTimeout = 10
+[observability.Monitoring.Beholder.TelemetryAttributes]
+ccip_env = "devenv"
+
+#############################
+# Infrastructure (Phase 1)  #
+#############################
+[jd]
+  version = 1
+  csa_encryption_key = "d1093c0060d50a3c89c189b2e485da5a3ce57f3dcb38ab7e2c0d5f0bb2314a44"
+  image = "job-distributor:local"
+
+[fake]
+  version = 1
+  image = "ccv-fakes:latest"
+  port = 9111
+
+#############################
+# Blockchains (Phase 1)     #
+#############################
+[local_networks]
+version = 1
+
+[local_networks.solana.input.rpc_failover]
+enabled = true
+
+[[blockchains]]
+  version = 1
+  container_name = "blockchain-evm"
+  chain_id = "1337"
+  docker_cmd_params = ["-b", "1", "--mixed-mining", "--slots-in-an-epoch", "1"]
+  image = "ghcr.io/foundry-rs/foundry:latest"
+  port = "8545"
+  type = "anvil"
+
+[[blockchains]]
+  version = 1
+  container_name = "blockchain-solana-1"
+  chain_id = "22222222222222222222222222222222222222222222"
+  port = "8899"
+  type = "solana"
+  public_key = "9n1pyVGGo6V4mpiSDMVay5As9NurEkY283wwRk1Kto2C"
+  contracts_dir = "contracts/target/deploy"
+  # Without this the validator prunes after ~1k slots and the token verifier's backfill and finality
+  # checker keep hitting "Block N cleaned up, does not exist on node".
+  docker_cmd_params = ["--limit-ledger-size", "200000000"]
+  [blockchains.solana_programs]
+    ccip_router = "Ccip842gzYHhvdDkSyi2YVCoAWPbYJoApMFzSxQroE9C"
+    ccip_offramp = "off43sBHBsmWTU6VbfwKYCNwyJ4rSDhunYvz3QL7bF9"
+    fee_quoter = "FeeQPGkKDeRV1MgoYfMH6L8o3KeuYjwUZrgn4LRKfjHi"
+    committee_verifier = "CV2s8jsYhx9th8pyZ4pN7apLELAB42e5j4XqWhqTdWCm"
+    burnmint_token_pool = "41FGToCmdaWa1dgZLKFAjvmx6e6AjVTX7SVRibvsMGVB"
+    lockrelease_token_pool = "8eqh8wppT9c5rw4ERqNCffvU6cNFJWff9WmkcYtmGiqC"
+    rmn_remote = "RmnXLft1mSEwDgMKu2okYuHkiazxntFFcZFrrcXxYg7"
+    executor = "Exex3nkLcxMFASH75gudot5ZSQXUMRc8BrYaYHTDJrt4"
+    example_ccip_receiver = "22441JJX6T5G5TiPGjfkFPEuUqdtfbMD77zSuzf8x5Di"
+    example_ccip_receiver_v2 = "CbYiUaBi9nx1m3XhADWTdPoN25zeg5qDFBpbEfWKmrCL"
+    example_ccip_sender = "E67f8sC5GbpeKCm3595t7sYVzd2k5frcqZAZZ1v4QECo"
+    example_ccip_sender_v2 = "7VM6AK4DwejGLZ1x28zHr8GCQhtTuHcQwQdHGVpi12eh"
+    lombard_token_pool = "Lomb8TTCwJKEhZrJ1J8UbsCRjNSf7NNQUEr4qo3dkSk"
+    mock_lombard_bridge = "Lomva5kTftuXE8992qRufkaeq3XrXV47qv3C1W9xW6Z"
+    mock_lombard_mailbox = "Lomsq4ZNkZQGysC1pQc2NqNiAbXQm6C8nLmKcUoESEA"
+    cctp_token_pool = "CCiTPESGEevd7TBU8EGBKrcxuRq7jx3YtW6tPidnscaZ"
+    cctp_token_messenger_minter_v2 = "CCTPV2vPZJS2u2BBsUoscuikbYjnpFmbFsvVuJdgUMQe" # Circle's program, vendored in contracts/target/vendor
+    cctp_message_transmitter_v2 = "CCTPV2Sm4AdWt5296sk4P66VBZ7bEhcARwFaaS9YPbeC" # Circle's program, vendored in contracts/target/vendor
+
+#############################
+# Protocol contracts (Phase 2)
+#############################
+[protocol_contracts]
+version = 2
+use_legacy_configure_lane = false
+
+[protocol_contracts.deploy]
+deploy_test_router = false
+
+[[protocol_contracts.deploy.executors]]
+qualifier = "default"
+version = "2.0.0"
+
+# The EVM PostConnect (chainlink-ccv evm/impl.go) unconditionally configures a "custom"
+# executor contract on every EVM chain, so it must be deployed. Solana deploys only the
+# first executor, so this is effectively EVM-only.
+[[protocol_contracts.deploy.executors]]
+qualifier = "custom"
+version = "2.0.0"
+
+## EVM-only deploy overrides (mirrors chainlink-ccv env-phased.toml). feeAggregator is applied
+## to the OnRamp + executor proxies; executorWaitForSafe pairs with the EVM GetChainLaneProfile
+## CommitteeVerifier finality (WaitForSafe). Solana ignores this block.
+[protocol_contracts.deploy.family_extras.evm]
+feeAggregator       = "0x0000000000000000000000000000000000000001"
+executorBlockDepth  = 1
+executorWaitForSafe = true
+
+## Environment topology defines NOPs, committees, and executor pools by chain selector.
+[protocol_contracts.environment_topology]
+indexer_address = ["http://indexer-1:8100"]
+
+# NOPs – standalone verifiers + executors
+# EVM verifiers (read from EVM source chain for EVM→Solana direction)
+[[protocol_contracts.environment_topology.nop_topology.nops]]
+alias = "evm-verifier-1"
+name = "evm-verifier-1"
+mode = "standalone"
+
+[[protocol_contracts.environment_topology.nop_topology.nops]]
+alias = "evm-verifier-2"
+name = "evm-verifier-2"
+mode = "standalone"
+
+# Solana verifiers (read from Solana source chain for Solana→EVM direction)
+[[protocol_contracts.environment_topology.nop_topology.nops]]
+alias = "solana-verifier-1"
+name = "solana-verifier-1"
+mode = "standalone"
+
+[[protocol_contracts.environment_topology.nop_topology.nops]]
+alias = "solana-verifier-2"
+name = "solana-verifier-2"
+mode = "standalone"
+
+# Executors
+[[protocol_contracts.environment_topology.nop_topology.nops]]
+alias = "default-executor-1"
+name = "default-executor-1"
+mode = "standalone"
+
+[[protocol_contracts.environment_topology.nop_topology.nops]]
+alias = "solana-executor-1"
+name = "solana-executor-1"
+mode = "standalone"
+
+# Single default CommitteeVerifier committee covering EVM (3379446385462418246)
+# and Solana (12463857294658392847). verifier_version "2.0.0" required for the EVM
+# CommitteeVerifier contract deployment.
+[protocol_contracts.environment_topology.nop_topology.committees.default]
+qualifier = "default"
+verifier_version = "2.0.0"
+storage_locations = ["postgres://default-aggregator-db:5432/aggregator"]
+
+[[protocol_contracts.environment_topology.nop_topology.committees.default.aggregators]]
+name = "default"
+address = "default-aggregator:50051"
+insecure_connection = true
+
+# EVM source chain → EVM verifiers read and sign
+[protocol_contracts.environment_topology.nop_topology.committees.default.chain_configs.3379446385462418246]
+nop_aliases = ["evm-verifier-1", "evm-verifier-2"]
+threshold = 2
+
+# Solana source chain → Solana verifiers read and sign
+[protocol_contracts.environment_topology.nop_topology.committees.default.chain_configs.12463857294658392847]
+nop_aliases = ["solana-verifier-1", "solana-verifier-2"]
+threshold = 2
+fee_aggregator = "9n1pyVGGo6V4mpiSDMVay5As9NurEkY283wwRk1Kto2C"
+
+# EVM destination executor
+[protocol_contracts.environment_topology.executor_pools.default.chain_configs.3379446385462418246]
+nop_aliases = ["default-executor-1"]
+execution_interval = 15000000000
+
+# Solana destination executor
+[protocol_contracts.environment_topology.executor_pools.default.chain_configs.12463857294658392847]
+nop_aliases = ["solana-executor-1"]
+execution_interval = 15000000000
+
+#############################
+# Verifiers (Phase 3)       #
+#############################
+[committeeccv]
+version = 1
+
+# EVM verifiers — read from the EVM source chain (EVM→Solana direction)
+[[committeeccv.verifier]]
+  image = "verifier:latest"
+  container_name = "evm-verifier-1"
+  nop_alias = "evm-verifier-1"
+  port = 8100
+  committee_name = "default"
+  node_index = 0
+  [committeeccv.verifier.db]
+    image = "postgres:16-alpine"
+    name = "evm-verifier-1-db"
+    port = 8432
+
+[[committeeccv.verifier]]
+  image = "verifier:latest"
+  container_name = "evm-verifier-2"
+  nop_alias = "evm-verifier-2"
+  port = 8200
+  committee_name = "default"
+  node_index = 1
+  [committeeccv.verifier.db]
+    image = "postgres:16-alpine"
+    name = "evm-verifier-2-db"
+    port = 8433
+
+# Solana verifiers — read from the Solana source chain (Solana→EVM direction).
+# node_index must be unique across all verifiers in the committee (EVM uses 0,1).
+[[committeeccv.verifier]]
+  image = "solana-verifier:latest"
+  container_name = "solana-verifier-1"
+  nop_alias = "solana-verifier-1"
+  port = 8300
+  committee_name = "default"
+  node_index = 2
+  chain_family = "solana"
+  # Solana slots are sparse. The finality checker stalls on a skipped slot.
+  disable_finality_checkers = ["12463857294658392847"]
+  [committeeccv.verifier.db]
+    image = "postgres:16-alpine"
+    name = "solana-verifier-1-db"
+    port = 8436
+
+[[committeeccv.verifier]]
+  image = "solana-verifier:latest"
+  container_name = "solana-verifier-2"
+  nop_alias = "solana-verifier-2"
+  port = 8400
+  committee_name = "default"
+  node_index = 3
+  chain_family = "solana"
+  # Solana slots are sparse. The finality checker stalls on a skipped slot.
+  disable_finality_checkers = ["12463857294658392847"]
+  [committeeccv.verifier.db]
+    image = "postgres:16-alpine"
+    name = "solana-verifier-2-db"
+    port = 8437
+
+#############################
+# Aggregator (Phase 3)      #
+#############################
+[[committeeccv.aggregator]]
+  committee_name = "default"
+  image = "aggregator:latest"
+  host_port = 50051
+  redundant_aggregators = 0
+
+  [committeeccv.aggregator.db]
+    image = "postgres:16-alpine"
+    host_port = 7432
+
+  [committeeccv.aggregator.redis]
+    image = "redis:7-alpine"
+    host_port = 6379
+
+  # EVM verifiers
+  [[committeeccv.aggregator.api_clients]]
+  client_id = "evm-verifier-1"
+  description = "EVM verifier 1"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[committeeccv.aggregator.api_clients]]
+  client_id = "evm-verifier-2"
+  description = "EVM verifier 2"
+  enabled = true
+  groups = ["verifiers"]
+
+  # Solana verifiers
+  [[committeeccv.aggregator.api_clients]]
+  client_id = "solana-verifier-1"
+  description = "Solana verifier 1"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[committeeccv.aggregator.api_clients]]
+  client_id = "solana-verifier-2"
+  description = "Solana verifier 2"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[committeeccv.aggregator.api_clients]]
+  client_id = "monitoring"
+  description = "Monitoring and infrastructure client"
+  enabled = true
+  groups = ["monitoring"]
+
+  [[committeeccv.aggregator.api_clients]]
+  client_id = "indexer"
+  description = "Development Indexer"
+  enabled = true
+  groups = ["indexer"]
+
+  # Executors
+  [[committeeccv.aggregator.api_clients]]
+  client_id = "default-executor-1"
+  description = "EVM executor 1"
+  enabled = true
+  groups = ["executors"]
+
+  [[committeeccv.aggregator.api_clients]]
+  client_id = "solana-executor-1"
+  description = "Solana executor 1"
+  enabled = true
+  groups = ["executors"]
+
+  [committeeccv.aggregator.env]
+    storage_connection_url = "postgresql://aggregator:aggregator@default-aggregator-db:5432/aggregator?sslmode=disable"
+    redis_address = "default-aggregator-redis:6379"
+    redis_password = ""
+    redis_db = "0"
+
+#############################
+# Executors (Phase 3)       #
+#############################
+# EVM executor — submits to EVM destination chain (Solana→EVM direction)
+[[executor]]
+  version = 1
+  image = "executor:latest"
+  container_name = "default-executor-1"
+  nop_alias = "default-executor-1"
+  executor_qualifier = "default"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "default-executor-1-db"
+
+# Solana executor — submits to Solana destination chain (EVM→Solana direction)
+[[executor]]
+  version = 1
+  image = "solana-executor:latest"
+  chain_family = "solana"
+  source_code_path = "chainlink-ccip-solana/cmd/executor"
+  root_path = ".."
+  container_name = "solana-executor-1"
+  nop_alias = "solana-executor-1"
+  executor_qualifier = "default"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "solana-executor-1-db"
+
+#############################
+# Token Verifier (Phase 4)  #
+#############################
+[[token_verifier]]
+  version = 1
+  mode = "standalone"
+  chain_family = "evm"
+  image = "token-verifier:latest"
+  container_name = "token-verifier-0"
+  port = 8700
+  [token_verifier.db]
+    image = "postgres:16-alpine"
+    name = "token-verifier-0-db"
+    port = 8450
+
+[[token_verifier]]
+  version = 1
+  mode = "standalone"
+  chain_family = "solana"
+  image = "solana-token-verifier:latest"
+  lombard_qualifier = "LombardVerifier"
+  container_name = "solana-token-verifier-1"
+  port = 8701
+  [token_verifier.db]
+    image = "postgres:16-alpine"
+    name = "solana-token-verifier-1-db"
+    port = 8451
+
+#############################
+# Indexer (Phase 3)         #
+#############################
+[[indexer]]
+  version = 1
+  image = "indexer:latest"
+  port = 8104
+  redundant_indexers = 0
+  storage_connection_url = "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable"
+  [indexer.db]
+    image = "postgres:16-alpine"
+
+[indexer.indexer_config]
+LogLevel = 'info'
+
+[indexer.indexer_config.Monitoring]
+Enabled = true
+
+[indexer.indexer_config.Monitoring.Beholder]
+Enabled = true
+InsecureConnection = true
+OtelExporterHTTPEndpoint = "host.docker.internal:4318"
+LogStreamingEnabled = true
+MetricReaderInterval = 5
+TraceSampleRatio = 1.0
+TraceBatchTimeout = 10
+
+[indexer.indexer_config.Monitoring.Beholder.TelemetryAttributes]
+ccip_env = "devenv"
+"service.name" = "indexer"
+
+[[indexer.indexer_config.Discoveries]]
+Address = "default-aggregator:50051"
+Since = 0
+PollInterval = 500
+Timeout = 5000
+NtpServer = "time.google.com"
+
+[indexer.indexer_config.Scheduler]
+TickerInterval = 50
+VerificationVisibilityWindow = 28800
+BaseDelay = 100
+MaxDelay = 30_000
+
+[indexer.indexer_config.Pool]
+ConcurrentWorkers = 1000
+WorkerTimeout = 300
+
+[[indexer.indexer_config.Verifier]]
+Type = "aggregator"
+Name = "CommitteeVerifier (Primary)"
+Address = "default-aggregator:50051"
+InsecureConnection = true
+BatchSize = 100
+MaxBatchWaitTime = 50
+Since = 0
+
+[[indexer.indexer_config.Verifier]]
+Type = "rest"
+Name = "Lombard Verifier (Primary)"
+BaseURL = "http://token-verifier-0:8100/v1"
+BatchSize = 10
+MaxBatchWaitTime = 100
+Since = 0
+
+[[indexer.indexer_config.Verifier]]
+Type = "rest"
+Name = "Cctp Verifier (Primary)"
+BaseURL = "http://token-verifier-0:8100/v1"
+BatchSize = 10
+MaxBatchWaitTime = 100
+Since = 0
+
+[[indexer.indexer_config.Verifier]]
+Type = "rest"
+Name = "Cctp Verifier (Solana)"
+BaseURL = "http://solana-token-verifier-1:8100/v1"
+BatchSize = 10
+MaxBatchWaitTime = 100
+Since = 0
+
+[[indexer.indexer_config.Verifier]]
+Type = "rest"
+Name = "Lombard Verifier (Solana)"
+BaseURL = "http://solana-token-verifier-1:8100/v1"
+BatchSize = 10
+MaxBatchWaitTime = 100
+Since = 0
+
+[indexer.committee_verifier_name_to_qualifier]
+"CommitteeVerifier (Primary)" = "default"
+
+[indexer.cctp_verifier_name_to_qualifier]
+"Cctp Verifier (Primary)" = ""
+"Cctp Verifier (Solana)" = ""
+
+[indexer.lombard_verifier_name_to_qualifier]
+"Lombard Verifier (Primary)" = "LombardVerifierResolver"
+"Lombard Verifier (Solana)" = "LombardVerifier"
+
+[indexer.indexer_config.Storage]
+Strategy = "single"
+
+[indexer.indexer_config.Storage.Single]
+Type = "postgres"
+
+[indexer.indexer_config.Storage.Single.Postgres]
+MaxOpenConnections = 20
+MaxIdleConnections = 5
+IdleInTxSessionTimeout = 60
+LockTimeout = 30
+
+[indexer.secrets.Storage.Single.Postgres]
+URI = "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable"

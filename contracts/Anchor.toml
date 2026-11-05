@@ -1,0 +1,41 @@
+[toolchain]
+anchor_version = "1.1.2"
+solana_version = "3.1.14"
+
+[features]
+seeds = false
+skip-lint = true # false fails `anchor idl build` on ccip-offramp
+resolution = true
+
+[programs.localnet]
+arbitrary_cpi_proxy = "4tiRp7mqGJwihhW7W32U9jx2h24grdgj67WwutyF2Yg6"
+burnmint_token_pool = "41FGToCmdaWa1dgZLKFAjvmx6e6AjVTX7SVRibvsMGVB"
+ccip_offramp = "off43sBHBsmWTU6VbfwKYCNwyJ4rSDhunYvz3QL7bF9"
+ccip_router = "Ccip842gzYHhvdDkSyi2YVCoAWPbYJoApMFzSxQroE9C"
+cctp_message_transmitter = "CCTPmbSD7gX1bxKPAmg77w8oFzNFpaQiQUWD43TKaecd"
+cctp_message_transmitter_v2 = "CCTPV2Sm4AdWt5296sk4P66VBZ7bEhcARwFaaS9YPbeC"
+cctp_token_messenger_minter = "CCTPiPYPc6AsJuwueEnWgSgucamXDZwBd53dQ11YiKX3"
+cctp_token_messenger_minter_v2 = "CCTPV2vPZJS2u2BBsUoscuikbYjnpFmbFsvVuJdgUMQe"
+cctp_token_pool = "CCiTPESGEevd7TBU8EGBKrcxuRq7jx3YtW6tPidnscaZ"
+committee_verifier = "CV2s8jsYhx9th8pyZ4pN7apLELAB42e5j4XqWhqTdWCm"
+example_ccip_receiver = "22441JJX6T5G5TiPGjfkFPEuUqdtfbMD77zSuzf8x5Di"
+example_ccip_receiver_v2 = "CbYiUaBi9nx1m3XhADWTdPoN25zeg5qDFBpbEfWKmrCL"
+example_ccip_sender = "E67f8sC5GbpeKCm3595t7sYVzd2k5frcqZAZZ1v4QECo"
+example_ccip_sender_v2 = "7VM6AK4DwejGLZ1x28zHr8GCQhtTuHcQwQdHGVpi12eh"
+executor = "Exex3nkLcxMFASH75gudot5ZSQXUMRc8BrYaYHTDJrt4"
+fee_quoter = "FeeQPGkKDeRV1MgoYfMH6L8o3KeuYjwUZrgn4LRKfjHi"
+lockrelease_token_pool = "8eqh8wppT9c5rw4ERqNCffvU6cNFJWff9WmkcYtmGiqC"
+lombard_token_pool = "Lomb8TTCwJKEhZrJ1J8UbsCRjNSf7NNQUEr4qo3dkSk"
+mock_lombard_bridge = "Lomva5kTftuXE8992qRufkaeq3XrXV47qv3C1W9xW6Z"
+mock_lombard_mailbox = "Lomsq4ZNkZQGysC1pQc2NqNiAbXQm6C8nLmKcUoESEA"
+rmn_remote = "RmnXLft1mSEwDgMKu2okYuHkiazxntFFcZFrrcXxYg7"
+test_ccip_invalid_receiver = "MhPhxwRHtZt9rkHEEFJ9eFjEna8fwbMHr8KYByvJkUm"
+test_ccip_receiver = "GsgXbSfG226vCVMfamUhwFgY4kF9HkNiu3wk8Ho8cky5"
+test_program = "9yDw4zo6CxspgkUD5mGcs8LQiKQCZhkZCbaMhKEUHboU"
+
+[registry]
+url = "https://anchor.projectserum.com"
+
+[provider]
+cluster = "Localnet"
+wallet = "id.json"

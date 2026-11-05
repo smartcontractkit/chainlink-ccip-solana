@@ -1,0 +1,105 @@
+[workspace]
+members = ["."]
+resolver = "2"
+
+[workspace.dependencies]
+solana-account-info = "=3.1.1"
+solana-cpi = "=3.1.0"
+solana-compute-budget-interface = "=3.0.0"
+solana-msg = "=3.1.0"
+solana-program-entrypoint = "=3.1.1"
+solana-program-error = "=3.0.1"
+solana-pubkey = "=4.2.0"
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+overflow-checks = true
+
+[package]
+name = "allocator-demo"
+version = "0.1.0"
+description = "Native Solana program demonstrating suffix-eater-allocator"
+edition = "2024"
+license = "MIT"
+rust-version = "1.85"
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+default = ["custom-heap"]
+custom-heap = []
+custom-panic = []
+no-entrypoint = []
+surfpool-tests = [
+    "dep:solana-account",
+    "dep:solana-address",
+    "dep:solana-bls-signatures",
+    "dep:solana-clock",
+    "dep:solana-compute-budget-interface",
+    "dep:solana-epoch-schedule",
+    "dep:solana-fee-calculator",
+    "dep:solana-hash",
+    "dep:solana-instruction",
+    "dep:solana-last-restart-slot",
+    "dep:solana-message",
+    "dep:solana-nonce",
+    "dep:solana-nonce-account",
+    "dep:solana-rent",
+    "dep:solana-reward-info",
+    "dep:solana-short-vec",
+    "dep:solana-signature",
+    "dep:solana-slot-history",
+    "dep:solana-system-interface",
+    "dep:solana-sysvar",
+    "dep:solana-transaction",
+    "dep:solana-transaction-error",
+    "dep:surfpool-sdk",
+    "dep:tokio",
+]
+
+[dependencies]
+solana-account-info.workspace = true
+solana-cpi.workspace = true
+solana-msg.workspace = true
+solana-program-entrypoint.workspace = true
+solana-program-error.workspace = true
+solana-pubkey.workspace = true
+suffix-eater-allocator = { path = "../suffix-eater-allocator" }
+
+[target.'cfg(not(target_os = "solana"))'.dependencies]
+# Compatibility pins from Surfpool 1.5.0's release lockfile. Its published
+# crates use broad ranges that otherwise mix wincode 0.6 with Agave 4.1's 0.5.
+solana-account = { version = "=4.3.1", optional = true }
+solana-address = { version = "=2.6.1", optional = true }
+solana-bls-signatures = { version = "=3.3.0", optional = true }
+solana-clock = { version = "=3.1.1", optional = true }
+solana-compute-budget-interface = { workspace = true, optional = true }
+solana-epoch-schedule = { version = "=3.2.0", optional = true }
+solana-fee-calculator = { version = "=3.2.2", optional = true }
+solana-hash = { version = "=4.5.0", optional = true }
+solana-instruction = { version = "=3.4.0", optional = true }
+solana-last-restart-slot = { version = "=3.1.0", optional = true }
+solana-message = { version = "=4.3.0", optional = true }
+solana-nonce = { version = "=3.2.0", optional = true }
+solana-nonce-account = { version = "=4.1.0", optional = true }
+solana-rent = { version = "=4.3.0", optional = true }
+solana-reward-info = { version = "=6.2.0", optional = true }
+solana-short-vec = { version = "=3.2.2", optional = true }
+solana-signature = { version = "=3.4.1", optional = true }
+solana-slot-history = { version = "=3.1.0", optional = true }
+solana-system-interface = { version = "=3.2.0", optional = true }
+solana-sysvar = { version = "=4.1.0", optional = true }
+solana-transaction = { version = "=4.1.5", optional = true }
+solana-transaction-error = { version = "=3.3.1", optional = true }
+surfpool-sdk = { version = "=1.5.0", optional = true }
+tokio = { version = "1.43", features = ["macros", "rt-multi-thread"], optional = true }
+
+[[test]]
+name = "surfpool"
+path = "tests/surfpool.rs"
+required-features = ["surfpool-tests"]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

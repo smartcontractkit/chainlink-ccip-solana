@@ -1,0 +1,39 @@
+[package]
+name = "fee_quoter"
+version.workspace = true
+description = "Created with Anchor"
+edition = "2021"
+license = "BUSL-1.1"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "fee_quoter"
+
+[features]
+no-entrypoint = []
+cpi = ["no-entrypoint"]
+default = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build", "ccip_common/idl-build"]
+
+[dependencies]
+anchor-lang = { workspace = true }
+solana-sdk-ids = { workspace = true }
+anchor-spl = { workspace = true }
+bytemuck = "1.25"
+ethnum = "1.5"
+ccip_common = { path = "../ccip-common" }
+solana-security-txt = "1.1.1"
+
+[dev-dependencies]
+hex = "0.4.3"
+solana-sysvar = { workspace = true }
+
+[build-dependencies]
+build_commit = { path = "../../crates/build-commit" }
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("anchor-debug", "custom-panic", "custom-heap", "no-idl", "no-log-ix-name"))',
+]

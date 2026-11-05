@@ -1,0 +1,140 @@
+name: Smoke
+run-name: Smoke (${{ inputs.target_environment || 'PRIVATE_STAGING' }})
+
+# Run smoke tests against a deployed environment (private staging, prod-testnet,
+# prod-mainnet). Call one reusable workflow per direction (evm2sol, sol2evm).
+# Each direction runs ArbMessaging, TokenTransfer, and PTT in sequence.
+# This workflow is informational only. It is not required for branch protection.
+#
+# Pull requests use an approved `smoke:<environment>` label to select a target.
+# The only approved label is `smoke:private-staging`.
+# See smoke-deployed-run.yml for test cases and execution order.
+#
+# Prerequisites:
+#   1. Add the E2E_EVM_PRIVATE_KEY and E2E_SOLANA_PRIVATE_KEY repo secrets with funded
+#      keys (raw hex for EVM, base58/JSON for Solana; see devenv/.env.example). All
+#      environments share them. The EVM key needs funds on every EVM chain in the manifests.
+#   2. Add the DEPLOYED_ENV_CONFIG_<ENV> repo secret with the full environment manifest
+#      (all chains, addresses, and token pool pairs). <ENV> is the target_environment
+#      value, for example PRIVATE_STAGING.
+#   3. Make sure the runner can reach the configured endpoints. Gated RPCs may
+#      need an authentication step or a self-hosted runner.
+#   4. Set `evm_selector` on each matrix row in smoke-deployed-run.yml when the
+#      manifest has more than one EVM chain. The tests fail without it.
+
+on:
+  schedule:
+    # Run every 6 hours for recurring coverage of deployed environments.
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        description: "Deployed environment; selects the DEPLOYED_ENV_CONFIG_<ENV> repo secret"
+        type: choice
+        required: true
+        options:
+          - PRIVATE_STAGING
+          - CCV_STAGING
+          - CCV_PROD_TESTNET
+      test_cases:
+        description: "Run one smoke leg only (scheduled and PR runs always run all)"
+        type: choice
+        required: true
+        default: all
+        options:
+          - all
+          - ArbMessaging
+          - TokenTransfer
+          - PTT
+          - CCTP
+          - Lombard
+  pull_request:
+    types: [opened, reopened, labeled, synchronize]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build-e2e:
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'smoke:private-staging') &&
+       !github.event.pull_request.head.repo.fork)
+    name: Build test binary
+    runs-on: ubuntu-latest-8cores-32GB
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Go
+        uses: smartcontractkit/.github/actions/setup-golang@setup-golang/v1
+        with:
+          go-version-file: go.mod
+          go-cache-dep-path: go.sum
+          skip-cache-save: ${{ github.event_name != 'push' }}
+
+      - name: Download Go dependencies
+        run: go mod download
+
+      - name: Build test binary
+        # Vet runs elsewhere in CI; stripping debug symbols keeps the uploaded artifact smaller.
+        run: go test -c -vet=off -ldflags="-s -w" -o "$RUNNER_TEMP/smoke.test" ./devenv/tests/smoke
+
+      # TODO: Package and publish this binary as an OCI image to ECR for cross-repo staging verification.
+      - name: Upload test binary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ccip-smoke-test
+          path: ${{ runner.temp }}/smoke.test
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+  evm2sol:
+    needs: build-e2e
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'smoke:private-staging') &&
+       !github.event.pull_request.head.repo.fork)
+    name: ${{ inputs.target_environment || 'PRIVATE_STAGING' }}-evm2sol
+    uses: ./.github/workflows/smoke-deployed-run.yml
+    with:
+      direction: evm2sol
+      test: ^TestEVM2Solana
+      test_cases: ${{ github.event_name == 'workflow_dispatch' && inputs.test_cases || 'all' }}
+      # CCV_* manifests carry Sepolia only. Force it on the Fuji-pinned legs.
+      target_evm_selector: ${{ startsWith(inputs.target_environment || 'PRIVATE_STAGING', 'CCV_') && '16015286601757825753' || '' }}
+      use_test_router: ${{ inputs.target_environment == 'CCV_PROD_TESTNET' }}
+    secrets:
+      DEPLOYED_ENV_CONFIG: ${{ secrets[format('DEPLOYED_ENV_CONFIG_{0}', inputs.target_environment || 'PRIVATE_STAGING')] }}
+      E2E_EVM_PRIVATE_KEY: ${{ secrets.E2E_EVM_PRIVATE_KEY }}
+      E2E_SOLANA_PRIVATE_KEY: ${{ secrets.E2E_SOLANA_PRIVATE_KEY }}
+      TS_OAUTH_CLIENT_ID_CI: ${{ secrets.TS_OAUTH_CLIENT_ID_CI }}
+      TS_AUDIENCE_CI: ${{ secrets.TS_AUDIENCE_CI }}
+
+  sol2evm:
+    needs: build-e2e
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'smoke:private-staging') &&
+       !github.event.pull_request.head.repo.fork)
+    name: ${{ inputs.target_environment || 'PRIVATE_STAGING' }}-sol2evm
+    uses: ./.github/workflows/smoke-deployed-run.yml
+    with:
+      direction: sol2evm
+      test: ^TestSolana2EVM
+      test_cases: ${{ github.event_name == 'workflow_dispatch' && inputs.test_cases || 'all' }}
+      # CCV_* manifests carry Sepolia only. Force it on the Fuji-pinned legs.
+      target_evm_selector: ${{ startsWith(inputs.target_environment || 'PRIVATE_STAGING', 'CCV_') && '16015286601757825753' || '' }}
+    secrets:
+      DEPLOYED_ENV_CONFIG: ${{ secrets[format('DEPLOYED_ENV_CONFIG_{0}', inputs.target_environment || 'PRIVATE_STAGING')] }}
+      E2E_EVM_PRIVATE_KEY: ${{ secrets.E2E_EVM_PRIVATE_KEY }}
+      E2E_SOLANA_PRIVATE_KEY: ${{ secrets.E2E_SOLANA_PRIVATE_KEY }}
+      TS_OAUTH_CLIENT_ID_CI: ${{ secrets.TS_OAUTH_CLIENT_ID_CI }}
+      TS_AUDIENCE_CI: ${{ secrets.TS_AUDIENCE_CI }}

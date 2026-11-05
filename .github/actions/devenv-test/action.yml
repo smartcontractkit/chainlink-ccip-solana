@@ -1,0 +1,207 @@
+name: 'CCIP E2E Test'
+description: 'Pin ccv dep, build images, start devenv, run the selected test suite'
+inputs:
+  artifacts_cache_key:
+    description: 'Exact contract artifact cache key, from the contracts build job output'
+    required: true
+  ccv_ref:
+    description: 'chainlink-ccv ref (commit SHA or branch name)'
+    required: true
+  ccv_iam_role:
+    description: 'IAM role for ECR auth'
+    required: true
+  jd_registry:
+    description: 'JD ECR registry'
+    required: true
+  jd_image:
+    description: 'JD Docker image'
+    required: true
+  suite:
+    description: 'Suite label used in the log artifact name (evm2sol | sol2evm | chaos)'
+    required: true
+  test:
+    description: "go test -run regex (e.g. 'TestEVM2Solana|TestSolana2EVM' or 'TestChaos')"
+    required: true
+  package:
+    description: 'Test package to run (e.g. ./devenv/tests/smoke or ./devenv/tests/chaos)'
+    required: true
+  timeout:
+    description: 'go test -timeout value (e.g. 10m)'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    # 1. checkout
+    - name: Enable S3 Cache for Self-Hosted Runners
+      uses: runs-on/action@742bf56072eb4845a0f94b3394673e4903c90ff0 # v2.1.0
+
+    - name: Check out chainlink-ccip-solana
+      uses: actions/checkout@v5
+      with:
+        path: chainlink-ccip-solana
+
+    - name: Check out chainlink-ccv
+      uses: actions/checkout@v5
+      with:
+        repository: smartcontractkit/chainlink-ccv
+        path: chainlink-ccv
+        ref: ${{ inputs.ccv_ref }}
+
+    # 2. setup tooling
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+    - name: Install Just
+      uses: extractions/setup-just@f8a3cce218d9f83db3a2ecd90e41ac3de6cdfd9b # v3.1.0
+
+    - name: Authenticate to AWS ECR (JD)
+      uses: ./chainlink-ccip-solana/.github/actions/aws-ecr-auth
+      with:
+        role-to-assume: ${{ inputs.ccv_iam_role }}
+        aws-region: us-west-2
+        registry-type: private
+        registries: ${{ inputs.jd_registry }}
+
+    # Must run before any `make` target — Makefile preamble invokes `go env`,
+    # which can auto-download a toolchain into ~/go/pkg/mod/golang.org/toolchain@...
+    # and conflict with this step's cache restore (tar "File exists").
+    - name: Install Go
+      uses: smartcontractkit/.github/actions/setup-golang@setup-golang/v1
+      with:
+        go-version-file: chainlink-ccip-solana/go.mod
+        go-cache-dep-path: chainlink-ccip-solana/go.sum
+        cache-version: devenv
+        skip-cache-save: ${{ github.event_name != 'push' }}
+
+    # Fail fast on ccv-ref drift before expensive Docker/e2e work.
+    - name: Validate ccv-ref consistency
+      shell: bash
+      working-directory: chainlink-ccip-solana
+      run: make validate-ccv
+
+    # 3. pin go.mod to checked-out ccv ref then download deps
+    # Docker build (solana-verifier) copies go.mod, so replace directives
+    # to ../chainlink-ccv won't work. go get resolves via module proxy.
+    - name: Pin go.mod to checked-out ccv ref
+      shell: bash
+      working-directory: chainlink-ccip-solana
+      run: |
+        CCV_SHA=$(cd ../chainlink-ccv && git rev-parse HEAD)
+        make pin-ccv-all REF="$CCV_SHA"
+
+    - name: Download Go dependencies
+      shell: bash
+      working-directory: chainlink-ccip-solana
+      run: |
+        go mod download
+
+    # go test ignores non-*_test.go sources; fail before Docker if the package has no test files.
+    - name: Verify devenv test package has test sources
+      shell: bash
+      working-directory: chainlink-ccip-solana
+      run: |
+        n="$(go list -f '{{len .TestGoFiles}}' ${{ inputs.package }})"
+        if [ "${n:-0}" -eq 0 ]; then
+          echo "::error::${{ inputs.package }} has no TestGoFiles — Go tests must live in *_test.go"
+          exit 1
+        fi
+
+    - name: Build CCV Docker images
+      shell: bash
+      working-directory: chainlink-ccv/build/devenv
+      run: |
+        just build-docker-ci
+      env:
+        DOCKER_BUILDKIT: 1
+
+    # 4. build solana-verifier image from ccip-solana source
+    - name: Restore contract artifacts
+      uses: actions/cache/restore@v5
+      with:
+        fail-on-cache-miss: true
+        # Must match the save's path set — paths are hashed into the cache
+        # fingerprint, so mismatched paths produce a false miss even for
+        # identical keys.
+        path: |
+          contracts/target/deploy/**/*.so
+          contracts/target/idl/**
+          contracts/target/types/**
+        key: ${{ inputs.artifacts_cache_key }}
+
+    - name: Link contract artifacts into checkout
+      shell: bash
+      run: |
+        mkdir -p chainlink-ccip-solana/contracts/target
+        ln -s "$PWD/contracts/target/deploy" chainlink-ccip-solana/contracts/target/deploy
+        # The devenv deploys Circle's vendored CCTP V2 programs. CI's
+        # contracts-build job runs raw `anchor build`, which does not copy them.
+        make -C chainlink-ccip-solana copy-cctp-v2-programs
+
+    - name: Build solana verifier docker image
+      shell: bash
+      working-directory: chainlink-ccip-solana
+      run: make build-solana-verifier-image
+
+    - name: Build solana token-verifier docker image
+      shell: bash
+      working-directory: chainlink-ccip-solana
+      run: make build-solana-token-verifier-image
+
+    - name: Build solana executor docker image
+      shell: bash
+      working-directory: chainlink-ccip-solana
+      run: make build-solana-executor-image
+
+    # 5. spin up devenv
+    - name: Spin up CCIP environment
+      shell: bash
+      working-directory: chainlink-ccip-solana
+      env:
+        JD_IMAGE: ${{ inputs.jd_image }}
+      run: |
+        go run devenv/cmd/ccv/main.go up devenv/env-phased.toml --env-mode phased
+
+    # 6. run the selected suite (the test binary's CWD is the package dir,
+    # so ../../env-phased-out.toml resolves identically for e2e and chaos)
+    - name: Run ${{ inputs.suite }} tests
+      id: test_run
+      shell: bash
+      working-directory: chainlink-ccip-solana
+      continue-on-error: true
+      run: |
+        SMOKE_TEST_CONFIG=../../env-phased-out.toml \
+          go test -timeout ${{ inputs.timeout }} -v -count 1 \
+          -run '${{ inputs.test }}' ${{ inputs.package }}
+
+    # 7. cleanup
+    - name: Dump logs if they're not already dumped
+      if: always()
+      shell: bash
+      working-directory: chainlink-ccip-solana/devenv/tests/smoke
+      run: |
+        LOG_DIR="../../logs/docker-ccip-devenv-tests"
+        if [ ! -d "$LOG_DIR" ] || [ -z "$(ls -A "$LOG_DIR" 2>/dev/null)" ]; then
+          echo "Container logs not found or empty. Dumping logs manually..."
+          cd ../.. && go run cmd/ccv/main.go dl --dir-suffix "ccip-devenv-tests"
+        else
+          echo "Container logs already exist. Skipping manual dump."
+        fi
+
+    # SaveContainerLogs (ccv dl) writes under CTF's DefaultCTFLogsDir + dir-suffix:
+    # logs/docker-<suffix> relative to cwd. The dump step runs from devenv/, so
+    # artifacts land in devenv/logs/docker-ccip-devenv-tests, not devenv/tests/smoke/logs.
+    - name: Upload Logs
+      if: always()
+      uses: actions/upload-artifact@v6
+      with:
+        name: ccip-devenv-logs-${{ inputs.ccv_ref }}-${{ inputs.suite }}
+        path: chainlink-ccip-solana/devenv/logs/docker-ccip-devenv-tests
+        retention-days: 1
+
+    - name: Check test results
+      if: always() && steps.test_run.outcome == 'failure'
+      shell: bash
+      run: |
+        echo "CCIP E2E tests failed."
+        exit 1

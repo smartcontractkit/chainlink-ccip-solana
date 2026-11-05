@@ -1,0 +1,703 @@
+/**
+ * Program IDL in camelCase format in order to be used in JS/TS.
+ *
+ * Note that this is only a type helper and is not the actual IDL. The original
+ * IDL can be found at `target/idl/mock_lombard_bridge.json`.
+ */
+export type MockLombardBridge = {
+  "address": "Lomva5kTftuXE8992qRufkaeq3XrXV47qv3C1W9xW6Z",
+  "metadata": {
+    "name": "mockLombardBridge",
+    "version": "2.0.0",
+    "spec": "0.1.0",
+    "description": "Minimal mock of the real Lombard `bridge` program's on-chain interface"
+  },
+  "instructions": [
+    {
+      "name": "deposit",
+      "docs": [
+        "Wire-compatible with the real `bridge::deposit` instruction consumed via",
+        "`lombard_cpi::bridge::cpi::deposit`: same instruction name.",
+        "Burns `amount` from `sender_token_account` (authority = `sender`) and emits a `DepositEvent`",
+        "carrying everything a devenv relayer needs to later call mock-lombard-mailbox's `mark_delivered`."
+      ],
+      "discriminator": [
+        242,
+        35,
+        198,
+        137,
+        82,
+        225,
+        242,
+        182
+      ],
+      "accounts": [
+        {
+          "name": "feePayer",
+          "signer": true
+        },
+        {
+          "name": "senderAuthority",
+          "docs": [
+            "Real SPL burn authority for `sender_token_account`. Named `sender_authority` (not",
+            "`sender`, despite occupying the position the real bridge program calls `sender`) to",
+            "avoid colliding with the `sender: [u8; 32]` instruction arg in the generated IDL/Go",
+            "bindings - account order (position 2), not name, is what wire compatibility with",
+            "`lombard_cpi::bridge::cpi::accounts::Deposit` actually depends on."
+          ],
+          "signer": true
+        },
+        {
+          "name": "senderTokenAccount",
+          "writable": true
+        },
+        {
+          "name": "tokenProgram"
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "senderConfig"
+        },
+        {
+          "name": "remoteBridgeConfig"
+        },
+        {
+          "name": "localTokenConfig"
+        },
+        {
+          "name": "remoteTokenConfig"
+        },
+        {
+          "name": "mint",
+          "writable": true
+        },
+        {
+          "name": "mailbox"
+        },
+        {
+          "name": "mailboxConfig"
+        },
+        {
+          "name": "outboundMessagePath"
+        },
+        {
+          "name": "outboundMessage"
+        },
+        {
+          "name": "mailboxSenderConfig"
+        },
+        {
+          "name": "treasury",
+          "optional": true
+        },
+        {
+          "name": "systemProgram"
+        }
+      ],
+      "args": [
+        {
+          "name": "sender",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "recipient",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "caller",
+          "type": {
+            "option": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "message",
+          "type": {
+            "option": {
+              "array": [
+                "u8",
+                36
+              ]
+            }
+          }
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "outboundResponse"
+        }
+      }
+    },
+    {
+      "name": "mockGmpReceive",
+      "docs": [
+        "Internal-only convention with mock-lombard-mailbox: called exclusively via CPI from that",
+        "program's `handle_message`, standing in for the real bridge's inbound GMP receive path.",
+        "Mints `amount` to `recipient_token_account`, signed by the `token_authority` PDA."
+      ],
+      "discriminator": [
+        140,
+        45,
+        141,
+        140,
+        91,
+        8,
+        212,
+        47
+      ],
+      "accounts": [
+        {
+          "name": "recipientTokenAccount",
+          "writable": true
+        },
+        {
+          "name": "mint",
+          "writable": true
+        },
+        {
+          "name": "mintAuthority"
+        },
+        {
+          "name": "tokenAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  111,
+                  107,
+                  101,
+                  110,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "tokenProgram"
+        }
+      ],
+      "args": [
+        {
+          "name": "payloadHash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "recipient",
+          "type": "pubkey"
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "message",
+          "type": {
+            "option": {
+              "array": [
+                "u8",
+                36
+              ]
+            }
+          }
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "inboundResponse"
+        }
+      }
+    },
+    {
+      "name": "testSetupRemoteBridgeConfig",
+      "docs": [
+        "Condensed test-setup call for `RemoteBridgeConfig`."
+      ],
+      "discriminator": [
+        70,
+        244,
+        49,
+        93,
+        55,
+        29,
+        212,
+        87
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "remoteBridgeConfig",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  109,
+                  111,
+                  116,
+                  101,
+                  95,
+                  98,
+                  114,
+                  105,
+                  100,
+                  103,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "chainId"
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "chainId",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "bridge",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "testSetupRemoteTokenConfig",
+      "docs": [
+        "Condensed test-setup call for `RemoteTokenConfig`, consumed by",
+        "`lombard_token_pool`'s `start_verification_at_source` (`RemoteTokenOrAdapterMismatch`",
+        "guard)."
+      ],
+      "discriminator": [
+        119,
+        80,
+        223,
+        99,
+        219,
+        126,
+        202,
+        194
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "remoteTokenConfig",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  109,
+                  111,
+                  116,
+                  101,
+                  95,
+                  116,
+                  111,
+                  107,
+                  101,
+                  110,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "mint"
+              },
+              {
+                "kind": "arg",
+                "path": "chainId"
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "mint",
+          "type": "pubkey"
+        },
+        {
+          "name": "chainId",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "token",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "direction",
+          "type": "u8"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "remoteBridgeConfig",
+      "discriminator": [
+        222,
+        184,
+        10,
+        71,
+        191,
+        152,
+        233,
+        224
+      ]
+    },
+    {
+      "name": "remoteTokenConfig",
+      "discriminator": [
+        94,
+        106,
+        197,
+        180,
+        181,
+        196,
+        242,
+        140
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "depositEvent",
+      "discriminator": [
+        120,
+        248,
+        61,
+        83,
+        31,
+        142,
+        107,
+        144
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "recipientMismatch",
+      "msg": "recipient_token_account owner does not match the recipient argument"
+    }
+  ],
+  "types": [
+    {
+      "name": "depositEvent",
+      "docs": [
+        "Emitted by `deposit` so a devenv test/off-chain harness can discover what to relay to",
+        "mock-lombard-mailbox, mirroring how a real relayer discovers deposits to bridge onward."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "payloadHash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "sender",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "recipient",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "message",
+            "type": {
+              "option": {
+                "array": [
+                  "u8",
+                  36
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "inboundResponse",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "message",
+            "type": {
+              "option": {
+                "array": [
+                  "u8",
+                  36
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "outboundResponse",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "payloadHash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "rateLimitConfig",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "enabled",
+            "type": "bool"
+          },
+          {
+            "name": "capacity",
+            "type": "u64"
+          },
+          {
+            "name": "rate",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "rateLimitTokenBucket",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tokens",
+            "type": "u64"
+          },
+          {
+            "name": "lastUpdated",
+            "type": "u64"
+          },
+          {
+            "name": "cfg",
+            "type": {
+              "defined": {
+                "name": "rateLimitConfig"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "remoteBridgeConfig",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "chainId",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "bridge",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "remoteTokenConfig",
+      "docs": [
+        "Wire-compatible with the real bridge's `RemoteTokenConfig` (see",
+        "`lombard_cpi::bridge::state::RemoteTokenConfig`, which this must byte-match): only",
+        "`chain_id`/`token` are ever read by this mock or by `lombard_token_pool`'s",
+        "`RemoteTokenOrAdapterMismatch` guard. `inbound_rate_limit` is left zero-initialized by `init`",
+        "and never touched - `RateLimitTokenBucket`'s fields are all zero-valid, so this is a real,",
+        "well-formed (if inert) value, not a shortcut around its private constructor."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "chainId",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "token",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "direction",
+            "type": "u8"
+          },
+          {
+            "name": "inboundRateLimit",
+            "type": {
+              "defined": {
+                "name": "rateLimitTokenBucket"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+};

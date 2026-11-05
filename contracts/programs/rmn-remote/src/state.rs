@@ -1,0 +1,79 @@
+use anchor_lang::prelude::*;
+use anchor_lang::solana_program::pubkey::PUBKEY_BYTES;
+
+pub use ccip_common::state::CodeVersion;
+
+/// Abstract curse subject.
+///
+/// In particular, a curse subject can be constructed from a chain
+/// selector to signify that any lane involving that chain as `destination` or `source` is
+/// cursed.
+///
+/// The above is not exhaustive: there may be other ways to define subjects.
+#[derive(Debug, PartialEq, Eq, Clone, Copy, InitSpace, AnchorDeserialize, AnchorSerialize)]
+pub struct CurseSubject {
+    pub value: [u8; 16],
+}
+
+impl CurseSubject {
+    // Global curse subject, standardized across chains and chain families. If this subject is
+    // cursed, all lanes starting to or ending in this chain are disabled.
+    pub const GLOBAL: Self = {
+        Self {
+            value: [
+                0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x01,
+            ],
+        }
+    };
+
+    pub const fn from_chain_selector(selector: u64) -> Self {
+        Self {
+            value: (selector as u128).to_le_bytes(),
+        }
+    }
+
+    pub const fn from_bytes(bytes: [u8; 16]) -> Self {
+        Self { value: bytes }
+    }
+}
+
+#[account]
+#[derive(InitSpace, PartialEq, Debug)]
+pub struct Config {
+    pub version: u8,
+    pub owner: Pubkey,
+
+    pub proposed_owner: Pubkey,
+    pub default_code_version: CodeVersion,
+
+    // --- v3 fields below ---
+    pub curser: Pubkey, // the only account authorized to curse subjects, besides the owner
+    pub bump: u8,
+
+    // --- v2 fields below (keeping variable-length fields at the end) ---
+    #[max_len(0)] // just for INIT_SPACE calculation
+    pub event_authorities: Vec<Pubkey>, // added in v2 struct
+}
+
+impl Config {
+    pub const LATEST_VERSION: u8 = 3;
+
+    pub fn dynamic_len(event_authorities_len: usize) -> usize {
+        Config::INIT_SPACE + event_authorities_len * PUBKEY_BYTES
+    }
+}
+
+#[account]
+#[derive(InitSpace, Debug)]
+pub struct Curses {
+    pub version: u8,
+    #[max_len(0)]
+    pub cursed_subjects: Vec<CurseSubject>,
+}
+
+impl Curses {
+    pub fn dynamic_len(&self) -> usize {
+        Self::INIT_SPACE + self.cursed_subjects.len() * CurseSubject::INIT_SPACE
+    }
+}

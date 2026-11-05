@@ -1,0 +1,47 @@
+[package]
+name = "lombard_token_pool"
+version.workspace = true
+description = "Lombard LBTC Token Pool - CCIP 1.6/2.0 with an embedded Lombard CCV"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "lombard_token_pool"
+
+[features]
+no-entrypoint = []
+cpi = ["no-entrypoint"]
+default = ["mainnet"]
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build", "ccip_common/idl-build"]
+# Selects which real Lombard bridge/mailbox program IDs `lombard_cpi` resolves to
+mainnet = []
+gastald = []
+staging = []
+bft = []
+localnet = []
+devnet = []
+
+[dependencies]
+anchor-lang = { workspace = true }
+anchor-spl = { workspace = true }
+base-token-pool = { path = "../base-token-pool/", features = [
+    "no-entrypoint",
+] }
+ccip_common = { path = "../ccip-common" }
+anchor_discriminator = { path = "../../crates/anchor_discriminator" }
+solana-security-txt = "1.1.1"
+solana-sha256-hasher = { version = "3", features = ["sha2"] }
+solana-keccak-hasher = { workspace = true, features = ["sha3"] }
+
+[dev-dependencies]
+hex = "0.4.3"
+
+[build-dependencies]
+build_commit = { path = "../../crates/build-commit" }
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("anchor-debug", "custom-panic", "custom-heap", "no-idl", "no-log-ix-name"))',
+]

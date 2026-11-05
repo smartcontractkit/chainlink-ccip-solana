@@ -1,0 +1,455 @@
+name: CI
+
+# Unified workflow. contracts-build produces the .so cache, downstream checks
+# fan out in parallel, and required-gate is the aggregate required status check.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  merge_group:
+
+concurrency:
+  group: solana-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: .
+
+permissions:
+  contents: read
+
+jobs:
+  detect-changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read # dorny/paths-filter lists PR files via the API
+    outputs:
+      contracts: ${{ steps.filter.outputs.contracts }}
+      pkg: ${{ steps.filter.outputs.pkg }}
+      integration_tests: ${{ steps.filter.outputs.integration_tests }}
+      devenv: ${{ steps.filter.outputs.devenv }}
+      deployment: ${{ steps.filter.outputs.deployment }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+        id: filter
+        with:
+          base: ${{ github.event_name == 'merge_group' && 'main' || '' }}
+          filters: |
+            contracts:
+              - 'contracts/**'
+            pkg:
+              - 'pkg/**'
+              - 'internal/**'
+              - 'cmd/**'
+              - 'go.mod'
+              - 'go.sum'
+              - '.mockery.yaml'
+              - 'Makefile'
+            integration_tests:
+              - 'integration-tests/**'
+            devenv:
+              - 'devenv/**'
+              - 'scripts/ci/ccv-ref.yaml'
+              - '.github/actions/devenv-test/**'
+              - '.github/actions/run-load-test/**'
+              - '.github/workflows/test-load-devenv.yaml'
+            deployment:
+              - 'deployment/**'
+
+  get_anchor_version:
+    name: Get Anchor Version
+    runs-on: ubuntu-latest
+    outputs:
+      anchor_version: ${{ steps.anchorversion.outputs.anchor }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Get Anchor Version
+        id: anchorversion
+        run: |
+          anchor=$(make anchor_version)
+          echo "anchor=${anchor}" >>$GITHUB_OUTPUT
+
+  contracts-build:
+    needs: [detect-changes, get_anchor_version]
+    name: Contracts (build)
+    runs-on: ubuntu-latest-8cores-32GB
+    outputs:
+      cache_key: ${{ steps.cache_key.outputs.key }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Compute artifact cache key
+        id: cache_key
+        # A hit skips the build, so every build input must be in the key. The
+        # workflows are hashed because they hold the build command and flags.
+        # Keep in sync across solana-ci, solana-ci-nightly and test-load-devenv.
+        run: |
+          KEY="${{ runner.os }}-solana-contract-artifacts-anchor-${{ needs.get_anchor_version.outputs.anchor_version }}-${{ hashFiles('**/Cargo.lock', 'contracts/**/Cargo.toml', 'contracts/Anchor.toml', 'contracts/rust-toolchain*', 'contracts/.cargo/config*', '.github/workflows/**') }}-${{ hashFiles('contracts/programs/**/*.rs', 'contracts/crates/**/*.rs') }}"
+          echo "key=$KEY" >>$GITHUB_OUTPUT
+
+      - name: Cache cargo target dir
+        uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+        with:
+          workspaces: contracts
+          save-if: ${{ github.event_name == 'push' }}
+
+      - name: Fix cached build script permissions
+        run: find $(pwd)/contracts/target -name 'build-script-build' -exec chmod 755 {} + 2>/dev/null || true
+
+      - name: Cache artifacts
+        id: cache-artifacts
+        uses: actions/cache@v5
+        with:
+          # .so for runtime loaders; idl + types for verify-gobindings to diff
+          # against committed state (catches "changed rust source but forgot to
+          # regenerate bindings"). Scoped to target/deploy/ to exclude committed
+          # third-party binaries under target/vendor/ — those come from git
+          # checkout and caching them would ship mode drift back into the diff.
+          path: |
+            contracts/target/deploy/**/*.so
+            contracts/target/idl/**
+            contracts/target/types/**
+          key: ${{ steps.cache_key.outputs.key }}
+
+      - name: Build contracts
+        if: steps.cache-artifacts.outputs.cache-hit != 'true'
+        run: |
+          docker run \
+          -v "$(pwd)/contracts":/contracts \
+          quay.io/ottersec/anchor:${{ needs.get_anchor_version.outputs.anchor_version }} bash -c "\
+            set -eoux pipefail &&\
+            RUSTUP_HOME=\"/root/.rustup\" &&\
+            FORCE_COLOR=1 &&\
+            cd /contracts &&\
+            anchor build --ignore-keys"
+            # ignore-keys or it fails on key mismatches, we override addresses in localnet
+            # NOTE: anchor build also builds all IDLs by default since we don't pass `--no-idl`
+
+      - name: Fix target dir permissions
+        if: steps.cache-artifacts.outputs.cache-hit != 'true'
+        run: |
+          sudo chown -R $USER:$USER $(pwd)/contracts
+          sudo find $(pwd)/contracts -type d -exec chmod 755 {} +
+          sudo find $(pwd)/contracts/target/deploy -type f -exec chmod 644 {} +
+          sudo find $(pwd)/contracts/target/idl -type f -exec chmod 644 {} +
+          sudo find $(pwd)/contracts/target/types -type f -exec chmod 644 {} +
+
+  # PR-only by design. The check reports just the lines a PR touches, so on a
+  # push to main there is no diff to scope to; a whole-tree scan there would only
+  # re-report the pre-existing findings this repo has deliberately accepted.
+  anchor-lint:
+    needs: [detect-changes]
+    if: github.event_name == 'pull_request' && needs['detect-changes'].outputs.contracts == 'true'
+    name: Anchor lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Diff scoping needs history back to the merge-base with the PR base
+          # branch; the default shallow clone has none and the lint would abort.
+          fetch-depth: 0
+
+      # Two filters, in order: scripts/anchor-lint/suppressions.json drops the
+      # findings this repo has already accepted, then diff scoping narrows what
+      # remains to the lines this PR touches. Anything still standing fails the job.
+      # Analysis itself always covers the whole tree, so the cross-file checks
+      # (INV-LINT-EVENT / INV-LINT-INSTR) keep their full context.
+      - name: Run anchor-lint (changed lines only)
+        run: |
+          git fetch --no-tags origin \
+            "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+
+          make anchor-lint-diff ANCHOR_LINT_BASE="origin/${{ github.base_ref }}"
+
+  contracts-rust-tests:
+    needs: [detect-changes, get_anchor_version, contracts-build]
+    if: needs['detect-changes'].outputs.contracts == 'true'
+    name: Contracts (rust tests)
+    runs-on: ubuntu-latest-8cores-32GB
+    steps:
+      - uses: actions/checkout@v5
+      - name: Cache cargo target dir
+        uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+        with:
+          workspaces: contracts
+          save-if: ${{ github.event_name == 'push' }}
+      - name: Fix cached build script permissions
+        run: find $(pwd)/contracts/target -name 'build-script-build' -exec chmod 755 {} + 2>/dev/null || true
+      - name: Run cargo check / clippy / test
+        run: |
+          docker run \
+          -v "$(pwd)/contracts":/contracts \
+          quay.io/ottersec/anchor:${{ needs.get_anchor_version.outputs.anchor_version }} bash -c "\
+          set -eoux pipefail &&\
+          RUSTUP_HOME=\"/root/.rustup\" &&\
+          FORCE_COLOR=1 &&\
+          RUSTFLAGS=-Awarnings &&\
+          cd /contracts &&\
+          cargo check &&\
+          cargo clippy -- --version &&\
+          cargo clippy -- -D warnings &&\
+          cargo test --workspace"
+
+  contracts-go-tests:
+    needs: [detect-changes, contracts-build]
+    if: needs['detect-changes'].outputs.contracts == 'true'
+    name: Contracts (go tests)
+    runs-on: ubuntu-latest-8cores-32GB
+    steps:
+      - uses: actions/checkout@v5
+      - name: Restore contract artifacts
+        uses: actions/cache/restore@v5
+        with:
+          fail-on-cache-miss: true
+          # Must match the save's path set — paths are hashed into the cache
+          # fingerprint, so mismatched paths produce a false miss even for
+          # identical keys.
+          path: |
+            contracts/target/deploy/**/*.so
+            contracts/target/idl/**
+            contracts/target/types/**
+          key: ${{ needs.contracts-build.outputs.cache_key }}
+      - name: Setup go
+        uses: smartcontractkit/.github/actions/setup-golang@setup-golang/v1
+        with:
+          go-version-file: "./go.mod"
+          go-cache-dep-path: "./go.sum"
+          skip-cache-save: ${{ github.event_name != 'push' }}
+      - name: Install gotestloghelper
+        run: go install github.com/smartcontractkit/chainlink-testing-framework/tools/gotestloghelper@latest
+      - name: Install Solana CLI
+        run: |
+          # Recommended Solana version for Anchor 1.0.0 is 3.1.10.
+          # https://www.anchor-lang.com/docs/updates/release-notes/1-0-0#recommended-solana-version
+          sh -c "$(curl -sSfL https://release.anza.xyz/v3.1.10/install)"
+          echo "PATH=$HOME/.local/share/solana/install/active_release/bin:$PATH" >> $GITHUB_ENV
+      - name: Run go contract tests
+        run: make go-tests-contracts
+
+  pkg-go-tests:
+    needs: [detect-changes]
+    if: needs['detect-changes'].outputs.contracts == 'true' || needs['detect-changes'].outputs.pkg == 'true' || needs['detect-changes'].outputs.deployment == 'true'
+    name: Go unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup go
+        uses: smartcontractkit/.github/actions/setup-golang@setup-golang/v1
+        with:
+          go-version-file: "./go.mod"
+          go-cache-dep-path: "./go.sum"
+          skip-cache-save: ${{ github.event_name != 'push' }}
+      - name: Run Go unit tests
+        run: make go-unit-tests
+
+  verify-go-mocks:
+    needs: [detect-changes]
+    if: needs['detect-changes'].outputs.contracts == 'true' || needs['detect-changes'].outputs.pkg == 'true'
+    name: Verify Go mocks up-to-date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup go
+        uses: smartcontractkit/.github/actions/setup-golang@setup-golang/v1
+        with:
+          go-version-file: "./go.mod"
+          go-cache-dep-path: "./go.sum"
+          skip-cache-save: ${{ github.event_name != 'push' }}
+      - name: Install mockery
+        run: go install github.com/vektra/mockery/v2@v2.53.5
+      - name: Verify mocks match sources
+        run: make go-mocks-check
+
+  verify-gobindings:
+    needs: [detect-changes, contracts-build]
+    if: needs['detect-changes'].outputs.contracts == 'true'
+    name: Verify gobindings up-to-date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Restore contract artifacts
+        uses: actions/cache/restore@v5
+        with:
+          fail-on-cache-miss: true
+          # Restore fresh IDLs + types from the build so the diff below compares
+          # regenerated bindings against the actual current source, not against
+          # stale committed IDLs.
+          path: |
+            contracts/target/deploy/**/*.so
+            contracts/target/idl/**
+            contracts/target/types/**
+          key: ${{ needs.contracts-build.outputs.cache_key }}
+      - name: Setup go
+        uses: smartcontractkit/.github/actions/setup-golang@setup-golang/v1
+        with:
+          go-version-file: "./go.mod"
+          go-cache-dep-path: "./go.sum"
+          skip-cache-save: ${{ github.event_name != 'push' }}
+      - name: check artifacts
+        run: |
+          set -eoux pipefail
+          # regenerate types only (artifacts are cached)
+          go install github.com/smartcontractkit/anchor-go@v1.0.0
+          ./scripts/anchor-go-gen.sh
+          make format
+          git diff --exit-code -- contracts/
+
+  integration-tests:
+    needs: [detect-changes, contracts-build]
+    if: "!cancelled() && needs.contracts-build.result == 'success' && (needs['detect-changes'].outputs.contracts == 'true' || needs['detect-changes'].outputs.pkg == 'true' || needs['detect-changes'].outputs.integration_tests == 'true' || needs['detect-changes'].outputs.deployment == 'true')"
+    # Literal prefix in name keeps the displayed check meaningful even when the
+    # job is skipped before matrix expansion (otherwise the check shows the raw
+    # template `matrix.component.name` instead of the component name).
+    name: integration-tests / ${{ matrix.component.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        component:
+          # expand with new components as needed, so we don't suffer from 20mins test time on every push.
+          - name: "Source Reader"
+            dir: "sourcereader"
+            timeout: "10m"
+          - name: "Dest Reader"
+            dir: "destreader"
+            timeout: "10m"
+          - name: "Log Poller"
+            dir: "logpoller"
+            timeout: "10m"
+          - name: "Transmitter"
+            dir: "transmitter"
+            timeout: "10m"
+          - name: "Deployment"
+            dir: "deployment"
+            timeout: "10m"
+    steps:
+      - name: Free Disk Space
+        uses: smartcontractkit/.github/actions/free-disk-space@free-disk-space/v1
+
+      - uses: actions/checkout@v5
+
+      - name: Restore contract artifacts
+        uses: actions/cache/restore@v5
+        with:
+          fail-on-cache-miss: true
+          # Must match the save's path set — paths are hashed into the cache
+          # fingerprint, so mismatched paths produce a false miss even for
+          # identical keys.
+          path: |
+            contracts/target/deploy/**/*.so
+            contracts/target/idl/**
+            contracts/target/types/**
+          key: ${{ needs.contracts-build.outputs.cache_key }}
+
+      - name: Install Go
+        uses: smartcontractkit/.github/actions/setup-golang@setup-golang/v1
+        with:
+          go-version-file: integration-tests/go.mod
+          go-cache-dep-path: integration-tests/go.sum
+          skip-cache-save: ${{ github.event_name != 'push' }}
+
+      - name: Download Go dependencies
+        working-directory: integration-tests
+        run: go mod download
+
+      # CTF handles validator lifecycle; mounts artifacts from contracts/target.
+      - name: Run ${{ matrix.component.name }} integration tests
+        working-directory: integration-tests
+        run: |
+          go test ./${{ matrix.component.dir }}/... \
+            -v -count=1 -p=1 \
+            -timeout ${{ matrix.component.timeout }}
+
+  devenv-pinned:
+    needs: [detect-changes, contracts-build]
+    if: "!cancelled() && needs.contracts-build.result == 'success' && (needs['detect-changes'].outputs.contracts == 'true' || needs['detect-changes'].outputs.pkg == 'true' || needs['detect-changes'].outputs.devenv == 'true' ||  needs['detect-changes'].outputs.deployment == 'true')"
+    name: Devenv ${{ matrix.suite }} (pinned ccv)
+    runs-on: ubuntu-latest-8cores-32GB
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # Each suite gets its own job with its own timeout budget.
+        # Chaos needs an isolated runner: its tests docker stop/start
+        # RPC/aggregator/executor containers.
+        include:
+          # Smoke is split by spec, both directions per job. A new subtest group must be
+          # added to one of these patterns; the nightly smoke row runs every case.
+          - suite: smoke-messaging
+            test: '^(TestEVM2Solana|TestSolana2EVM)$/^(ArbMessaging|ExampleSenderV1|ExampleSenderV2)$'
+            package: ./devenv/tests/smoke
+            timeout: 15m
+          - suite: smoke-token-transfer
+            test: '^(TestEVM2Solana|TestSolana2EVM)$/^TokenTransfer$'
+            package: ./devenv/tests/smoke
+            timeout: 15m
+          - suite: smoke-ptt
+            test: '^(TestEVM2Solana|TestSolana2EVM)$/^PTT$'
+            package: ./devenv/tests/smoke
+            timeout: 15m
+          - suite: chaos
+            test: 'TestChaos'
+            package: ./devenv/tests/chaos
+            timeout: 10m
+    steps:
+      - uses: actions/checkout@v5
+      - name: Read pinned ref
+        id: refs
+        run: ./scripts/ci/ccv-ref.sh read pinned
+      - uses: ./.github/actions/devenv-test
+        with:
+          artifacts_cache_key: ${{ needs.contracts-build.outputs.cache_key }}
+          ccv_ref: ${{ steps.refs.outputs.pinned }}
+          ccv_iam_role: ${{ secrets.CCV_IAM_ROLE }}
+          jd_registry: ${{ secrets.JD_REGISTRY }}
+          jd_image: ${{ secrets.JD_IMAGE }}
+          suite: ${{ matrix.suite }}
+          test: ${{ matrix.test }}
+          package: ${{ matrix.package }}
+          timeout: ${{ matrix.timeout }}
+
+  required-gate:
+    needs:
+      - detect-changes
+      - get_anchor_version
+      - anchor-lint
+      - contracts-build
+      - contracts-rust-tests
+      - contracts-go-tests
+      - pkg-go-tests
+      - verify-go-mocks
+      - verify-gobindings
+      - integration-tests
+      - devenv-pinned
+    if: always()
+    name: CI Required Gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify all required jobs passed
+        env:
+          REQUIRED_JOBS: ${{ toJSON(needs) }}
+        run: |
+          # detect-changes, get_anchor_version, contracts-build must succeed; other jobs may skip
+          failed_jobs=$(echo "$REQUIRED_JOBS" | jq -r '
+            to_entries[]
+            | select(
+                ((.key == "detect-changes" or .key == "get_anchor_version" or .key == "contracts-build") and .value.result != "success")
+                or ((.key != "detect-changes" and .key != "get_anchor_version" and .key != "contracts-build") and (.value.result != "success" and .value.result != "skipped"))
+              )
+            | "\(.key): \(.value.result)"
+          ')
+          if [ -n "$failed_jobs" ]; then
+            echo "::error::Required Gate failed: the following jobs did not pass:"
+            echo "$failed_jobs"
+            exit 1
+          fi
+          echo "All required jobs passed (success or skipped)."

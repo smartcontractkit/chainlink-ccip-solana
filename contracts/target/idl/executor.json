@@ -1,0 +1,1839 @@
+{
+  "address": "Exex3nkLcxMFASH75gudot5ZSQXUMRc8BrYaYHTDJrt4",
+  "metadata": {
+    "name": "executor",
+    "version": "2.0.0",
+    "spec": "0.1.0",
+    "description": "CCIP Executor"
+  },
+  "instructions": [
+    {
+      "name": "accept_ownership",
+      "docs": [
+        "Accepts a pending ownership transfer. Must be called by the proposed owner."
+      ],
+      "discriminator": [
+        172,
+        23,
+        43,
+        13,
+        238,
+        213,
+        85,
+        150
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "event_authority"
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "apply_allowed_ccv_updates",
+      "docs": [
+        "Delta-shaped counterpart to `set_allowed_ccvs`, matching EVM's",
+        "`Executor.applyAllowedCCVUpdates(ccvsToRemove, ccvsToAdd, ccvAllowlistEnabled)` argument for",
+        "argument: removals are applied first, then additions, then the allowlist flag. Both lists",
+        "are idempotent."
+      ],
+      "discriminator": [
+        254,
+        32,
+        208,
+        188,
+        119,
+        1,
+        254,
+        156
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "event_authority"
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "ApplyAllowedCcvUpdatesParams"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "get_fee",
+      "discriminator": [
+        115,
+        195,
+        235,
+        161,
+        25,
+        219,
+        60,
+        29
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "chain_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  109,
+                  111,
+                  116,
+                  101,
+                  95,
+                  99,
+                  104,
+                  97,
+                  105,
+                  110
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "params.dest_chain_selector"
+              }
+            ]
+          }
+        },
+        {
+          "name": "event_authority"
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "GetFeeParams"
+            }
+          }
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "UsdCents"
+        }
+      }
+    },
+    {
+      "name": "initialize",
+      "docs": [
+        "Initializes the Executor Config account.",
+        "",
+        "Restricted to the program upgrade authority."
+      ],
+      "discriminator": [
+        175,
+        175,
+        109,
+        31,
+        13,
+        152,
+        155,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "event_authority"
+        },
+        {
+          "name": "program",
+          "address": "Exex3nkLcxMFASH75gudot5ZSQXUMRc8BrYaYHTDJrt4"
+        },
+        {
+          "name": "program_data"
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "InitializeParams"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "observe_allowed_ccvs",
+      "docs": [
+        "Returns a page of this executor's CCV allow list, for observability consumers.",
+        "",
+        "Permissionless and read-only: meant to be executed through `simulateTransaction`."
+      ],
+      "discriminator": [
+        255,
+        194,
+        105,
+        142,
+        168,
+        71,
+        105,
+        99
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "page",
+          "type": {
+            "defined": {
+              "name": "ObservePageParams"
+            }
+          }
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "ExecutorAllowedCcvsObservation"
+        }
+      }
+    },
+    {
+      "name": "observe_chain_config",
+      "docs": [
+        "Returns this executor's configuration for a single destination chain, for observability",
+        "consumers.",
+        "",
+        "Permissionless and read-only: meant to be executed through `simulateTransaction`. Fails if",
+        "the chain has no configuration, which callers can read as \"not configured\"."
+      ],
+      "discriminator": [
+        120,
+        31,
+        158,
+        11,
+        8,
+        110,
+        2,
+        54
+      ],
+      "accounts": [
+        {
+          "name": "chain_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  109,
+                  111,
+                  116,
+                  101,
+                  95,
+                  99,
+                  104,
+                  97,
+                  105,
+                  110
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "remote_chain_selector"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "remote_chain_selector",
+          "type": "u64"
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "ExecutorChainConfigObservation"
+        }
+      }
+    },
+    {
+      "name": "observe_config",
+      "docs": [
+        "Returns this executor's global configuration, for observability consumers.",
+        "",
+        "Permissionless and read-only: meant to be executed through `simulateTransaction`. The CCV",
+        "allow list is reported as a count only; page through it with `observe_allowed_ccvs`."
+      ],
+      "discriminator": [
+        139,
+        122,
+        253,
+        169,
+        59,
+        227,
+        193,
+        228
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [],
+      "returns": {
+        "defined": {
+          "name": "ExecutorConfigObservation"
+        }
+      }
+    },
+    {
+      "name": "resolve_accounts_start",
+      "docs": [
+        "Entrypoint to resolve accounts for any supported instruction."
+      ],
+      "discriminator": [
+        195,
+        88,
+        233,
+        63,
+        16,
+        50,
+        55,
+        52
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "ResolveAccountsParams"
+            }
+          }
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "ResolveAccountsResponse"
+        }
+      }
+    },
+    {
+      "name": "set_allowed_ccvs",
+      "docs": [
+        "Replaces the CCV allowlist with `ccvs` and sets the allowlist flag, emitting one event per",
+        "CCV that actually entered or left the list."
+      ],
+      "discriminator": [
+        189,
+        80,
+        177,
+        150,
+        153,
+        19,
+        42,
+        245
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "event_authority"
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "SetAllowedCcvsParams"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "set_chain_config",
+      "docs": [
+        "Sets the per-chain configuration for a remote destination chain."
+      ],
+      "discriminator": [
+        252,
+        248,
+        193,
+        186,
+        119,
+        43,
+        227,
+        108
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "chain_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  109,
+                  111,
+                  116,
+                  101,
+                  95,
+                  99,
+                  104,
+                  97,
+                  105,
+                  110
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "params.remote_chain_selector"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "event_authority"
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "SetChainConfigParams"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "set_config",
+      "discriminator": [
+        108,
+        158,
+        154,
+        175,
+        212,
+        98,
+        52,
+        66
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "event_authority"
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "SetConfigParams"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "transfer_ownership",
+      "docs": [
+        "Transfers ownership to a new proposed owner. The proposed owner must",
+        "call `accept_ownership` to complete the transfer."
+      ],
+      "discriminator": [
+        65,
+        177,
+        215,
+        73,
+        53,
+        45,
+        99,
+        47
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "event_authority"
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "proposed_owner",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "type_version",
+      "docs": [
+        "Returns the program type (name) and version."
+      ],
+      "discriminator": [
+        129,
+        251,
+        8,
+        243,
+        122,
+        229,
+        252,
+        164
+      ],
+      "accounts": [
+        {
+          "name": "clock",
+          "address": "SysvarC1ock11111111111111111111111111111111"
+        }
+      ],
+      "args": [],
+      "returns": "string"
+    },
+    {
+      "name": "withdraw_fee_tokens",
+      "docs": [
+        "Sweeps every fee this executor accrued in `fee_token_mint` into the configured fee",
+        "aggregator's ATA.",
+        "",
+        "Permissionless: the destination is pinned to `config.fee_aggregator`, so a caller can only",
+        "trigger the sweep, never redirect it."
+      ],
+      "discriminator": [
+        130,
+        83,
+        245,
+        243,
+        236,
+        40,
+        197,
+        229
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "fee_vault_token_account",
+          "docs": [
+            "The account the router pays this executor's fees into: the ATA of `fee_vault` for the fee",
+            "token. There is one per fee token, since the sender picks which token to bill in."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "fee_vault"
+              },
+              {
+                "kind": "account",
+                "path": "fee_token_program"
+              },
+              {
+                "kind": "account",
+                "path": "fee_token_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "fee_vault",
+          "docs": [
+            "The router derives the destination of every executor receipt fee from these exact seeds",
+            "(see `ccip_common::seed::vault_ata`), so this is the only authority that can move the",
+            "accrued fees out."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  101,
+                  101,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "fee_aggregator_token_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "config.fee_aggregator",
+                "account": "Config"
+              },
+              {
+                "kind": "account",
+                "path": "fee_token_program"
+              },
+              {
+                "kind": "account",
+                "path": "fee_token_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "fee_token_mint"
+        },
+        {
+          "name": "fee_token_program"
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "ChainConfig",
+      "discriminator": [
+        13,
+        177,
+        233,
+        141,
+        212,
+        29,
+        148,
+        56
+      ]
+    },
+    {
+      "name": "Config",
+      "discriminator": [
+        155,
+        12,
+        170,
+        224,
+        30,
+        250,
+        204,
+        130
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "CCVAdded",
+      "discriminator": [
+        201,
+        219,
+        172,
+        138,
+        169,
+        127,
+        22,
+        116
+      ]
+    },
+    {
+      "name": "CCVAllowlistUpdated",
+      "discriminator": [
+        214,
+        197,
+        38,
+        143,
+        224,
+        94,
+        135,
+        92
+      ]
+    },
+    {
+      "name": "CCVRemoved",
+      "discriminator": [
+        0,
+        94,
+        15,
+        206,
+        26,
+        134,
+        216,
+        31
+      ]
+    },
+    {
+      "name": "ChainConfigSet",
+      "discriminator": [
+        109,
+        91,
+        11,
+        236,
+        150,
+        51,
+        67,
+        6
+      ]
+    },
+    {
+      "name": "ConfigSet",
+      "discriminator": [
+        15,
+        104,
+        59,
+        16,
+        236,
+        241,
+        8,
+        6
+      ]
+    },
+    {
+      "name": "OwnershipTransferRequested",
+      "discriminator": [
+        79,
+        54,
+        99,
+        123,
+        57,
+        244,
+        134,
+        35
+      ]
+    },
+    {
+      "name": "OwnershipTransferred",
+      "discriminator": [
+        172,
+        61,
+        205,
+        183,
+        250,
+        50,
+        38,
+        98
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 14000,
+      "name": "Unauthorized",
+      "msg": "The signer is unauthorized"
+    },
+    {
+      "code": 14001,
+      "name": "InvalidVersion",
+      "msg": "Invalid version of the onchain state"
+    },
+    {
+      "code": 14002,
+      "name": "InvalidInstructionData",
+      "msg": "Invalid instruction data"
+    },
+    {
+      "code": 14003,
+      "name": "DefaultOwnerProposal",
+      "msg": "Proposed owner cannot be the default pubkey"
+    },
+    {
+      "code": 14004,
+      "name": "RedundantOwnerProposal",
+      "msg": "Proposed owner is the current owner"
+    },
+    {
+      "code": 14005,
+      "name": "InvalidCodeVersion",
+      "msg": "Invalid code version"
+    },
+    {
+      "code": 14006,
+      "name": "InvalidDestChain",
+      "msg": "Invalid destination chain"
+    },
+    {
+      "code": 14007,
+      "name": "DuplicateCCV",
+      "msg": "Duplicate CCV"
+    },
+    {
+      "code": 14008,
+      "name": "ExceedsMaxCCVs",
+      "msg": "Exceeds maximum CCVs per message"
+    },
+    {
+      "code": 14009,
+      "name": "InvalidMaxCCVs",
+      "msg": "Invalid maximum CCVs per message"
+    },
+    {
+      "code": 14010,
+      "name": "InvalidFinality",
+      "msg": "Invalid Finality"
+    },
+    {
+      "code": 14011,
+      "name": "InvalidCCV",
+      "msg": "Invalid CCV"
+    },
+    {
+      "code": 14012,
+      "name": "FeeAggregatorNotSet",
+      "msg": "Fee aggregator not set"
+    },
+    {
+      "code": 14013,
+      "name": "InsufficientFunds",
+      "msg": "Insufficient funds (vault empty)"
+    },
+    {
+      "code": 14014,
+      "name": "TooManyCCVUpdates",
+      "msg": "Too many CCV allowlist changes in one instruction"
+    },
+    {
+      "code": 14015,
+      "name": "TooManyCCVs",
+      "msg": "Allowlist exceeds the config account's CCV capacity"
+    }
+  ],
+  "types": [
+    {
+      "name": "ApplyAllowedCcvUpdatesParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "ccvs_to_remove",
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "ccvs_to_add",
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "allowlist_enabled",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CCVAdded",
+      "docs": [
+        "Mirrors EVM's `Executor.CCVAdded(address indexed ccv)`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "ccv",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CCVAllowlistUpdated",
+      "docs": [
+        "Mirrors EVM's `Executor.CCVAllowlistUpdated(bool enabled)`. Like EVM, only emitted when the",
+        "flag actually changes."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "enabled",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CCVRemoved",
+      "docs": [
+        "Mirrors EVM's `Executor.CCVRemoved(address indexed ccv)`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "ccv",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CcipAccountMeta",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pubkey",
+            "type": "pubkey"
+          },
+          {
+            "name": "is_signer",
+            "type": "bool"
+          },
+          {
+            "name": "is_writable",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ChainConfig",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "version",
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "chain_selector",
+            "type": "u64"
+          },
+          {
+            "name": "usd_cents_fee",
+            "type": {
+              "defined": {
+                "name": "UsdCents"
+              }
+            }
+          },
+          {
+            "name": "enabled",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ChainConfigSet",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "remote_chain_selector",
+            "type": "u64"
+          },
+          {
+            "name": "usd_cents_fee",
+            "type": {
+              "defined": {
+                "name": "UsdCents"
+              }
+            }
+          },
+          {
+            "name": "enabled",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Config",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "version",
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "max_ccvs_per_msg",
+            "type": "u8"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "proposed_owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_aggregator",
+            "type": "pubkey"
+          },
+          {
+            "name": "allowed_finality_config",
+            "type": {
+              "defined": {
+                "name": "FinalityConfig"
+              }
+            }
+          },
+          {
+            "name": "ccv_allowlist_enabled",
+            "type": "bool"
+          },
+          {
+            "name": "allowed_ccvs",
+            "type": {
+              "vec": "pubkey"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConfigSet",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "fee_aggregator",
+            "type": "pubkey"
+          },
+          {
+            "name": "allowed_finality_config",
+            "type": {
+              "defined": {
+                "name": "FinalityConfig"
+              }
+            }
+          },
+          {
+            "name": "ccv_allowlist_enabled",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ExecutorAllowedCcvsObservation",
+      "docs": [
+        "A page of this executor's CCV allow list."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "observation_version",
+            "type": "u16"
+          },
+          {
+            "name": "allowed_ccvs_count",
+            "docs": [
+              "Total number of entries in the allow list, so consumers know when to stop paging."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "offset",
+            "docs": [
+              "Offset the returned page starts at."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "allowed_ccvs",
+            "type": {
+              "vec": "pubkey"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ExecutorChainConfigObservation",
+      "docs": [
+        "Per-destination-chain configuration of this executor, as observed by off-chain consumers."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "observation_version",
+            "type": "u16"
+          },
+          {
+            "name": "type_version",
+            "type": "string"
+          },
+          {
+            "name": "version",
+            "type": "u8"
+          },
+          {
+            "name": "remote_chain_selector",
+            "docs": [
+              "Taken from the instruction argument: this account predates storing its own selector."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "usd_cents_fee",
+            "type": {
+              "defined": {
+                "name": "UsdCents"
+              }
+            }
+          },
+          {
+            "name": "enabled",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ExecutorConfigObservation",
+      "docs": [
+        "Global configuration of this executor, as observed by off-chain consumers.",
+        "",
+        "The CCV allow list holds up to 64 pubkeys, which does not fit the 1024-byte return data limit,",
+        "so only its length is reported here. Use `observe_allowed_ccvs` to page through the entries."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "observation_version",
+            "type": "u16"
+          },
+          {
+            "name": "type_version",
+            "type": "string"
+          },
+          {
+            "name": "version",
+            "type": "u8"
+          },
+          {
+            "name": "max_ccvs_per_msg",
+            "type": "u8"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "proposed_owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_aggregator",
+            "type": "pubkey"
+          },
+          {
+            "name": "allowed_finality_config",
+            "type": {
+              "defined": {
+                "name": "FinalityConfig"
+              }
+            }
+          },
+          {
+            "name": "ccv_allowlist_enabled",
+            "type": "bool"
+          },
+          {
+            "name": "allowed_ccvs_count",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FinalityConfig",
+      "docs": [
+        "Per-message finality configuration. Wire-format: 4 bytes big-endian (flags || block_depth).",
+        "Mirrors the `bytes4` Finality type in chainlink-ccv's `protocol/finality.go`.",
+        "",
+        "Layout (MSB first):",
+        "flags[15:1]  — reserved",
+        "flags[0]     — S: wait for `safe` head instead of full finality",
+        "block_depth  — number of block confirmations required (0 = full finality / safe, per flags)"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "flags",
+            "type": "u16"
+          },
+          {
+            "name": "block_depth",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GetFeeParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "dest_chain_selector",
+            "type": "u64"
+          },
+          {
+            "name": "requested_finality",
+            "type": {
+              "defined": {
+                "name": "FinalityConfig"
+              }
+            }
+          },
+          {
+            "name": "ccvs",
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "extra_args",
+            "type": "bytes"
+          },
+          {
+            "name": "fee_token",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InitializeParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "max_ccvs_per_msg",
+            "type": "u8"
+          },
+          {
+            "name": "fee_aggregator",
+            "type": "pubkey"
+          },
+          {
+            "name": "allowed_finality_config",
+            "type": {
+              "defined": {
+                "name": "FinalityConfig"
+              }
+            }
+          },
+          {
+            "name": "ccv_allowlist_enabled",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ObservePageParams",
+      "docs": [
+        "Parameters for the paged `observe_*` instructions."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "offset",
+            "docs": [
+              "Index of the first item to return."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "limit",
+            "docs": [
+              "Maximum number of items to return, capped at [`MAX_OBSERVE_PAGE_LEN`]."
+            ],
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OwnershipTransferRequested",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "from",
+            "type": "pubkey"
+          },
+          {
+            "name": "to",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OwnershipTransferred",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "from",
+            "type": "pubkey"
+          },
+          {
+            "name": "to",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ResolveAccountsParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "caller",
+            "docs": [
+              "The account expected to sign the final instruction being resolved."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "ix_data",
+            "docs": [
+              "Borsh-encoded final instruction data, including its 8-byte",
+              "Anchor discriminator prefix.",
+              "",
+              "IMPORTANT: For CPI instructions, it's possible the entire `ix_data` cannot",
+              "be known at the point of account resolution. This is common in cases where",
+              "part of the input to the CPI will be determined dynamically when executing the",
+              "parent instruction. In those cases, `ix_data` must contain a best-effort",
+              "approximation of the final instruction data, with those fields that are impossible",
+              "to know ahead of time swapped with defaults, dummies or other context-appropriate",
+              "values. In these cases, the resolver must take care not to rely on those dummy",
+              "values to generate a valid list of accounts. An example of this pattern is",
+              "CCVs receiving a `message_id` as part of their `ix_data`. The `message_id` cannot",
+              "be known until execution time, so the value must be ignored by the `CCV` resolver."
+            ],
+            "type": "bytes"
+          },
+          {
+            "name": "metadata",
+            "docs": [
+              "Opaque Borsh-encoded metadata forwarded from the previous stage.",
+              "Must be empty on the first call."
+            ],
+            "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ResolveAccountsResponse",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "ask_again_with",
+            "docs": [
+              "In the next resolution round, call the resolution method",
+              "including these accounts (all read-only)."
+            ],
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "accounts_to_save",
+            "docs": [
+              "Append these accounts to a separate accumulator list. Once",
+              "`next_ix_discriminator` is empty, this accumulated list",
+              "contains all accounts for the instruction of interest."
+            ],
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "CcipAccountMeta"
+                }
+              }
+            }
+          },
+          {
+            "name": "lookup_tables_to_save",
+            "docs": [
+              "Append these lookup tables to a separate accumulator list.",
+              "Once resolution is complete, the accumulated list contains all",
+              "LUTs that the instruction of interest can use."
+            ],
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "next_ix_discriminator",
+            "docs": [
+              "Identifies the next resolution stage. If None, resolution is",
+              "complete."
+            ],
+            "type": {
+              "option": {
+                "array": [
+                  "u8",
+                  8
+                ]
+              }
+            }
+          },
+          {
+            "name": "metadata",
+            "docs": [
+              "Metadata required for the next resolution stage. In some cases, it",
+              "may be an input to the final instruction as well."
+            ],
+            "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SetAllowedCcvsParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "ccvs",
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "allowlist_enabled",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SetChainConfigParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "remote_chain_selector",
+            "type": "u64"
+          },
+          {
+            "name": "usd_cents_fee",
+            "type": {
+              "defined": {
+                "name": "UsdCents"
+              }
+            }
+          },
+          {
+            "name": "enabled",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SetConfigParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "fee_aggregator",
+            "type": "pubkey"
+          },
+          {
+            "name": "allowed_finality_config",
+            "type": {
+              "defined": {
+                "name": "FinalityConfig"
+              }
+            }
+          },
+          {
+            "name": "ccv_allowlist_enabled",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UsdCents",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          "u32"
+        ]
+      }
+    }
+  ]
+}

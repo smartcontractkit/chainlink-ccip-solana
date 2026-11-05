@@ -1,0 +1,8 @@
+# rust build artifacts
+contracts/target/
+# test-only
+integration-tests/
+# not needed in build context
+.git/
+*.so
+_vendor/

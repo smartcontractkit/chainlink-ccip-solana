@@ -1,0 +1,153 @@
+# If you prefer the allow list template instead of the deny list, see community template:
+# https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
+#
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.iml
+*.DS_Store
+
+# Test binary, built with `go test -c`
+*.test
+
+# Test & linter reports
+*report.xml
+*report.json
+*.out
+/golangci-lint/
+
+# Code coverage profiles and other test artifacts
+*.out
+coverage.*
+*.coverprofile
+profile.cov
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+
+# Go workspace file
+go.work
+go.work.sum
+
+# env file
+.env
+!.env.example
+
+# Editor/IDE
+# .idea/
+# .vscode/
+
+# IntelliJ IDE
+.direnv
+**/*.rs.bk
+*.idea
+*.vscode/
+
+# Ignore personal settings
+**/.claude/settings.local.json
+
+# Tooling caches
+*.tsbuildinfo
+.eslintcache
+__pycache__/
+
+# Log files
+*.log
+uplog.txt
+
+# misc
+.envrc
+.env*
+!devenv/.env.example
+.dbenv
+.direnv
+.idea
+.vscode/
+*.iml
+debug.env
+operator_ui/install
+.devenv
+
+# neovim
+.nvim.lua
+
+# codeship
+*.aes
+dockercfg
+env
+credentials.env
+gcr_creds.env
+devenv/tests/smoke/blockscout
+devenv/env-out.toml
+devenv/env-phased-out.toml
+# Complete persistent-environment attach configs may contain private RPC URLs
+# and deployment addresses.
+/devenv/env-*.deployed.toml
+devenv/load-metrics-*.json
+.cursorrules
+
+# ignore target folders except IDLs
+contracts/target/*
+!contracts/target/idl/
+!contracts/target/types/
+!contracts/target/vendor/
+!contracts/target/vendor/*
+contracts/programs/*/target
+contracts/crates/*/target
+# cargo-fuzz build output, live corpus and crash artifacts. 
+contracts/crates/*/fuzz/target
+contracts/crates/*/fuzz/corpus
+contracts/crates/*/fuzz/artifacts
+contracts/crates/*/fuzz/coverage
+contracts/.anchor
+# keypair used by anchor/anchor test
+contracts/id.json
+# ignore all except shared localnet keys
+contracts/artifacts/*
+!contracts/artifacts/localnet/
+test-ledger
+
+# Test & linter reports
+.test_summary/
+*report.xml
+*report.json
+*.out
+*coverage*
+eslint-report.json
+.run.id
+override*.toml
+# go work files
+go.work*
+devnet.config.yaml
+
+# deployment
+deployment/**/*.json
+
+# verifier
+.bootstrapper-config.toml
+.aggregator-config.toml
+
+# Ignore the build output of the ccv development environment
+/ccv
+/executor
+
+# Ignore output devenv tomls
+*-out.toml
+
+# Claude
+.claude/
+CLAUDE.md
+.planning/
+tools/
+
+# Scripts
+scripts/ts/resources/*
+!scripts/ts/resources/.gitkeep
+scripts/debug/1_6/**/*.csv
+scripts/ts/config/envs/*.ts
+
+# Internal planning notes
+docs/plans/

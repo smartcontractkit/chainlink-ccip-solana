@@ -1,0 +1,116 @@
+use anchor_lang::prelude::*;
+
+use crate::context::UpdateEventAuthorities;
+use crate::event::{CurserSet, EventAuthoritiesSet};
+use crate::instructions::interfaces::Admin;
+use crate::{
+    AcceptOwnership, CodeVersion, ConfigSet, Curse, CurseSubject, OwnershipTransferRequested,
+    OwnershipTransferred, RmnRemoteError, SubjectCursed, SubjectUncursed, Uncurse, UpdateConfig,
+};
+
+pub struct Impl;
+impl Admin for Impl {
+    fn transfer_ownership(&self, ctx: Context<UpdateConfig>, proposed_owner: Pubkey) -> Result<()> {
+        let config = &mut ctx.accounts.config;
+        require_keys_neq!(
+            proposed_owner,
+            Pubkey::default(),
+            RmnRemoteError::DefaultOwnerProposal
+        );
+        require_keys_neq!(
+            proposed_owner,
+            config.owner,
+            RmnRemoteError::RedundantOwnerProposal
+        );
+        emit!(OwnershipTransferRequested {
+            from: config.owner,
+            to: proposed_owner,
+        });
+        ctx.accounts.config.proposed_owner = proposed_owner;
+        Ok(())
+    }
+
+    fn accept_ownership(&self, ctx: Context<AcceptOwnership>) -> Result<()> {
+        let config = &mut ctx.accounts.config;
+        emit!(OwnershipTransferred {
+            from: config.owner,
+            to: config.proposed_owner,
+        });
+        // NOTE: take() resets proposed_owner to default
+        ctx.accounts.config.owner = std::mem::take(&mut ctx.accounts.config.proposed_owner);
+        Ok(())
+    }
+
+    fn set_default_code_version(
+        &self,
+        ctx: Context<UpdateConfig>,
+        code_version: CodeVersion,
+    ) -> Result<()> {
+        require_neq!(
+            code_version,
+            CodeVersion::Default,
+            RmnRemoteError::InvalidCodeVersion
+        );
+        let config = &mut ctx.accounts.config;
+        config.default_code_version = code_version;
+
+        emit!(ConfigSet {
+            default_code_version: config.default_code_version,
+        });
+        Ok(())
+    }
+
+    fn curse(&self, ctx: Context<Curse>, subject: CurseSubject) -> Result<()> {
+        let curses = &mut ctx.accounts.curses;
+
+        require!(
+            !curses.cursed_subjects.contains(&subject),
+            RmnRemoteError::SubjectIsAlreadyCursed
+        );
+
+        curses.cursed_subjects.push(subject);
+        emit!(SubjectCursed { subject });
+        Ok(())
+    }
+
+    fn uncurse(&self, ctx: Context<Uncurse>, subject: CurseSubject) -> Result<()> {
+        let curses = &mut ctx.accounts.curses;
+
+        require!(
+            curses.cursed_subjects.contains(&subject),
+            RmnRemoteError::SubjectWasNotCursed
+        );
+
+        curses.cursed_subjects.retain(|c| c != &subject);
+        emit!(SubjectUncursed { subject });
+        Ok(())
+    }
+
+    fn set_event_authorities(
+        &self,
+        ctx: Context<UpdateEventAuthorities>,
+        new_event_authorities: Vec<Pubkey>,
+    ) -> Result<()> {
+        ctx.accounts.config.event_authorities = new_event_authorities;
+        emit!(EventAuthoritiesSet {
+            event_authorities: ctx.accounts.config.event_authorities.clone(),
+        });
+
+        Ok(())
+    }
+
+    fn set_curser(&self, ctx: Context<UpdateConfig>, curser: Pubkey) -> Result<()> {
+        ctx.accounts.config.curser = curser;
+        // `emit!` rather than `emit_cpi!`, unlike other CCIP 2.0-only instructions: this shares the
+        // `UpdateConfig` context with `transfer_ownership` and `set_default_code_version`, which
+        // existed in 1.6. Adding `#[event_cpi]` to that context would append two accounts to those
+        // two instructions and break every 1.6 integration calling them. The context therefore
+        // stays event-CPI-free, so everything emitting through it — including this instruction —
+        // delivers via program logs.
+        emit!(CurserSet {
+            curser: ctx.accounts.config.curser,
+        });
+
+        Ok(())
+    }
+}

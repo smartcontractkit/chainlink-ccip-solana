@@ -1,0 +1,37 @@
+{
+  "address": "9yDw4zo6CxspgkUD5mGcs8LQiKQCZhkZCbaMhKEUHboU",
+  "metadata": {
+    "name": "test_program",
+    "version": "2.0.0",
+    "spec": "0.1.0",
+    "description": "Created with Anchor"
+  },
+  "instructions": [
+    {
+      "name": "emit_ccip_message_sent_v2",
+      "discriminator": [
+        229,
+        29,
+        77,
+        118,
+        109,
+        83,
+        19,
+        30
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "event_authority"
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": []
+    }
+  ]
+}

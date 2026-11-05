@@ -1,0 +1,22 @@
+run:
+  # Upstream chainlink sets 5m, which the CI package load exceeds on this module's
+  # dependency tree (see the Makefile lint targets, which already pass 15m).
+  timeout: 15m
+formatters:
+  settings:
+    gci:
+      sections:
+        # Appended after upstream's sections (custom-order) so this module's
+        # own imports form the trailing group.
+        - prefix(github.com/smartcontractkit/chainlink-ccip-solana)
+linters:
+  exclusions:
+    rules:
+      # TODO: drop once paralleltest is satisfied (add t.Parallel() where valid,
+      # nolint:paralleltest for the goleak tests that must run serially).
+      - linters: [paralleltest]
+        path: .*
+      # This repo legitimately imports chainlink-solana; upstream denies it in
+      # both depguard and gomodguard (reported as gomodguard_v2 in v2 configs).
+      - linters: [depguard, gomodguard_v2]
+        text: chainlink-solana

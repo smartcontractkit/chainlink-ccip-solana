@@ -1,0 +1,46 @@
+# Example complete CCV attach configuration for the deployed private-staging
+# environment. Copy this to env-private-staging.deployed.toml and replace the
+# sensitive address and RPC markers. Deployed config files are gitignored.
+
+[cldf]
+# Paste the complete address_refs.json array between the single quotes.
+# literal strings preserve the JSON double quotes without additional escaping.
+addresses = ['<REPLACE_WITH_ADDRESS_REFS_JSON_ARRAY>']
+
+# ethereum-testnet-sepolia (16015286601757825753)
+[[blockchains]]
+container_name = "ethereum-sepolia"
+chain_id = "11155111"
+type = "anvil"
+
+[blockchains.out]
+type = "anvil"
+use_cache = true
+chain_id = "11155111"
+family = "evm"
+container_name = "ethereum-sepolia"
+
+[[blockchains.out.nodes]]
+http_url = "<REPLACE_WITH_EVM_HTTP_URL>"
+internal_http_url = "<REPLACE_WITH_EVM_HTTP_URL>"
+ws_url = "<REPLACE_WITH_EVM_WS_URL>"
+internal_ws_url = "<REPLACE_WITH_EVM_WS_URL>"
+
+# solana-devnet (16423721717087811551)
+[[blockchains]]
+container_name = "solana-devnet"
+chain_id = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
+type = "solana"
+
+[blockchains.out]
+type = "solana"
+use_cache = true
+chain_id = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
+family = "solana"
+container_name = "solana-devnet"
+
+[[blockchains.out.nodes]]
+http_url = "<REPLACE_WITH_SOLANA_HTTP_URL>"
+internal_http_url = "<REPLACE_WITH_SOLANA_HTTP_URL>"
+ws_url = "<REPLACE_WITH_SOLANA_WS_URL>"
+internal_ws_url = "<REPLACE_WITH_SOLANA_WS_URL>"

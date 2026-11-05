@@ -1,0 +1,795 @@
+{
+  "address": "Ccip842gzYHhvdDkSyi2YVCoAWPbYJoApMFzSxQroE9C",
+  "metadata": {
+    "name": "ccip_common",
+    "version": "2.0.0",
+    "spec": "0.1.0"
+  },
+  "instructions": [
+    {
+      "name": "resolve_accounts_start",
+      "discriminator": [
+        195,
+        88,
+        233,
+        63,
+        16,
+        50,
+        55,
+        52
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "docs": [
+            "This here is only used to generate common bindings, though each contract will define its own context."
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "_params",
+          "type": {
+            "defined": {
+              "name": "ResolveAccountsParams"
+            }
+          }
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "ResolveAccountsResponse"
+        }
+      }
+    }
+  ],
+  "events": [
+    {
+      "name": "IdlBuildTypeExport",
+      "discriminator": [
+        116,
+        138,
+        204,
+        211,
+        57,
+        158,
+        245,
+        116
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 10000,
+      "name": "InvalidSequenceInterval",
+      "msg": "The given sequence interval is invalid"
+    },
+    {
+      "code": 10001,
+      "name": "InvalidInputsPoolAccounts",
+      "msg": "Invalid pool accounts"
+    },
+    {
+      "code": 10002,
+      "name": "InvalidInputsTokenAccounts",
+      "msg": "Invalid token accounts"
+    },
+    {
+      "code": 10003,
+      "name": "InvalidInputsTokenAdminRegistryAccounts",
+      "msg": "Invalid Token Admin Registry account"
+    },
+    {
+      "code": 10004,
+      "name": "InvalidInputsLookupTableAccounts",
+      "msg": "Invalid LookupTable account"
+    },
+    {
+      "code": 10005,
+      "name": "InvalidInputsLookupTableAccountWritable",
+      "msg": "Invalid LookupTable account writable access"
+    },
+    {
+      "code": 10006,
+      "name": "InvalidInputsPoolSignerAccounts",
+      "msg": "Invalid pool signer account"
+    },
+    {
+      "code": 10007,
+      "name": "InvalidChainFamilySelector",
+      "msg": "Invalid chain family selector"
+    },
+    {
+      "code": 10008,
+      "name": "InvalidEncoding",
+      "msg": "Invalid encoding"
+    },
+    {
+      "code": 10009,
+      "name": "InvalidEVMAddress",
+      "msg": "Invalid EVM address"
+    },
+    {
+      "code": 10010,
+      "name": "InvalidSVMAddress",
+      "msg": "Invalid SVM address"
+    },
+    {
+      "code": 10011,
+      "name": "InvalidTVMAddress",
+      "msg": "Invalid TVM address"
+    },
+    {
+      "code": 10012,
+      "name": "InvalidAptosAddress",
+      "msg": "Invalid Aptos address"
+    },
+    {
+      "code": 10013,
+      "name": "InvalidSuiAddress",
+      "msg": "Invalid Sui address"
+    },
+    {
+      "code": 10014,
+      "name": "MessageDecodingError",
+      "msg": "Message decoding error"
+    },
+    {
+      "code": 10015,
+      "name": "InvalidResolutionInstructionData",
+      "msg": "Invalid instruction data for account resolution"
+    },
+    {
+      "code": 10016,
+      "name": "InvalidResolutionMetadata",
+      "msg": "Invalid metadata for account resolution"
+    },
+    {
+      "code": 10017,
+      "name": "InvalidNestedResolutionSigner",
+      "msg": "Unexpected signer in nested account resolution response"
+    },
+    {
+      "code": 10018,
+      "name": "AccountListLengthOverflow",
+      "msg": "Account list length overflow"
+    },
+    {
+      "code": 10019,
+      "name": "InvalidCodeVersion",
+      "msg": "Invalid code version"
+    },
+    {
+      "code": 10020,
+      "name": "InvalidPoolInterfaceVersion",
+      "msg": "Invalid pool interface version"
+    },
+    {
+      "code": 10021,
+      "name": "InvalidProtocolAmount",
+      "msg": "Invalid ProtocolAmount"
+    },
+    {
+      "code": 10022,
+      "name": "MissingCpiReturnData",
+      "msg": "MissingCpiReturnData"
+    },
+    {
+      "code": 10023,
+      "name": "InvalidCpiReturnProgram",
+      "msg": "InvalidCpiReturnProgram"
+    },
+    {
+      "code": 10024,
+      "name": "InvalidCpiTargetProgram",
+      "msg": "CPI target program does not match the expected program"
+    },
+    {
+      "code": 10025,
+      "name": "InvalidAccountListLengths",
+      "msg": "InvalidAccountListLengths"
+    },
+    {
+      "code": 10026,
+      "name": "InvalidAccountVersion",
+      "msg": "Invalid Account version"
+    },
+    {
+      "code": 10027,
+      "name": "InvalidAccountData",
+      "msg": "Invalid Account data"
+    },
+    {
+      "code": 10028,
+      "name": "InvalidReceiverVersion",
+      "msg": "Invalid receiver version"
+    },
+    {
+      "code": 10029,
+      "name": "InvalidReceiverRegistry",
+      "msg": "Invalid receiver registry account"
+    },
+    {
+      "code": 10030,
+      "name": "InvalidUsdConversion",
+      "msg": "Invalid USD value conversion"
+    },
+    {
+      "code": 10031,
+      "name": "ResolutionPageCapacityExhausted",
+      "msg": "Account resolution response is too full to paginate"
+    },
+    {
+      "code": 10032,
+      "name": "TooManyCcvs",
+      "msg": "Message requires more CCVs than account resolution can describe"
+    }
+  ],
+  "types": [
+    {
+      "name": "CcipAccountMeta",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pubkey",
+            "type": "pubkey"
+          },
+          {
+            "name": "is_signer",
+            "type": "bool"
+          },
+          {
+            "name": "is_writable",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CrossChainGas",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          "u32"
+        ]
+      }
+    },
+    {
+      "name": "FinalityConfig",
+      "docs": [
+        "Per-message finality configuration. Wire-format: 4 bytes big-endian (flags || block_depth).",
+        "Mirrors the `bytes4` Finality type in chainlink-ccv's `protocol/finality.go`.",
+        "",
+        "Layout (MSB first):",
+        "flags[15:1]  — reserved",
+        "flags[0]     — S: wait for `safe` head instead of full finality",
+        "block_depth  — number of block confirmations required (0 = full finality / safe, per flags)"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "flags",
+            "type": "u16"
+          },
+          {
+            "name": "block_depth",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GenericExtraArgsV2",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "gas_limit",
+            "type": "u128"
+          },
+          {
+            "name": "allow_out_of_order_execution",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GenericExtraArgsV3",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "gas_limit",
+            "type": {
+              "defined": {
+                "name": "CrossChainGas"
+              }
+            }
+          },
+          {
+            "name": "finality",
+            "type": {
+              "defined": {
+                "name": "FinalityConfig"
+              }
+            }
+          },
+          {
+            "name": "ccvs",
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "ccv_args",
+            "type": {
+              "vec": "bytes"
+            }
+          },
+          {
+            "name": "executor",
+            "type": "pubkey"
+          },
+          {
+            "name": "executor_args",
+            "type": "bytes"
+          },
+          {
+            "name": "token_receiver",
+            "type": "bytes"
+          },
+          {
+            "name": "token_args",
+            "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "IdlBuildTypeExport",
+      "docs": [
+        "Anchor 0.32 only includes types in the IDL when they are referenced by an instruction",
+        "argument, an #[account] context, or an #[event] struct. Types that are deserialized from",
+        "raw bytes at runtime (not part of any instruction signature) would be missing from the IDL",
+        "and Go bindings. This cfg-guarded event forces Anchor to include those types. It is never",
+        "emitted at runtime — it only exists during `anchor idl build`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "token_admin_registry",
+            "type": {
+              "defined": {
+                "name": "TokenAdminRegistry"
+              }
+            }
+          },
+          {
+            "name": "receiver_registry",
+            "type": {
+              "defined": {
+                "name": "ReceiverRegistry"
+              }
+            }
+          },
+          {
+            "name": "ccip_account_meta",
+            "type": {
+              "defined": {
+                "name": "CcipAccountMeta"
+              }
+            }
+          },
+          {
+            "name": "resolve_accounts_params",
+            "type": {
+              "defined": {
+                "name": "ResolveAccountsParams"
+              }
+            }
+          },
+          {
+            "name": "resolve_accounts_response",
+            "type": {
+              "defined": {
+                "name": "ResolveAccountsResponse"
+              }
+            }
+          },
+          {
+            "name": "svm_dest_blob",
+            "type": {
+              "defined": {
+                "name": "SVMDestBlob"
+              }
+            }
+          },
+          {
+            "name": "generic_extra_args_v3",
+            "type": {
+              "defined": {
+                "name": "GenericExtraArgsV3"
+              }
+            }
+          },
+          {
+            "name": "generic_extra_args_v2",
+            "type": {
+              "defined": {
+                "name": "GenericExtraArgsV2"
+              }
+            }
+          },
+          {
+            "name": "svm_extra_args_v1",
+            "type": {
+              "defined": {
+                "name": "SVMExtraArgsV1"
+              }
+            }
+          },
+          {
+            "name": "sui_extra_args_v1",
+            "type": {
+              "defined": {
+                "name": "SuiExtraArgsV1"
+              }
+            }
+          },
+          {
+            "name": "usd_18_decimals",
+            "type": {
+              "defined": {
+                "name": "Usd18Decimals"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ReceiverRegistry",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "version",
+            "type": "u8"
+          },
+          {
+            "name": "receiver_program",
+            "type": "pubkey"
+          },
+          {
+            "name": "receiver_version",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ResolutionType",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "NoResolution"
+          },
+          {
+            "name": "Standard"
+          },
+          {
+            "name": "WithoutExtendedLookupTable"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ResolveAccountsParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "caller",
+            "docs": [
+              "The account expected to sign the final instruction being resolved."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "ix_data",
+            "docs": [
+              "Borsh-encoded final instruction data, including its 8-byte",
+              "Anchor discriminator prefix.",
+              "",
+              "IMPORTANT: For CPI instructions, it's possible the entire `ix_data` cannot",
+              "be known at the point of account resolution. This is common in cases where",
+              "part of the input to the CPI will be determined dynamically when executing the",
+              "parent instruction. In those cases, `ix_data` must contain a best-effort",
+              "approximation of the final instruction data, with those fields that are impossible",
+              "to know ahead of time swapped with defaults, dummies or other context-appropriate",
+              "values. In these cases, the resolver must take care not to rely on those dummy",
+              "values to generate a valid list of accounts. An example of this pattern is",
+              "CCVs receiving a `message_id` as part of their `ix_data`. The `message_id` cannot",
+              "be known until execution time, so the value must be ignored by the `CCV` resolver."
+            ],
+            "type": "bytes"
+          },
+          {
+            "name": "metadata",
+            "docs": [
+              "Opaque Borsh-encoded metadata forwarded from the previous stage.",
+              "Must be empty on the first call."
+            ],
+            "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ResolveAccountsResponse",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "ask_again_with",
+            "docs": [
+              "In the next resolution round, call the resolution method",
+              "including these accounts (all read-only)."
+            ],
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "accounts_to_save",
+            "docs": [
+              "Append these accounts to a separate accumulator list. Once",
+              "`next_ix_discriminator` is empty, this accumulated list",
+              "contains all accounts for the instruction of interest."
+            ],
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "CcipAccountMeta"
+                }
+              }
+            }
+          },
+          {
+            "name": "lookup_tables_to_save",
+            "docs": [
+              "Append these lookup tables to a separate accumulator list.",
+              "Once resolution is complete, the accumulated list contains all",
+              "LUTs that the instruction of interest can use."
+            ],
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "next_ix_discriminator",
+            "docs": [
+              "Identifies the next resolution stage. If None, resolution is",
+              "complete."
+            ],
+            "type": {
+              "option": {
+                "array": [
+                  "u8",
+                  8
+                ]
+              }
+            }
+          },
+          {
+            "name": "metadata",
+            "docs": [
+              "Metadata required for the next resolution stage. In some cases, it",
+              "may be an input to the final instruction as well."
+            ],
+            "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SVMDestBlob",
+      "docs": [
+        "CCIP 2.0 cross-chain DestBlob when SVM is the destination. Can be borsh-encoded or",
+        "`abi.encodePacked`-encoded. The destBlob is equal to the executorArgs."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "use_ata",
+            "type": {
+              "defined": {
+                "name": "SVMTokenReceiverUsage"
+              }
+            }
+          },
+          {
+            "name": "account_is_writable_bitmap",
+            "type": "u64"
+          },
+          {
+            "name": "accounts",
+            "type": {
+              "vec": "pubkey"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "SVMExtraArgsV1",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "compute_units",
+            "type": "u32"
+          },
+          {
+            "name": "account_is_writable_bitmap",
+            "type": "u64"
+          },
+          {
+            "name": "allow_out_of_order_execution",
+            "type": "bool"
+          },
+          {
+            "name": "token_receiver",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "accounts",
+            "type": {
+              "vec": {
+                "array": [
+                  "u8",
+                  32
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "SVMTokenReceiverUsage",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "DeriveAtaAndCreate"
+          },
+          {
+            "name": "DeriveAtaDontCreate"
+          },
+          {
+            "name": "UseAsIs"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SuiExtraArgsV1",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "gas_limit",
+            "type": "u128"
+          },
+          {
+            "name": "allow_out_of_order_execution",
+            "type": "bool"
+          },
+          {
+            "name": "token_receiver",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "receiver_object_ids",
+            "type": {
+              "vec": {
+                "array": [
+                  "u8",
+                  32
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "TokenAdminRegistry",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "version",
+            "type": "u8"
+          },
+          {
+            "name": "administrator",
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_administrator",
+            "type": "pubkey"
+          },
+          {
+            "name": "lookup_table",
+            "type": "pubkey"
+          },
+          {
+            "name": "writable_indexes",
+            "type": {
+              "array": [
+                "u128",
+                2
+              ]
+            }
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "account_resolution",
+            "type": {
+              "defined": {
+                "name": "ResolutionType"
+              }
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "interface_version",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Usd18Decimals",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "array": [
+              "u128",
+              2
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

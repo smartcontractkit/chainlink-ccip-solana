@@ -1,0 +1,209 @@
+name: Load Test (Deployed Env)
+
+# Load tests against an already deployed environment: private staging, prod-testnet,
+# prod-mainnet, etc. Materializes a complete CCV attach config from the
+# DEPLOYED_ENV_CONFIG repo secret and runs both load directions sequentially.
+# Informational only, never required for branch protection.
+#
+# Pull requests select an environment through an allowlisted
+# `load-test:<environment>` label, currently `load-test:private-staging`.
+#
+# This workflow reuses the same repo secrets as smoke-deployed-env.yml:
+#   - DEPLOYED_ENV_CONFIG_<ENV>: the environment manifest, the same one the deployed smoke tests use.
+#   - E2E_EVM_PRIVATE_KEY: funded EVM key (raw hex), shared by all environments
+#   - E2E_SOLANA_PRIVATE_KEY: funded Solana key (base58), shared by all environments
+# <ENV> is the target_environment value, for example PRIVATE_STAGING.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        description: "Deployed environment; selects the DEPLOYED_ENV_CONFIG_<ENV> repo secret"
+        type: choice
+        required: true
+        options:
+          - PRIVATE_STAGING
+      LOAD_TEST_RPS:
+        description: "Requests per second (default: 1)"
+        type: string
+        required: false
+        default: ""
+      LOAD_TEST_DURATION:
+        description: "Load duration, e.g. 30s, 1m, 2m (default: 30s)"
+        type: string
+        required: false
+        default: ""
+      LOAD_TEST_MSG_SIZE:
+        description: "Message size in bytes for EVM->Solana (default: 0), this is used to trigger large payload handling in Solana, disabled by default"
+        type: string
+        required: false
+        default: ""
+      LOAD_TEST_POOL_SIZE:
+        description: "Solana Signer pool size (default: 3)"
+        type: string
+        required: false
+        default: ""
+      LOAD_TEST_FIRE_AND_FORGET:
+        description: "EVM->Solana: submit txs without waiting for confirmation, true/false (default: true)"
+        type: string
+        required: false
+        default: ""
+      LOAD_TEST_SEND_INTERVAL:
+        description: "Fixed interval between sends, e.g. 30s; overrides RPS when set (default: disabled)"
+        type: string
+        required: false
+        default: ""
+      LOAD_TEST_TIMEOUT_MINUTES:
+        description: "Job timeout in minutes — the only timeout ceiling (go test panic timeout is disabled); both directions run in parallel (default: 30, GitHub-hosted cap: 360)"
+        type: string
+        required: false
+        default: ""
+  pull_request:
+    types: [opened, reopened, labeled, synchronize]
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+jobs:
+  load-test:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'load-test:private-staging') &&
+       !github.event.pull_request.head.repo.fork)
+    name: load-test (${{ matrix.target_environment }})
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ fromJSON(inputs.LOAD_TEST_TIMEOUT_MINUTES || vars.LOAD_TEST_TIMEOUT_MINUTES || '25') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target_environment:
+          - ${{ inputs.target_environment || 'PRIVATE_STAGING' }}
+    concurrency:
+      # Serialize staging load runs to avoid overlapping sends on shared keys.
+      # Also coordinates with smoke-deployed-env by sharing the environment-scoped
+      # sender key; both workflows should not run simultaneously on the same env.
+      group: load-test-deployed-env-${{ matrix.target_environment }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4.1.2
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID_CI }}
+          audience: ${{ secrets.TS_AUDIENCE_CI }}
+          tags: tag:chainlink-ccip-solana-gha
+
+      - name: Install Go
+        uses: smartcontractkit/.github/actions/setup-golang@setup-golang/v1
+        with:
+          go-version-file: go.mod
+          go-cache-dep-path: go.sum
+          skip-cache-save: ${{ github.event_name != 'push' }}
+
+      - name: Download Go dependencies
+        run: go mod download
+
+      - name: Materialize deployed environment config
+        env:
+          DEPLOYED_ENV_CONFIG: ${{ secrets[format('DEPLOYED_ENV_CONFIG_{0}', matrix.target_environment)] }}
+        run: |
+          set -eu
+          test -n "$DEPLOYED_ENV_CONFIG"
+          umask 077
+          printf '%s' "$DEPLOYED_ENV_CONFIG" > "$RUNNER_TEMP/env-${{ matrix.target_environment }}.deployed.toml"
+
+      # Both directions run concurrently on the same deployed environment.
+      - name: Run load tests (both directions in parallel)
+        id: load_tests
+        env:
+          LOAD_TEST_OUT_FILE: ${{ runner.temp }}/env-${{ matrix.target_environment }}.deployed.toml
+          # avalanche-testnet-fuji
+          TARGET_EVM_SELECTOR: '14767482510784806043'
+          LOAD_TEST_METRICS_DIR: ${{ runner.temp }}
+          LOAD_TEST_RPS: ${{ inputs.LOAD_TEST_RPS || vars.LOAD_TEST_RPS }}
+          LOAD_TEST_DURATION: ${{ inputs.LOAD_TEST_DURATION || vars.LOAD_TEST_DURATION }}
+          LOAD_TEST_POOL_SIZE: ${{ inputs.LOAD_TEST_POOL_SIZE || vars.LOAD_TEST_POOL_SIZE }}
+          LOAD_TEST_SEND_INTERVAL: ${{ inputs.LOAD_TEST_SEND_INTERVAL || vars.LOAD_TEST_SEND_INTERVAL }}
+          LOAD_TEST_MSG_SIZE: ${{ inputs.LOAD_TEST_MSG_SIZE || vars.LOAD_TEST_MSG_SIZE }}
+          LOAD_TEST_FIRE_AND_FORGET: ${{ inputs.LOAD_TEST_FIRE_AND_FORGET || vars.LOAD_TEST_FIRE_AND_FORGET }}
+          PRIVATE_KEY: ${{ secrets.E2E_EVM_PRIVATE_KEY }}
+          SOLANA_PRIVATE_KEY: ${{ secrets.E2E_SOLANA_PRIVATE_KEY }}
+        run: |
+          run_one() {
+            go test -v -timeout 0 -count=1 -run "$1" ./devenv/tests/load > "$RUNNER_TEMP/$1.log" 2>&1
+          }
+          run_one TestEVM2SolanaLoad & pid_evm2sol=$!
+          run_one TestSolana2EVMLoad & pid_sol2evm=$!
+          rc_evm2sol=0; rc_sol2evm=0
+          wait "$pid_evm2sol" || rc_evm2sol=$?
+          wait "$pid_sol2evm" || rc_sol2evm=$?
+          echo "::group::TestEVM2SolanaLoad output"; cat "$RUNNER_TEMP/TestEVM2SolanaLoad.log"; echo "::endgroup::"
+          echo "::group::TestSolana2EVMLoad output"; cat "$RUNNER_TEMP/TestSolana2EVMLoad.log"; echo "::endgroup::"
+          if [ "$rc_evm2sol" -eq 0 ]; then echo "evm2sol_outcome=success" >> "$GITHUB_OUTPUT"; else echo "evm2sol_outcome=failure" >> "$GITHUB_OUTPUT"; fi
+          if [ "$rc_sol2evm" -eq 0 ]; then echo "sol2evm_outcome=success" >> "$GITHUB_OUTPUT"; else echo "sol2evm_outcome=failure" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Publish load metrics summary
+        if: always()
+        shell: bash
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          chmod +x .github/scripts/render-load-metrics.sh
+          .github/scripts/render-load-metrics.sh \
+            "${{ runner.temp }}" \
+            "staging" \
+            "$RUN_URL" \
+            "${{ matrix.target_environment }}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload load metrics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ccip-load-metrics-staging
+          path: ${{ runner.temp }}/load-metrics-*.json
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Remove deployed environment config
+        if: always()
+        run: rm -f "$RUNNER_TEMP/env-${{ matrix.target_environment }}.deployed.toml"
+
+      - name: Prepare PR comment body
+        if: always() && github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          chmod +x .github/scripts/render-load-metrics.sh
+          .github/scripts/render-load-metrics.sh \
+            "${{ runner.temp }}" \
+            "staging" \
+            "$RUN_URL" \
+            "${{ matrix.target_environment }}" > load-results-comment.md
+
+      - name: Find existing load results comment
+        if: always() && github.event_name == 'pull_request'
+        id: find_load_comment
+        uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4.0.0
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: github-actions[bot]
+          body-includes: "## CCIP Load Test Results"
+
+      - name: Update PR with load results
+        if: always() && github.event_name == 'pull_request'
+        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
+        with:
+          comment-id: ${{ steps.find_load_comment.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          edit-mode: replace
+          body-path: load-results-comment.md
+
+      - name: Check test results
+        if: always() && (steps.load_tests.outputs.evm2sol_outcome == 'failure' || steps.load_tests.outputs.sol2evm_outcome == 'failure')
+        shell: bash
+        run: |
+          echo "One or more load tests failed."
+          exit 1

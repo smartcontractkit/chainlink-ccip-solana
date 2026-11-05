@@ -1,0 +1,193 @@
+name: Auto-bump pinned ccv
+
+# Daily PR that bumps `scripts/ci/ccv-ref.yaml` (+ regenerated go.mod/go.sum)
+# whenever upstream `main` has moved past the currently-pinned SHA.
+#
+# See scripts/ci/README.md for detailed mechanics and architecture
+
+on:
+  schedule:
+    - cron: "0 7 * * *"   # daily 07:00 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: auto-bump-ccv
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read           # gh pr list (manual commit guard comment lookup)
+  id-token: write         # setup-github-token assumes the GATI AWS role via OIDC
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Read current CCV references
+        id: refs
+        run: ./scripts/ci/ccv-ref.sh read pinned module tracking
+
+      - name: Check upstream for updates
+        id: check
+        env:
+          PINNED: ${{ steps.refs.outputs.pinned }}
+          MODULE: ${{ steps.refs.outputs.module }}
+          TRACKING: ${{ steps.refs.outputs.tracking }}
+        run: ./scripts/ci/ci-helpers.sh check-upstream
+
+      # ----- manual commit guard (early so we can skip the expensive repin) -----
+
+      - name: Guard against manual commits
+        if: steps.check.outputs.needs_bump == 'true'
+        id: manual-commit-guard
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/ci/ci-helpers.sh manual-commit-guard auto/bump-ccv-pinned
+
+      - name: Evaluate bump decision
+        id: decision
+        run: |
+          echo "bump=${{ steps.check.outputs.needs_bump == 'true' && steps.manual-commit-guard.outputs.should_skip != 'true' }}" >> "$GITHUB_OUTPUT"
+          echo "skip=${{ steps.check.outputs.needs_bump == 'true' && steps.manual-commit-guard.outputs.should_skip == 'true' }}" >> "$GITHUB_OUTPUT"
+
+      - name: Find existing guard comment
+        if: steps.decision.outputs.skip == 'true'
+        id: find-comment
+        uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4.0.0
+        with:
+          issue-number: ${{ steps.manual-commit-guard.outputs.pr_number }}
+          comment-author: github-actions[bot]
+          body-includes: "force-push to preserve in-progress work"
+
+      - name: Update PR with guard notice
+        if: steps.decision.outputs.skip == 'true'
+        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
+        with:
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+          issue-number: ${{ steps.manual-commit-guard.outputs.pr_number }}
+          edit-mode: replace
+          body: |
+            <!-- manual-commit-guard -->
+            ⚠️ Detected non-bot commit(s) on `auto/bump-ccv-pinned`. Skipping force-push to preserve in-progress work. The daily auto-bump resumes the morning after this PR is merged or closed.
+
+      - name: Log skip warning
+        if: steps.decision.outputs.skip == 'true'
+        run: echo "::warning::manual (non-bot) commits detected on auto/bump-ccv-pinned — skipping force-push"
+
+      # ----- bump path: only when no human commits to preserve -----
+
+      - name: Setup Go environment
+        if: steps.decision.outputs.bump == 'true'
+        uses: actions/setup-go@v6
+        with:
+          cache: true
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Update pinned CCV and regenerate code
+        if: steps.decision.outputs.bump == 'true'
+        id: pin
+        continue-on-error: true # We push even on failure to surface breaking changes in the PR CI
+        env:
+          REF: ${{ steps.check.outputs.latest_sha }}
+        run: make pin-ccv-all REF="$REF"
+
+      - name: Generate changelog fragments
+        if: steps.decision.outputs.bump == 'true'
+        id: changelog
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MODULE: ${{ steps.refs.outputs.module }}
+          PINNED: ${{ steps.refs.outputs.pinned }}
+          LATEST: ${{ steps.check.outputs.latest_sha }}
+        run: ./scripts/ci/ci-helpers.sh changelogs "${MODULE#github.com/}" "$PINNED" "$LATEST" entries
+
+      - name: Setup GATI token for PR push
+        if: steps.decision.outputs.bump == 'true'
+        id: setup-github-token
+        uses: smartcontractkit/.github/actions/setup-github-token@a5300809cd1fd2087eeaab5547af1acb6da1c19d # setup-github-token/1.5.0
+        with:
+          aws-role-arn: ${{ secrets.GATI_AWS_ROLE_CHAINLINK_CCIP_SOLANA_CICD }}
+          aws-lambda-url: ${{ secrets.GATI_AWS_LAMBDA_URL_INTEGRATIONS }}
+          aws-region: ${{ vars.GATI_AWS_REGION }}
+
+      - name: Create or update bump PR
+        if: steps.decision.outputs.bump == 'true'
+        id: open-pr
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ steps.setup-github-token.outputs.access-token }}
+          sign-commits: true
+          branch: auto/bump-ccv-pinned
+          base: main
+          draft: true
+          delete-branch: false
+          commit-message: "chore(deps): bump pinned chainlink-ccv to ${{ steps.check.outputs.latest_short }}"
+          author: "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+          committer: "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+          title: "chore(deps): bump pinned chainlink-ccv to ${{ steps.check.outputs.latest_short }}"
+          body: |
+            Auto-bump: upstream `main` moved past the currently-pinned SHA.
+
+            **CCV diff:** [`${{ steps.refs.outputs.pinned }}` → `${{ steps.check.outputs.latest_sha }}`](${{ steps.check.outputs.compare_url }})
+
+            **New changelog fragments:**
+            ${{ steps.changelog.outputs.entries }}
+
+            Branch is force-pushed on each daily run unless manual (non-bot) commits are detected — in which case the run skips force-push and posts a comment instead.
+          labels: auto-bump
+
+      # ----- failure path cleanup / notification -----
+
+      - name: Find existing failure comment
+        if: steps.decision.outputs.bump == 'true' && steps.open-pr.outputs.pull-request-number != ''
+        id: find-failure-comment
+        uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4.0.0
+        with:
+          issue-number: ${{ steps.open-pr.outputs.pull-request-number }}
+          comment-author: github-actions[bot]
+          body-includes: "auto-pin failed"
+
+      - name: Clear failure notice on success
+        if: steps.decision.outputs.bump == 'true' && steps.pin.outcome == 'success' && steps.find-failure-comment.outputs.comment-id != ''
+        continue-on-error: true # Safe if comment was already manually deleted
+        env:
+          GH_TOKEN: ${{ steps.setup-github-token.outputs.access-token }}
+          COMMENT_ID: ${{ steps.find-failure-comment.outputs.comment-id }}
+        run: gh api -X DELETE "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}"
+
+      - name: Update PR with failure notice
+        if: steps.decision.outputs.bump == 'true' && steps.pin.outcome == 'failure' && steps.open-pr.outputs.pull-request-number != ''
+        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
+        with:
+          comment-id: ${{ steps.find-failure-comment.outputs.comment-id }}
+          issue-number: ${{ steps.open-pr.outputs.pull-request-number }}
+          edit-mode: replace
+          body: |
+            :warning: **Auto-pin failed**
+            The automatic dependency update encountered errors (e.g. breaking changes or `go mod tidy` failure). Manual triage is needed to resolve the conflicts. Check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
+
+      - name: Mark PR ready for review
+        if: steps.decision.outputs.bump == 'true' && steps.pin.outcome == 'success' && steps.open-pr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ steps.setup-github-token.outputs.access-token }}
+          PR_NUMBER: ${{ steps.open-pr.outputs.pull-request-number }}
+        run: gh pr ready "$PR_NUMBER" || true
+
+      - name: Summarize result
+        if: always()
+        run: |
+          if [[ "${{ steps.decision.outputs.skip }}" == "true" ]]; then
+            echo "::notice::Auto-bump skipped: manual commits detected on PR #${{ steps.manual-commit-guard.outputs.pr_number }}"
+          elif [[ "${{ steps.pin.outcome }}" == "failure" ]]; then
+            echo "::error::Auto-bump failed: pinning error detected. Manual triage required."
+            exit 1
+          elif [[ "${{ steps.decision.outputs.bump }}" == "true" ]]; then
+            echo "::notice::Auto-bump successful: PR #${{ steps.open-pr.outputs.pull-request-number }} updated."
+          else
+            echo "::notice::No auto-bump needed: upstream is already in sync."
+          fi

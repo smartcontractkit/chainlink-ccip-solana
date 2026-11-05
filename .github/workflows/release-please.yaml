@@ -1,0 +1,32 @@
+name: Release Please
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Issue GitHub Token
+        id: issue-github-token
+        uses: smartcontractkit/.github/actions/setup-github-token@a5300809cd1fd2087eeaab5547af1acb6da1c19d # setup-github-token/1.5.0
+        with:
+          aws-role-arn: ${{ secrets.GATI_AWS_ROLE_CHAINLINK_CCIP_SOLANA_CICD }}
+          aws-lambda-url: ${{ secrets.GATI_AWS_LAMBDA_URL_INTEGRATIONS }}
+          aws-region: ${{ vars.GATI_AWS_REGION }}
+
+
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ steps.issue-github-token.outputs.access-token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

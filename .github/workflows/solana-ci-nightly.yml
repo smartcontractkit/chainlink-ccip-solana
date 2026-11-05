@@ -1,0 +1,206 @@
+name: Nightly CI
+
+# Informational only — never required for branch protection.
+# Runs devenv e2e against the chainlink-ccv `tracking` ref (typically `main`)
+# to catch upstream breakage early.
+
+on:
+  schedule:
+    - cron: "0 6 * * *"   # daily 06:00 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: solana-ci-nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  resolve-ref:
+    name: Resolve tracking ref
+    runs-on: ubuntu-latest
+    outputs:
+      tracking: ${{ steps.refs.outputs.tracking }}
+      pinned: ${{ steps.refs.outputs.pinned }}
+      module: ${{ steps.refs.outputs.module }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: refs
+        run: ./scripts/ci/ccv-ref.sh read tracking pinned module
+
+  get_anchor_version:
+    name: Get Anchor Version
+    runs-on: ubuntu-latest
+    outputs:
+      anchor_version: ${{ steps.anchorversion.outputs.anchor }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: anchorversion
+        run: |
+          anchor=$(make anchor_version)
+          echo "anchor=${anchor}" >>$GITHUB_OUTPUT
+
+  # Reuse the contracts cache produced by the latest main run; if there is no
+  # entry for this exact key, build fresh. No restore-keys fallback, since a
+  # prefix match could restore artifacts built from other sources or settings.
+  restore-or-build-contracts:
+    needs: [get_anchor_version]
+    name: Restore-or-build contracts
+    runs-on: ubuntu-latest-8cores-32GB
+    outputs:
+      cache_key: ${{ steps.cache_key.outputs.key }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Compute artifact cache key
+        id: cache_key
+        # A hit skips the build, so every build input must be in the key. The
+        # workflows are hashed because they hold the build command and flags.
+        # Keep in sync across solana-ci, solana-ci-nightly and test-load-devenv.
+        run: |
+          KEY="${{ runner.os }}-solana-contract-artifacts-anchor-${{ needs.get_anchor_version.outputs.anchor_version }}-${{ hashFiles('**/Cargo.lock', 'contracts/**/Cargo.toml', 'contracts/Anchor.toml', 'contracts/rust-toolchain*', 'contracts/.cargo/config*', '.github/workflows/**') }}-${{ hashFiles('contracts/programs/**/*.rs', 'contracts/crates/**/*.rs') }}"
+          echo "key=$KEY" >>$GITHUB_OUTPUT
+
+      - name: Cache cargo target dir
+        uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+        with:
+          workspaces: contracts
+
+      - name: Fix cached build script permissions
+        run: find $(pwd)/contracts/target -name 'build-script-build' -exec chmod 755 {} + 2>/dev/null || true
+
+      - name: Restore cached contract artifacts
+        id: cache
+        uses: actions/cache/restore@v5
+        with:
+          # Must match the PR workflow's save path set so nightly can reuse
+          # caches produced by the latest PR/main run — paths are hashed into
+          # the cache fingerprint.
+          path: |
+            contracts/target/deploy/**/*.so
+            contracts/target/idl/**
+            contracts/target/types/**
+          key: ${{ steps.cache_key.outputs.key }}
+
+      # TODO: emit warning annotation if this triggers — means main churn
+      # has invalidated the cache and nightly is paying full build cost.
+      - name: Build contracts (cache cold)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          docker run \
+          -v "$(pwd)/contracts":/contracts \
+          quay.io/ottersec/anchor:${{ needs.get_anchor_version.outputs.anchor_version }} bash -c "\
+            set -eoux pipefail &&\
+            RUSTUP_HOME=\"/root/.rustup\" &&\
+            FORCE_COLOR=1 &&\
+            cd /contracts &&\
+            anchor build --ignore-keys"
+
+      - name: Fix target dir permissions
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo chown -R $USER:$USER $(pwd)/contracts
+          sudo find $(pwd)/contracts -type d -exec chmod 755 {} +
+          sudo find $(pwd)/contracts/target/deploy -type f -exec chmod 644 {} +
+          sudo find $(pwd)/contracts/target/idl -type f -exec chmod 644 {} +
+          sudo find $(pwd)/contracts/target/types -type f -exec chmod 644 {} +
+
+      # Save under the exact key so subsequent nightly runs hit warm.
+      # Only saves if the key wasn't already present (idempotent).
+      - name: Save artifacts to cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            contracts/target/deploy/**/*.so
+            contracts/target/idl/**
+            contracts/target/types/**
+          key: ${{ steps.cache_key.outputs.key }}
+
+  devenv-tracking:
+    needs: [resolve-ref, restore-or-build-contracts]
+    name: Devenv ${{ matrix.suite }} (tracking ccv)
+    runs-on: ubuntu-latest-8cores-32GB
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # Each suite gets its own job with its own timeout budget.
+        include:
+          # E2E runs both directions in one devenv, serially.
+          - suite: smoke
+            test: 'TestEVM2Solana|TestSolana2EVM'
+            package: ./devenv/tests/smoke
+            timeout: 25m
+          - suite: chaos
+            test: 'TestChaos'
+            package: ./devenv/tests/chaos
+            timeout: 15m
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/devenv-test
+        with:
+          artifacts_cache_key: ${{ needs.restore-or-build-contracts.outputs.cache_key }}
+          ccv_ref: ${{ needs.resolve-ref.outputs.tracking }}
+          ccv_iam_role: ${{ secrets.CCV_IAM_ROLE }}
+          jd_registry: ${{ secrets.JD_REGISTRY }}
+          jd_image: ${{ secrets.JD_IMAGE }}
+          suite: ${{ matrix.suite }}
+          test: ${{ matrix.test }}
+          package: ${{ matrix.package }}
+          timeout: ${{ matrix.timeout }}
+
+  # Single aggregation gate so notify / auto-bump see one verdict instead of
+  # each re-deriving it. Skipped counts as pass (matches solana-ci.yml's
+  # ci-result); only failure/cancelled trips the gate. Without this, upstream
+  # skips (e.g. resolve-ref failing before e2e runs) silently suppress the
+  # Slack notify because `devenv-tracking.result` would be 'skipped'.
+  nightly-result:
+    needs:
+      - resolve-ref
+      - get_anchor_version
+      - restore-or-build-contracts
+      - devenv-tracking
+    if: always()
+    name: Nightly Result
+    runs-on: ubuntu-latest
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "::error::nightly: one or more upstream jobs did not succeed"
+          exit 1
+
+  notify:
+    needs: [resolve-ref, nightly-result]
+    if: always() && needs.nightly-result.result == 'failure'
+    name: Notify on tracking failure
+    runs-on: ubuntu-latest
+    steps:
+      - id: compare
+        env:
+          MODULE: ${{ needs.resolve-ref.outputs.module }}
+          PINNED: ${{ needs.resolve-ref.outputs.pinned }}
+          TRACKING: ${{ needs.resolve-ref.outputs.tracking }}
+        run: echo "url=https://github.com/${MODULE#*/}/compare/${PINNED}...${TRACKING}" >> "$GITHUB_OUTPUT"
+
+      # Posts to a Slack Workflow Builder trigger (not a classic incoming webhook).
+      # The message template lives in the Slack workflow; we just supply the
+      # variables it references. Contract: run_url, pinned, tracking, compare_url.
+      - uses: slackapi/slack-github-action@03ea5433c137af7c0495bc0cad1af10403fc800c # v3.0.2
+        with:
+          webhook: ${{ secrets.SLACK_NIGHTLY_WEBHOOK }}
+          webhook-type: webhook-trigger
+          payload: |
+            {
+              "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              "pinned": "${{ needs.resolve-ref.outputs.pinned }}",
+              "tracking": "${{ needs.resolve-ref.outputs.tracking }}",
+              "compare_url": "${{ steps.compare.outputs.url }}"
+            }
+
+  # Success-path auto-bump (open a PR when upstream HEAD moves past pinned) is
+  # owned by auto-bump-ccv.yml (cron + peter-evans/create-pull-request).

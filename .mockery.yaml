@@ -1,0 +1,31 @@
+with-expecter: true
+
+dir: ./internal/mocks
+outpkg: mocks
+
+packages:
+  github.com/smartcontractkit/chainlink-ccip-solana/pkg/logpoller:
+    interfaces:
+      Service:
+      LogCollector:
+
+  github.com/smartcontractkit/chainlink-ccip-solana/pkg/solanarpc:
+    interfaces:
+      AccountReader:
+        config:
+          mockname: MockAccountReader
+          filename: mock_AccountReader.go
+
+  github.com/smartcontractkit/chainlink-ccip-solana/pkg/sourcereader:
+    interfaces:
+      RPCClient:
+        config:
+          mockname: MockSourceReaderRPCClient
+          filename: mock_SourceReaderRPCClient.go
+
+  github.com/smartcontractkit/chainlink-ccip-solana/pkg/destinationreader:
+    interfaces:
+      RPCClient:
+        config:
+          mockname: MockDestinationReaderRPCClient
+          filename: mock_DestinationReaderRPCClient.go

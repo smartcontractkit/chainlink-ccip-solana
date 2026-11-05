@@ -1,0 +1,43 @@
+{
+  "name": "ccip-devnet-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "cli.ts",
+  "scripts": {
+    "cli": "node .",
+    "sync-idls": "node ./scripts/sync-1_6-idls.ts"
+  },
+  "engines": {
+    "node": ">=24.14.0",
+    "npm": ">=11.9.0"
+  },
+  "dependencies": {
+    "@anchor-lang/core": "^1.0.1",
+    "@coral-xyz/anchor": "^0.29.0",
+    "@solana/spl-token": "^0.4.14",
+    "@solana/web3.js": "^1.69.0",
+    "bs58": "^6.0.0",
+    "chalk": "^5.6.2",
+    "cli-table3": "^0.6.5",
+    "commander": "^14.0.3",
+    "csv-parse": "^7.0.3",
+    "csv-stringify": "^6.7.0"
+  },
+  "devDependencies": {
+    "@types/bn.js": "^5.2.0",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.0.0",
+    "typescript": "^6.0.0"
+  },
+  "prettier": {
+    "semi": false,
+    "singleQuote": true,
+    "printWidth": 110,
+    "tabWidth": 2,
+    "trailingComma": "es5"
+  },
+  "overrides": {
+    "toml": "^5.0.1"
+  }
+}

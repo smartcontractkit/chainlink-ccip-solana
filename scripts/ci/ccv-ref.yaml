@@ -1,0 +1,24 @@
+# ccv-ref.yaml
+#
+# Upstream chainlink-ccv dependency tracking
+# - pinned:     commit SHA used by CI to checkout ccv and build Docker images
+# - tracking:   branch name for informational E2E checks (nightly)
+# - module:     root Go module to pin/validate
+# - submodules: additional Go modules under <module>/<path> that must stay
+#               on the same commit (pinned to root pseudo-version)
+#
+# When pinned becomes invalid (e.g., after upstream squash-merge),
+# the required CI check will fail. Repin with: make pin-ccv-all REF=<new-sha>
+
+pinned: 51125e91f2d01d4ad326efa59f8d18beec780862
+tracking: main
+module: github.com/smartcontractkit/chainlink-ccv
+submodules:
+  - build/devenv
+  - deployment
+  # TODO: remove when migration is complete.
+  # integration/evm is pulled in transitively by build/devenv. ccv's own go.mod
+  # files reference it via a local replace (../../integration/evm), which does not
+  # propagate downstream, so without an explicit pin here MVS can select a stale
+  # published version whose imports no longer match the pinned chains/evm.
+  - integration/evm

@@ -1,0 +1,37 @@
+[package]
+name = "committee_verifier"
+version.workspace = true
+description = "CCIP Committee Verifier - Cross-Chain Verifier for CCIP 2.0"
+edition = "2021"
+license = "BUSL-1.1"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "committee_verifier"
+
+[features]
+no-entrypoint = []
+cpi = ["no-entrypoint"]
+default = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build", "ccip_common/idl-build"]
+
+[dependencies]
+anchor-lang = { workspace = true }
+anchor-spl = { workspace = true }
+ccip_common = { path = "../ccip-common" }
+solana-keccak-hasher = { workspace = true }
+solana-secp256k1-recover = { workspace = true }
+solana-security-txt = "1.1.1"
+
+[dev-dependencies]
+k256 = { version = "0.13", features = ["ecdsa"] }
+
+[build-dependencies]
+build_commit = { path = "../../crates/build-commit" }
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("anchor-debug", "custom-panic", "custom-heap", "no-idl", "no-log-ix-name", "idl-build"))',
+]
