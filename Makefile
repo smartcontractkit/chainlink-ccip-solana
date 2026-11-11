@@ -375,7 +375,7 @@ install-golangci-lint:
 # lint-go mirrors CI intent for PR workflows: scan whole files and report
 # only issues introduced since merge-base with origin's default branch.
 lint-go: install-golangci-lint fetch-golangci-config
-	@for dir in $$(find . -name go.mod -exec dirname {} \;); do \
+	@for dir in $$(find . -path ./contracts/target -prune -o -name go.mod -exec dirname {} \;); do \
 		echo "=== Linting $$dir ==="; \
 		base_ref=$$(git merge-base HEAD $$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || echo origin/main)); \
 		(cd $$dir && golangci-lint run --max-issues-per-linter 0 --max-same-issues 0 --color=always --timeout 15m --whole-files --new-from-rev $$base_ref) || exit 1; \
@@ -384,7 +384,7 @@ lint-go: install-golangci-lint fetch-golangci-config
 # scan all Go modules in the repo, ignoring merge-base and reporting all issues
 .PHONY: lint-go-all
 lint-go-all: install-golangci-lint fetch-golangci-config
-	@for dir in $$(find . -name go.mod -exec dirname {} \;); do \
+	@for dir in $$(find . -path ./contracts/target -prune -o -name go.mod -exec dirname {} \;); do \
 		echo "=== Linting $$dir ==="; \
 		(cd $$dir && golangci-lint run --max-issues-per-linter 0 --max-same-issues 0 --color=always --timeout 15m --whole-files) || exit 1; \
 	done
@@ -392,7 +392,7 @@ lint-go-all: install-golangci-lint fetch-golangci-config
 # scan all Go modules in the repo, ignoring merge-base and fixing all fixable issues
 .PHONY: lint-go-fix
 lint-go-fix: install-golangci-lint fetch-golangci-config
-	@for dir in $$(find . -name go.mod -exec dirname {} \;); do \
+	@for dir in $$(find . -path ./contracts/target -prune -o -name go.mod -exec dirname {} \;); do \
 		echo "=== Linting $$dir ==="; \
 		(cd $$dir && golangci-lint run --max-issues-per-linter 0 --max-same-issues 0 --color=always --timeout 15m --whole-files --verbose --fix) || exit 1; \
 	done
