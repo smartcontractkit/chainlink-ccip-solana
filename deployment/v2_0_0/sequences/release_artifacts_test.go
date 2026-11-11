@@ -32,3 +32,17 @@ func TestVerifyReleaseArtifacts(t *testing.T) {
 	require.ErrorContains(t, verifyReleaseArtifacts("contracts/v2.0.1")(writeRelease(t, "contracts/v2.0.1", bin, hex.EncodeToString(make([]byte, 32)))), "does not match")
 	require.ErrorContains(t, verifyReleaseArtifacts("contracts/v2.0.1")(t.TempDir()), "missing")
 }
+
+func TestRemoveStaleReleaseArtifacts(t *testing.T) {
+	dir := t.TempDir()
+	for _, n := range []string{"old.so", "old.json", "provenance.json", "fee_quoter-keypair.json", "notes.txt"} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, n), []byte("x"), 0o600))
+	}
+	require.NoError(t, removeStaleReleaseArtifacts(dir))
+	for _, gone := range []string{"old.so", "old.json", "provenance.json"} {
+		require.NoFileExists(t, filepath.Join(dir, gone))
+	}
+	require.FileExists(t, filepath.Join(dir, "fee_quoter-keypair.json"))
+	require.FileExists(t, filepath.Join(dir, "notes.txt"))
+	require.NoError(t, removeStaleReleaseArtifacts(filepath.Join(dir, "missing")))
+}
