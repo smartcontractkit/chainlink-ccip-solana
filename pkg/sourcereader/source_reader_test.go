@@ -15,7 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/rmn_remote"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccip-solana/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccip-solana/pkg/logpoller"
 )

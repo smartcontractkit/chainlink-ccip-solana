@@ -9,7 +9,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
 	ccipdeploymentv2adapters "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
 
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/fee_quoter"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/fee_quoter"
 )
 
 func coalesce[T any](p *T, def T) T {

@@ -13,7 +13,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/ccip_common"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/ccip_common"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/tests/config"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/tests/testutils/eth"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/ccip"

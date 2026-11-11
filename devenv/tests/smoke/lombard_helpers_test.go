@@ -30,7 +30,7 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/mock_lombard_mailbox"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/mock_lombard_mailbox"
 	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/solcommon"
 	soldevenv "github.com/smartcontractkit/chainlink-ccip-solana/devenv"
 )

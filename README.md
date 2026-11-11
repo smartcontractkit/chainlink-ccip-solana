@@ -6,7 +6,7 @@
     `suffix-eater-allocator`, `probing-bump-allocator`) and `allocator-demo`, a standalone
     demo of the allocator
   - `tests/` - Go integration tests (CCIP, CCTP, examples, test utilities)
-  - `gobindings/` - Auto-generated Go bindings for contracts using `anchor-go`
+  - `gobindings/v2/` - Auto-generated Go bindings for contracts using `anchor-go` (Go module `…/contracts/gobindings/v2`, versioned with the contracts)
   - `utils/` - Go utility packages (ccip, common, eth, fees, state, tokens)
   - `target/` - Build output (IDLs, types, deployed artifacts, vendor)
 - `pkg/` - Go packages (devenv)

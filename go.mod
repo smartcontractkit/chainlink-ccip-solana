@@ -4,7 +4,7 @@ go 1.26.10
 
 replace (
 	github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlink-tron/relayer/gotron-sdk v0.0.5-0.20251014124537-af6b1684fe15
-	github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings => ./contracts/gobindings
+	github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2 => ./contracts/gobindings/v2
 	github.com/smartcontractkit/chainlink-ccip-solana/deployment => ./deployment
 	github.com/ugorji/go/codec => github.com/ugorji/go/codec v1.2.12
 )
@@ -25,7 +25,7 @@ require (
 	github.com/rs/zerolog v1.35.1
 	github.com/smartcontractkit/anchor-go v1.0.0
 	github.com/smartcontractkit/chain-selectors v1.0.113-0.20261008145209-9a0d5970fd1e
-	github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings v0.0.0-00010101000000-000000000000
+	github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2 v2.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-ccip-solana/deployment v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-ccip/chains/evm v0.0.0-20261105144145-1386a22b82fb
 	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20261105144145-1386a22b82fb

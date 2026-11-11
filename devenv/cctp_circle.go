@@ -9,8 +9,8 @@ import (
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 
-	message_transmitter_v2 "github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/cctp_message_transmitter_v2"
-	token_messenger_minter_v2 "github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/cctp_token_messenger_minter_v2"
+	message_transmitter_v2 "github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/cctp_message_transmitter_v2"
+	token_messenger_minter_v2 "github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/cctp_token_messenger_minter_v2"
 	utilscctp "github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/cctp"
 	soltokens "github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/tokens"
 )

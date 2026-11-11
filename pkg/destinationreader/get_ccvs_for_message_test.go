@@ -16,8 +16,8 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/ccip_common"
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/ccip_offramp"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/ccip_common"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/ccip_offramp"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/common"
 )
 

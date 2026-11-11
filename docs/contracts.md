@@ -397,7 +397,7 @@ CCIP 1.6 has run on Solana for over a year. The migration is designed so both ve
 | PDA seeds | `contracts/programs/ccip-common/src/seed.rs` |
 | Pool interface discriminators | `contracts/programs/base-token-pool/src/constants.rs` |
 | Protocol invariants | `contracts/invariants/` |
-| Generated bindings | `contracts/gobindings/` |
+| Generated bindings | `contracts/gobindings/v2/` (module `…/contracts/gobindings/v2`) |
 
 **Invariants are the best entry point for reviewers.** CCIP v2 defines a numbered set of chain-agnostic invariants that must hold in every implementation; they capture and justify several subtle decisions and should be treated as ground truth. The base set lives in [chainlink-ccip](https://github.com/smartcontractkit/chainlink-ccip/tree/main/chains/evm/contracts/invariants/), and the Solana-specific deviations and additions are in [`contracts/invariants/`](../contracts/invariants/README.md), split by topic.
 

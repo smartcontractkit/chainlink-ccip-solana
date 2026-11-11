@@ -2,7 +2,7 @@ FROM golang:1.26.10-alpine AS builder
 WORKDIR /build
 
 COPY go.mod go.sum ./
-COPY contracts/gobindings/go.mod contracts/gobindings/go.sum contracts/gobindings/
+COPY contracts/gobindings/v2/go.mod contracts/gobindings/v2/go.sum contracts/gobindings/v2/
 # Root go.mod replaces this module with ./deployment; it is not published as its own GitHub module.
 # Copy it before go mod download so we never fetch github.com/.../deployment (which fails in Docker).
 COPY deployment/ ./deployment/

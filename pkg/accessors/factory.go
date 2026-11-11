@@ -19,7 +19,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 	solconfig "github.com/smartcontractkit/chainlink-solana/pkg/solana/config"
 
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/ccip_offramp"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/ccip_offramp"
 	"github.com/smartcontractkit/chainlink-ccip-solana/pkg/chainselector"
 	ccip "github.com/smartcontractkit/chainlink-ccip-solana/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccip-solana/pkg/destinationreader"

@@ -1,4 +1,4 @@
-module github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings
+module github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2
 
 go 1.25.0
 
