@@ -20,14 +20,14 @@ clippy:
 
 .PHONY: gomodtidy
 gomodtidy:
-	@for dir in ./contracts/gobindings ./deployment . ./integration-tests; do \
+	@for dir in ./contracts/gobindings/v2 ./deployment . ./integration-tests; do \
 		echo "=== go mod tidy $$dir ==="; \
 		(cd $$dir && go mod tidy) || exit 1; \
 	done
 
 .PHONY: format-contracts
 format-contracts:
-	cd ./contracts && cargo fmt && cd gobindings && go fmt ./...
+	cd ./contracts && cargo fmt && cd gobindings/v2 && go fmt ./...
 
 # Run on a contracts release PR branch: release-please bumps the program version
 # in contracts/Cargo.toml, this updates Cargo.lock, IDLs and TS types to match.
@@ -107,7 +107,7 @@ anchor-go-gen: build-contracts
 
 .PHONY: format
 format:
-	cd ./contracts/gobindings && go fmt ./... 2>/dev/null; cd $(CURDIR)/contracts && cargo fmt
+	cd ./contracts/gobindings/v2 && go fmt ./... 2>/dev/null; cd $(CURDIR)/contracts && cargo fmt
 
 .PHONY: go-tests-contracts
 go-tests-contracts:
