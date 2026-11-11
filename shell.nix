@@ -9,8 +9,8 @@ pkgs.mkShell {
     yq-go
 
     # Golang
-    # Keep this golang version in sync with the version in .tool-versions please
-    go_1_25
+    # Keep this golang version in sync with the "go" directive in go.mod please
+    go_1_27
     gopls
     delve
     golangci-lint

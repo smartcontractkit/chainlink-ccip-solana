@@ -1,6 +1,6 @@
 module github.com/smartcontractkit/chainlink-ccip-solana/deployment
 
-go 1.26.10
+go 1.27.1
 
 // Taken from CLDF go.mod: https://github.com/smartcontractkit/chainlink-deployments-framework/blob/main/go.mod
 replace github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlink-tron/relayer/gotron-sdk v0.0.4

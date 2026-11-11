@@ -1,6 +1,6 @@
 module github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2
 
-go 1.25.0
+go 1.27.1
 
 require (
 	github.com/gagliardetto/binary v0.8.0

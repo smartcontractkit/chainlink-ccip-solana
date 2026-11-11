@@ -1,6 +1,6 @@
 module github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings
 
-go 1.26.0
+go 1.27.1
 
 // Using Unheilbar/anchor-go fork because gagliardetto/anchor-go v1.0.0 omits the 8-byte
 // instruction discriminator for zero-parameter instructions, causing Anchor 0.32 to reject

@@ -45,6 +45,15 @@ info "Checking prerequisites..."
 check_command rustc    "https://www.rust-lang.org/tools/install" || exit 1
 check_command cargo    "https://www.rust-lang.org/tools/install" || exit 1
 check_command go       "https://go.dev/doc/install"              || exit 1
+
+# Go >= MIN_GO_VERSION is required (keep in sync with the "go" directive in go.mod).
+MIN_GO_VERSION="1.27.1"
+GO_VERSION_ACTUAL="$(go env GOVERSION | sed 's/^go//')"
+if [ "$(printf '%s\n%s\n' "$MIN_GO_VERSION" "$GO_VERSION_ACTUAL" | sort -V | head -n1)" != "$MIN_GO_VERSION" ]; then
+    error "Go >= ${MIN_GO_VERSION} is required (found ${GO_VERSION_ACTUAL})."
+    error "Install it from https://go.dev/doc/install, or run: go env -w GOTOOLCHAIN=auto"
+    exit 1
+fi
 check_command python3  "https://www.python.org/downloads/"       || exit 1
 
 # ─── Rust toolchain ─────────────────────────────────────────────────────────────
