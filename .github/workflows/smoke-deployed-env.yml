@@ -110,7 +110,12 @@ jobs:
       target_evm_selector: ${{ startsWith(inputs.target_environment || 'PRIVATE_STAGING', 'CCV_') && '16015286601757825753' || '' }}
       use_test_router: ${{ inputs.target_environment == 'CCV_PROD_TESTNET' }}
     secrets:
-      DEPLOYED_ENV_CONFIG: ${{ secrets[format('DEPLOYED_ENV_CONFIG_{0}', inputs.target_environment || 'PRIVATE_STAGING')] }}
+      # Reference each secret by name: a dynamic secrets[...] lookup exposes every secret to the runner.
+      # Unknown or unset environments resolve to '' and fail the non-empty check in smoke-deployed-run.yml.
+      DEPLOYED_ENV_CONFIG: ${{ format('{0}{1}{2}',
+        (inputs.target_environment || 'PRIVATE_STAGING') == 'PRIVATE_STAGING' && secrets.DEPLOYED_ENV_CONFIG_PRIVATE_STAGING || '',
+        inputs.target_environment == 'CCV_STAGING' && secrets.DEPLOYED_ENV_CONFIG_CCV_STAGING || '',
+        inputs.target_environment == 'CCV_PROD_TESTNET' && secrets.DEPLOYED_ENV_CONFIG_CCV_PROD_TESTNET || '') }}
       E2E_EVM_PRIVATE_KEY: ${{ secrets.E2E_EVM_PRIVATE_KEY }}
       E2E_SOLANA_PRIVATE_KEY: ${{ secrets.E2E_SOLANA_PRIVATE_KEY }}
       TS_OAUTH_CLIENT_ID_CI: ${{ secrets.TS_OAUTH_CLIENT_ID_CI }}
@@ -133,7 +138,12 @@ jobs:
       # CCV_* manifests carry Sepolia only. Force it on the Fuji-pinned legs.
       target_evm_selector: ${{ startsWith(inputs.target_environment || 'PRIVATE_STAGING', 'CCV_') && '16015286601757825753' || '' }}
     secrets:
-      DEPLOYED_ENV_CONFIG: ${{ secrets[format('DEPLOYED_ENV_CONFIG_{0}', inputs.target_environment || 'PRIVATE_STAGING')] }}
+      # Reference each secret by name: a dynamic secrets[...] lookup exposes every secret to the runner.
+      # Unknown or unset environments resolve to '' and fail the non-empty check in smoke-deployed-run.yml.
+      DEPLOYED_ENV_CONFIG: ${{ format('{0}{1}{2}',
+        (inputs.target_environment || 'PRIVATE_STAGING') == 'PRIVATE_STAGING' && secrets.DEPLOYED_ENV_CONFIG_PRIVATE_STAGING || '',
+        inputs.target_environment == 'CCV_STAGING' && secrets.DEPLOYED_ENV_CONFIG_CCV_STAGING || '',
+        inputs.target_environment == 'CCV_PROD_TESTNET' && secrets.DEPLOYED_ENV_CONFIG_CCV_PROD_TESTNET || '') }}
       E2E_EVM_PRIVATE_KEY: ${{ secrets.E2E_EVM_PRIVATE_KEY }}
       E2E_SOLANA_PRIVATE_KEY: ${{ secrets.E2E_SOLANA_PRIVATE_KEY }}
       TS_OAUTH_CLIENT_ID_CI: ${{ secrets.TS_OAUTH_CLIENT_ID_CI }}

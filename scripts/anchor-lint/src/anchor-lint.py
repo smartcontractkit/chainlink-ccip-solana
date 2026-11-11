@@ -683,7 +683,9 @@ def inv_lint_event_c(all_rs: List[Path], root: Path) -> None:
 
 _DERIVE_ACCOUNTS = re.compile(r'#\s*\[\s*derive\s*\([^)]*\bAccounts\b[^)]*\)\s*\]')
 _SIGNER_FIELD = re.compile(r'pub\s+(\w+)\s*:\s*Signer\s*<\s*\'info\s*>')
-_ACCOUNT_ATTR = re.compile(r'#\s*\[\s*account\s*\(([^)]*(?:\([^)]*\)[^)]*)*)\)\s*\]', re.DOTALL)
+# Outer text excludes '(' so each '(' must open a group; otherwise the nested
+# quantifiers backtrack exponentially on inputs like '#[account(' + '(()' * n.
+_ACCOUNT_ATTR = re.compile(r'#\s*\[\s*account\s*\(([^()]*(?:\([^)]*\)[^()]*)*)\)\s*\]', re.DOTALL)
 _ADDR_CONSTRAINT = re.compile(r'\b(address|owner)\s*=')
 _PERMISSIONLESS_COMMENT = re.compile(r'(permissionless|PERMISSIONLESS|anyone|any.*caller|payer.*init)', re.IGNORECASE)
 _PDA_SIGNER_CONSTRAINT = re.compile(r'\bseeds\s*=')
