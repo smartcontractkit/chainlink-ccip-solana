@@ -41,7 +41,7 @@ func verifyReleaseArtifacts(release string) func(dir string) error {
 			return fmt.Errorf("read %s: %w", executableHashesFile, err)
 		}
 		want := map[string]string{}
-		for _, line := range strings.Split(string(raw), "\n") {
+		for line := range strings.SplitSeq(string(raw), "\n") {
 			fields := strings.Fields(line)
 			if len(fields) == 0 {
 				continue
