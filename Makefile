@@ -8,6 +8,7 @@ export ANCHOR_BUILD_ARGS ?=
 TARGET_DIR ?= $(PWD)/contracts/target
 
 MOCKERY_VERSION := 2.53.5
+MOCKERY_XTOOLS_VERSION := v0.51.0
 
 .PHONY: projectserum_version
 anchor_version:
@@ -19,6 +20,9 @@ clippy:
 
 .PHONY: gomodtidy
 gomodtidy:
+	@# Cargo's target/ dir lives inside the root Go module and holds transient rustc
+	@# temp dirs that make `go mod tidy` fail. A nested go.mod makes Go skip it.
+	@mkdir -p ./contracts/target && printf 'module ignore\n' > ./contracts/target/go.mod
 	@for dir in ./contracts/gobindings/v2 ./deployment . ./integration-tests; do \
 		echo "=== go mod tidy $$dir ==="; \
 		(cd $$dir && go mod tidy) || exit 1; \
@@ -76,9 +80,18 @@ fuzz-probing-bump-repro: ## Replay one fuzz artifact: make fuzz-probing-bump-rep
 
 .PHONY: install-mockery
 install-mockery:
-	@if ! command -v mockery >/dev/null 2>&1 || ! mockery version 2>&1 | grep -qF "$(MOCKERY_VERSION)"; then \
-		echo "Installing mockery v$(MOCKERY_VERSION)..."; \
-		go install github.com/vektra/mockery/v2@v$(MOCKERY_VERSION); \
+	@# mockery v$(MOCKERY_VERSION) ships an old golang.org/x/tools that cannot read the standard library
+	@# of newer Go releases ("package \"context\" without types was imported"), so build it
+	@# in a scratch module with x/tools pinned to $(MOCKERY_XTOOLS_VERSION).
+	@if ! command -v mockery >/dev/null 2>&1 \
+		|| ! mockery version 2>&1 | grep -qF "$(MOCKERY_VERSION)" \
+		|| ! go version -m "$$(command -v mockery)" | grep -qE "golang.org/x/tools[[:space:]]+$(MOCKERY_XTOOLS_VERSION)([[:space:]]|$$)"; then \
+		echo "Installing mockery v$(MOCKERY_VERSION) (x/tools $(MOCKERY_XTOOLS_VERSION))..."; \
+		gover=$$(go env GOVERSION | sed 's/^go//'); tmp=$$(mktemp -d); \
+		(cd "$$tmp" && go mod init mockerytool >/dev/null 2>&1 && go mod edit -go=$$gover \
+			&& go get github.com/vektra/mockery/v2@v$(MOCKERY_VERSION) golang.org/x/tools@$(MOCKERY_XTOOLS_VERSION) \
+			&& go install github.com/vektra/mockery/v2); rc=$$?; \
+		rm -rf "$$tmp"; exit $$rc; \
 	fi
 
 .PHONY: go-mocks
@@ -334,7 +347,7 @@ test-load:
 
 
 # Go - linting and formatting
-GOLANGCI_LINT_VERSION := v2.12.2
+GOLANGCI_LINT_VERSION := v2.14.0
 
 .PHONY: print-golangci-version
 print-golangci-version:
@@ -349,16 +362,20 @@ fetch-golangci-config:
 
 .PHONY: install-golangci-lint
 install-golangci-lint:
-	@if ! command -v golangci-lint >/dev/null 2>&1 || [ "$$(golangci-lint version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+')" != "$(GOLANGCI_LINT_VERSION)" ]; then \
-		echo "Installing golangci-lint $(GOLANGCI_LINT_VERSION)..."; \
-		curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $$(go env GOPATH)/bin $(GOLANGCI_LINT_VERSION); \
+	@# Built from source with the local Go toolchain: the prebuilt release binaries
+	@# are compiled with an older Go and refuse to lint modules whose go.mod targets a newer one.
+	@if ! command -v golangci-lint >/dev/null 2>&1 \
+		|| [ "$$(golangci-lint version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)" != "$(GOLANGCI_LINT_VERSION)" ] \
+		|| [ "$$(golangci-lint version 2>&1 | grep -oE 'built with go[0-9.]+' | head -1 | sed 's/built with //')" != "$$(go env GOVERSION)" ]; then \
+		echo "Installing golangci-lint $(GOLANGCI_LINT_VERSION) with $$(go env GOVERSION)..."; \
+		go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION); \
 	fi
 
 .PHONY: lint-go
 # lint-go mirrors CI intent for PR workflows: scan whole files and report
 # only issues introduced since merge-base with origin's default branch.
 lint-go: install-golangci-lint fetch-golangci-config
-	@for dir in $$(find . -name go.mod -exec dirname {} \;); do \
+	@for dir in $$(find . -path ./contracts/target -prune -o -name go.mod -exec dirname {} \;); do \
 		echo "=== Linting $$dir ==="; \
 		base_ref=$$(git merge-base HEAD $$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || echo origin/main)); \
 		(cd $$dir && golangci-lint run --max-issues-per-linter 0 --max-same-issues 0 --color=always --timeout 15m --whole-files --new-from-rev $$base_ref) || exit 1; \
@@ -367,7 +384,7 @@ lint-go: install-golangci-lint fetch-golangci-config
 # scan all Go modules in the repo, ignoring merge-base and reporting all issues
 .PHONY: lint-go-all
 lint-go-all: install-golangci-lint fetch-golangci-config
-	@for dir in $$(find . -name go.mod -exec dirname {} \;); do \
+	@for dir in $$(find . -path ./contracts/target -prune -o -name go.mod -exec dirname {} \;); do \
 		echo "=== Linting $$dir ==="; \
 		(cd $$dir && golangci-lint run --max-issues-per-linter 0 --max-same-issues 0 --color=always --timeout 15m --whole-files) || exit 1; \
 	done
@@ -375,7 +392,7 @@ lint-go-all: install-golangci-lint fetch-golangci-config
 # scan all Go modules in the repo, ignoring merge-base and fixing all fixable issues
 .PHONY: lint-go-fix
 lint-go-fix: install-golangci-lint fetch-golangci-config
-	@for dir in $$(find . -name go.mod -exec dirname {} \;); do \
+	@for dir in $$(find . -path ./contracts/target -prune -o -name go.mod -exec dirname {} \;); do \
 		echo "=== Linting $$dir ==="; \
 		(cd $$dir && golangci-lint run --max-issues-per-linter 0 --max-same-issues 0 --color=always --timeout 15m --whole-files --verbose --fix) || exit 1; \
 	done

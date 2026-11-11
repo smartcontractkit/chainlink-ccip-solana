@@ -45,6 +45,15 @@ info "Checking prerequisites..."
 check_command rustc    "https://www.rust-lang.org/tools/install" || exit 1
 check_command cargo    "https://www.rust-lang.org/tools/install" || exit 1
 check_command go       "https://go.dev/doc/install"              || exit 1
+
+# Go >= MIN_GO_VERSION is required (keep in sync with the "go" directive in go.mod).
+MIN_GO_VERSION="1.27.1"
+GO_VERSION_ACTUAL="$(go env GOVERSION | sed 's/^go//')"
+if [ "$(printf '%s\n%s\n' "$MIN_GO_VERSION" "$GO_VERSION_ACTUAL" | sort -V | head -n1)" != "$MIN_GO_VERSION" ]; then
+    error "Go >= ${MIN_GO_VERSION} is required (found ${GO_VERSION_ACTUAL})."
+    error "Install it from https://go.dev/doc/install, or run: go env -w GOTOOLCHAIN=auto"
+    exit 1
+fi
 check_command python3  "https://www.python.org/downloads/"       || exit 1
 
 # ─── Rust toolchain ─────────────────────────────────────────────────────────────
@@ -99,10 +108,25 @@ fi
 CURRENT_SOLANA=$(solana --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "none")
 if [[ "$CURRENT_SOLANA" != "$SOLANA_VERSION" ]]; then
     info "Installing Solana CLI ${SOLANA_VERSION} (current: ${CURRENT_SOLANA})..."
-    sh -c "$(curl -sSfL https://release.anza.xyz/v${SOLANA_VERSION}/install)"
+    SOLANA_RELEASE_DIR="$HOME/.local/share/solana/install/releases/${SOLANA_VERSION}/solana-release"
+    if [[ ! -x "$SOLANA_RELEASE_DIR/bin/solana" ]]; then
+        sh -c "$(curl -sSfL https://release.anza.xyz/v${SOLANA_VERSION}/install)"
+    fi
+
+    # The installer does not always switch active_release (e.g. when the release
+    # was already downloaded), so point it at the pinned version explicitly.
+    if [[ -x "$SOLANA_RELEASE_DIR/bin/solana" ]]; then
+        ln -sfn "$SOLANA_RELEASE_DIR" "$HOME/.local/share/solana/install/active_release"
+    fi
 
     # Ensure solana is on PATH for the rest of this script
     export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
+
+    ACTIVE_SOLANA=$(solana --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "none")
+    if [[ "$ACTIVE_SOLANA" != "$SOLANA_VERSION" ]]; then
+        error "Solana CLI is ${ACTIVE_SOLANA} after install, expected ${SOLANA_VERSION}"
+        exit 1
+    fi
 else
     info "Solana CLI ${SOLANA_VERSION} already installed."
 fi

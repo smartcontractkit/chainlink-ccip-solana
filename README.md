@@ -16,7 +16,7 @@
 ## Dependencies
 
 - [Rust](https://www.rust-lang.org/tools/install) (edition 2021)
-- [Go](https://go.dev/doc/install) >= 1.25.7
+- [Go](https://go.dev/doc/install) >= 1.27.1
 - [Solana CLI](https://docs.anza.xyz/cli/install) 3.1.10 (recommended version for Anchor 1.0.0, see [release notes](https://www.anchor-lang.com/docs/updates/release-notes/1-0-0#recommended-solana-version))
 - [Anchor](https://www.anchor-lang.com/docs/installation) 1.0.0
 
