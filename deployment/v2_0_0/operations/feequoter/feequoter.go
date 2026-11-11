@@ -157,8 +157,8 @@ type AddBillingTokenConfigInput struct {
 	// denominations (e.g. $150/SOL with 9 decimals -> 150e9 * 1e18 = 1.5e29).
 	UsdPerToken                *big.Int
 	PremiumMultiplierWeiPerEth uint64
-	// Timestamp is the price timestamp (unix seconds). Set it when building an MCMS proposal
-	// so a rebuild is identical; zero uses the current time.
+	// Timestamp is the price time in unix seconds. Set it for MCMS proposals so they are
+	// deterministic; zero means now.
 	Timestamp int64
 }
 
@@ -194,7 +194,6 @@ var AddBillingTokenConfig = operations.NewOperation(
 		if err != nil {
 			return sequences.OnChainOutput{}, fmt.Errorf("billing token %s price: %w", input.Mint, err)
 		}
-		// A proposal must rebuild identically, so callers building one pass Timestamp.
 		timestamp := input.Timestamp
 		if timestamp == 0 {
 			timestamp = time.Now().Unix()
@@ -260,7 +259,6 @@ var UpdateBillingTokenConfig = operations.NewOperation(
 		if err != nil {
 			return sequences.OnChainOutput{}, fmt.Errorf("billing token %s price: %w", input.Mint, err)
 		}
-		// A proposal must rebuild identically, so callers building one pass Timestamp.
 		timestamp := input.Timestamp
 		if timestamp == 0 {
 			timestamp = time.Now().Unix()

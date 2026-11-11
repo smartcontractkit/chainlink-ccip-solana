@@ -71,7 +71,7 @@ func DeployContractIfNotInDatastore(
 	var existing *datastore.AddressRef
 	for i := range input {
 		ref := input[i]
-		// The datastore holds refs for every chain; another chain's program is not ours.
+		// The datastore spans chains.
 		if ref.ChainSelector != chain.Selector {
 			continue
 		}

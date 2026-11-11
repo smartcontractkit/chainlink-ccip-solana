@@ -244,20 +244,16 @@ func ensurePriceUpdater(b cldf_ops.Bundle, chain cldf_solana.Chain, feeQuoter, u
 	return out.BatchOps, nil
 }
 
-// SetBillingToken changeset
-
 // SetBillingTokenChangesetInput adds a billing (fee) token to a deployed FeeQuoter, or updates
 // its price and premium when it is already registered.
 type SetBillingTokenChangesetInput struct {
 	ChainSelector uint64 `json:"chainSelector"`
-	// Mint is the billing token's mint, base58.
-	Mint string `json:"mint"`
-	// UsdPerToken is the price as 18-decimals USD for 1e18 smallest token denominations, decimal.
-	UsdPerToken string `json:"usdPerToken"`
-	// PremiumMultiplierWeiPerEth is the fee premium multiplier.
+	Mint          string `json:"mint"`
+	// UsdPerToken is a decimal integer, in 18-decimals USD per 1e18 smallest token units.
+	UsdPerToken                string `json:"usdPerToken"`
 	PremiumMultiplierWeiPerEth uint64 `json:"premiumMultiplierWeiPerEth"`
-	// Timestamp is the price timestamp in unix seconds. Required with an MCMS input so the
-	// proposal rebuilds identically; without one, zero uses the current time.
+	// Timestamp is the price time in unix seconds. Required with MCMS so the proposal is
+	// deterministic; otherwise zero means now.
 	Timestamp int64      `json:"timestamp"`
 	MCMS      mcms.Input `json:"mcms"`
 }

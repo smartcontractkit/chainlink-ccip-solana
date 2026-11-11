@@ -28,13 +28,10 @@ func TestDeployContractIfNotInDatastoreReusesSameMajorRef(t *testing.T) {
 	})
 }
 
-// A ref for another chain must never be reused, even if type and version match.
 func TestDeployContractIfNotInDatastoreIgnoresOtherChains(t *testing.T) {
 	b := operations.NewBundle(context.Background, logger.Test(t), operations.NewMemoryReporter())
 	other := datastore.AddressRef{ChainSelector: 42, Type: "Router", Version: semver.MustParse("2.0.0"), Address: "other-chain"}
 
-	// The zero-value chain cannot deploy, so reaching the deploy path returns an error rather
-	// than the other chain's address.
 	got, err := DeployContractIfNotInDatastore(b, cldf_solana.Chain{}, []datastore.AddressRef{other}, "Router", Version2_0_0, "", "ccip_router")
 	require.Error(t, err)
 	require.NotEqual(t, "other-chain", got.Address)

@@ -123,7 +123,7 @@ func configureChainForLanes(
 		}
 	}
 
-	// Map order is random; sort so the batch (and any proposal built from it) is reproducible.
+	// Sorted so the batch order is deterministic.
 	for _, remoteSelector := range slices.Sorted(maps.Keys(input.RemoteChains)) {
 		remoteConfig := input.RemoteChains[remoteSelector]
 		b.Logger.Infof("SVM ConfigureChainForLanes: configuring chain %d for remote %d", input.ChainSelector, remoteSelector)
