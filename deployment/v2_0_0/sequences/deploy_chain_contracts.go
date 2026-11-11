@@ -206,6 +206,7 @@ func stageReleaseArtifacts(ctx context.Context, programsPath, release string) er
 		Repository:   "chainlink-ccip-solana",
 		Release:      release,
 		Asset:        "artifacts.tar.gz",
+		Verify:       verifyReleaseArtifacts(release),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to download artifacts: %w", err)
@@ -215,6 +216,10 @@ func stageReleaseArtifacts(ctx context.Context, programsPath, release string) er
 	matches, err := filepath.Glob(filepath.Join(destDir, "target/deploy/*.so"))
 	if err != nil {
 		return fmt.Errorf("failed to find programs: %w", err)
+	}
+	if len(matches) == 0 {
+		return fmt.Errorf("release %s contains no programs under %s; the cached package at %s may be corrupt, delete it and retry",
+			release, filepath.Join("target", "deploy"), destDir)
 	}
 	for _, program := range matches {
 		name := filepath.Base(program)
