@@ -95,6 +95,9 @@ jobs:
         with:
           only-new-issues: true
           version: ${{ steps.gcl.outputs.version }}
+          # Build golangci-lint with the repo's Go toolchain: the prebuilt release binary
+          # is compiled with an older Go and refuses to lint modules targeting a newer one.
+          install-mode: goinstall
           working-directory: ${{ matrix.path != '.' && matrix.path || '' }}
           # TODO: run lint on push to main so that main saves a lint cache, then remove --timeout=30m.
           args: --config=${{ github.workspace }}/.golangci.yml --whole-files --timeout=30m
