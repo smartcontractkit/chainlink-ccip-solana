@@ -1,6 +1,6 @@
 module github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings
 
-go 1.24.2
+go 1.26.0
 
 // Using Unheilbar/anchor-go fork because gagliardetto/anchor-go v1.0.0 omits the 8-byte
 // instruction discriminator for zero-parameter instructions, causing Anchor 0.32 to reject
@@ -21,7 +21,7 @@ require (
 	github.com/fatih/color v1.17.0 // indirect
 	github.com/gagliardetto/treeout v0.1.4 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/klauspost/compress v1.17.11 // indirect
+	github.com/klauspost/compress v1.18.7 // indirect
 	github.com/logrusorgru/aurora v2.0.3+incompatible // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
@@ -36,7 +36,7 @@ require (
 	go.mongodb.org/mongo-driver v1.12.2 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
-	golang.org/x/crypto v0.47.0 // indirect
-	golang.org/x/sys v0.40.0 // indirect
-	golang.org/x/term v0.39.0 // indirect
+	golang.org/x/crypto v0.58.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/term v0.47.0 // indirect
 )
