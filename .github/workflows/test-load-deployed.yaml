@@ -109,8 +109,6 @@ jobs:
 
       - name: Materialize deployed environment config
         env:
-          # Reference each secret by name: a dynamic secrets[...] lookup exposes every secret to the runner.
-          # Add a branch here when adding a target_environment option; unknown values fail the check below.
           DEPLOYED_ENV_CONFIG: ${{ matrix.target_environment == 'PRIVATE_STAGING' && secrets.DEPLOYED_ENV_CONFIG_PRIVATE_STAGING || '' }}
         run: |
           set -eu
