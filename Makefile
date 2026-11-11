@@ -8,6 +8,7 @@ export ANCHOR_BUILD_ARGS ?=
 TARGET_DIR ?= $(PWD)/contracts/target
 
 MOCKERY_VERSION := 2.53.5
+MOCKERY_XTOOLS_VERSION := v0.51.0
 
 .PHONY: projectserum_version
 anchor_version:
@@ -19,14 +20,14 @@ clippy:
 
 .PHONY: gomodtidy
 gomodtidy:
-	@for dir in ./contracts/gobindings/v2 ./deployment . ./integration-tests; do \
+	@for dir in ./contracts/gobindings ./deployment . ./integration-tests; do \
 		echo "=== go mod tidy $$dir ==="; \
 		(cd $$dir && go mod tidy) || exit 1; \
 	done
 
 .PHONY: format-contracts
 format-contracts:
-	cd ./contracts && cargo fmt && cd gobindings/v2 && go fmt ./...
+	cd ./contracts && cargo fmt && cd gobindings && go fmt ./...
 
 # Run on a contracts release PR branch: release-please bumps the program version
 # in contracts/Cargo.toml, this updates Cargo.lock, IDLs and TS types to match.
@@ -76,9 +77,18 @@ fuzz-probing-bump-repro: ## Replay one fuzz artifact: make fuzz-probing-bump-rep
 
 .PHONY: install-mockery
 install-mockery:
-	@if ! command -v mockery >/dev/null 2>&1 || ! mockery version 2>&1 | grep -qF "$(MOCKERY_VERSION)"; then \
-		echo "Installing mockery v$(MOCKERY_VERSION)..."; \
-		go install github.com/vektra/mockery/v2@v$(MOCKERY_VERSION); \
+	@# mockery v$(MOCKERY_VERSION) ships an old golang.org/x/tools that cannot read the standard library
+	@# of newer Go releases ("package \"context\" without types was imported"), so build it
+	@# in a scratch module with x/tools pinned to $(MOCKERY_XTOOLS_VERSION).
+	@if ! command -v mockery >/dev/null 2>&1 \
+		|| ! mockery version 2>&1 | grep -qF "$(MOCKERY_VERSION)" \
+		|| ! go version -m "$$(command -v mockery)" | grep -qE "golang.org/x/tools[[:space:]]+$(MOCKERY_XTOOLS_VERSION)([[:space:]]|$$)"; then \
+		echo "Installing mockery v$(MOCKERY_VERSION) (x/tools $(MOCKERY_XTOOLS_VERSION))..."; \
+		gover=$$(go env GOVERSION | sed 's/^go//'); tmp=$$(mktemp -d); \
+		(cd "$$tmp" && go mod init mockerytool >/dev/null 2>&1 && go mod edit -go=$$gover \
+			&& go get github.com/vektra/mockery/v2@v$(MOCKERY_VERSION) golang.org/x/tools@$(MOCKERY_XTOOLS_VERSION) \
+			&& go install github.com/vektra/mockery/v2); rc=$$?; \
+		rm -rf "$$tmp"; exit $$rc; \
 	fi
 
 .PHONY: go-mocks
@@ -97,7 +107,7 @@ anchor-go-gen: build-contracts
 
 .PHONY: format
 format:
-	cd ./contracts/gobindings/v2 && go fmt ./... 2>/dev/null; cd $(CURDIR)/contracts && cargo fmt
+	cd ./contracts/gobindings && go fmt ./... 2>/dev/null; cd $(CURDIR)/contracts && cargo fmt
 
 .PHONY: go-tests-contracts
 go-tests-contracts:
@@ -349,9 +359,13 @@ fetch-golangci-config:
 
 .PHONY: install-golangci-lint
 install-golangci-lint:
-	@if ! command -v golangci-lint >/dev/null 2>&1 || [ "$$(golangci-lint version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+')" != "$(GOLANGCI_LINT_VERSION)" ]; then \
-		echo "Installing golangci-lint $(GOLANGCI_LINT_VERSION)..."; \
-		curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $$(go env GOPATH)/bin $(GOLANGCI_LINT_VERSION); \
+	@# Built from source with the local Go toolchain: the prebuilt release binaries
+	@# are compiled with an older Go and refuse to lint modules whose go.mod targets a newer one.
+	@if ! command -v golangci-lint >/dev/null 2>&1 \
+		|| [ "$$(golangci-lint version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)" != "$(GOLANGCI_LINT_VERSION)" ] \
+		|| [ "$$(golangci-lint version 2>&1 | grep -oE 'built with go[0-9.]+' | head -1 | sed 's/built with //')" != "$$(go env GOVERSION)" ]; then \
+		echo "Installing golangci-lint $(GOLANGCI_LINT_VERSION) with $$(go env GOVERSION)..."; \
+		go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION); \
 	fi
 
 .PHONY: lint-go

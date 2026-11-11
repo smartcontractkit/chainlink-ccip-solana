@@ -99,10 +99,25 @@ fi
 CURRENT_SOLANA=$(solana --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "none")
 if [[ "$CURRENT_SOLANA" != "$SOLANA_VERSION" ]]; then
     info "Installing Solana CLI ${SOLANA_VERSION} (current: ${CURRENT_SOLANA})..."
-    sh -c "$(curl -sSfL https://release.anza.xyz/v${SOLANA_VERSION}/install)"
+    SOLANA_RELEASE_DIR="$HOME/.local/share/solana/install/releases/${SOLANA_VERSION}/solana-release"
+    if [[ ! -x "$SOLANA_RELEASE_DIR/bin/solana" ]]; then
+        sh -c "$(curl -sSfL https://release.anza.xyz/v${SOLANA_VERSION}/install)"
+    fi
+
+    # The installer does not always switch active_release (e.g. when the release
+    # was already downloaded), so point it at the pinned version explicitly.
+    if [[ -x "$SOLANA_RELEASE_DIR/bin/solana" ]]; then
+        ln -sfn "$SOLANA_RELEASE_DIR" "$HOME/.local/share/solana/install/active_release"
+    fi
 
     # Ensure solana is on PATH for the rest of this script
     export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
+
+    ACTIVE_SOLANA=$(solana --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "none")
+    if [[ "$ACTIVE_SOLANA" != "$SOLANA_VERSION" ]]; then
+        error "Solana CLI is ${ACTIVE_SOLANA} after install, expected ${SOLANA_VERSION}"
+        exit 1
+    fi
 else
     info "Solana CLI ${SOLANA_VERSION} already installed."
 fi
