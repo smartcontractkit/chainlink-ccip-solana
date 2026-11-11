@@ -3,6 +3,8 @@ package sequences
 import (
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/ethereum/go-ethereum/common"
@@ -121,7 +123,9 @@ func configureChainForLanes(
 		}
 	}
 
-	for remoteSelector, remoteConfig := range input.RemoteChains {
+	// Map order is random; sort so the batch (and any proposal built from it) is reproducible.
+	for _, remoteSelector := range slices.Sorted(maps.Keys(input.RemoteChains)) {
+		remoteConfig := input.RemoteChains[remoteSelector]
 		b.Logger.Infof("SVM ConfigureChainForLanes: configuring chain %d for remote %d", input.ChainSelector, remoteSelector)
 
 		// Source-side: configure FeeQuoter with dest chain config for the remote

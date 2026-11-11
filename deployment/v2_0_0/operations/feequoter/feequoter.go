@@ -2,6 +2,7 @@ package feequoter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/fee_quoter"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/common"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/state"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/tokens"
 	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/solcommon"
@@ -155,6 +157,9 @@ type AddBillingTokenConfigInput struct {
 	// denominations (e.g. $150/SOL with 9 decimals -> 150e9 * 1e18 = 1.5e29).
 	UsdPerToken                *big.Int
 	PremiumMultiplierWeiPerEth uint64
+	// Timestamp is the price timestamp (unix seconds). Set it when building an MCMS proposal
+	// so a rebuild is identical; zero uses the current time.
+	Timestamp int64
 }
 
 // AddBillingTokenConfig registers a fee (billing) token on the FeeQuoter with an initial USD
@@ -185,13 +190,22 @@ var AddBillingTokenConfig = operations.NewOperation(
 		if err != nil {
 			return sequences.OnChainOutput{}, fmt.Errorf("failed to derive fee token receiver ATA for %s: %w", input.Mint, err)
 		}
+		usdPerToken, err := bigIntTo28Bytes(input.UsdPerToken)
+		if err != nil {
+			return sequences.OnChainOutput{}, fmt.Errorf("billing token %s price: %w", input.Mint, err)
+		}
+		// A proposal must rebuild identically, so callers building one pass Timestamp.
+		timestamp := input.Timestamp
+		if timestamp == 0 {
+			timestamp = time.Now().Unix()
+		}
 		instruction, err := fee_quoter.NewAddBillingTokenConfigInstruction(
 			fee_quoter.BillingTokenConfig{
 				Enabled: true,
 				Mint:    input.Mint,
 				UsdPerToken: fee_quoter.TimestampedPackedU224{
-					Value:     bigIntTo28Bytes(input.UsdPerToken),
-					Timestamp: time.Now().Unix(),
+					Value:     usdPerToken,
+					Timestamp: timestamp,
 				},
 				PremiumMultiplierWeiPerEth: input.PremiumMultiplierWeiPerEth,
 			},
@@ -207,6 +221,66 @@ var AddBillingTokenConfig = operations.NewOperation(
 		)
 		if err != nil {
 			return sequences.OnChainOutput{}, fmt.Errorf("failed to build add billing token config instruction: %w", err)
+		}
+		return solcommon.ConfirmOrBatch(chain, authority, []solana.Instruction{instruction}, input.FeeQuoter, ContractType.String())
+	},
+)
+
+// BillingTokenExists reports whether mint already has a billing token config on feeQuoter.
+func BillingTokenExists(ctx context.Context, chain cldf_solana.Chain, feeQuoter, mint solana.PublicKey) (bool, error) {
+	pda, _, err := state.FindFqBillingTokenConfigPDA(mint, feeQuoter)
+	if err != nil {
+		return false, fmt.Errorf("failed to derive billing token config PDA for %s: %w", mint, err)
+	}
+	cfg, err := common.GetInitializedAccount(ctx, chain.Client, pda, feeQuoter, cldf_solana.SolDefaultCommitment, fee_quoter.ParseAccount_BillingTokenConfigWrapper)
+	if err != nil {
+		return false, fmt.Errorf("read billing token config for %s: %w", mint, err)
+	}
+	return cfg != nil, nil
+}
+
+// UpdateBillingTokenConfig updates the price and premium of a billing token that is already
+// registered on the FeeQuoter, and enables it.
+var UpdateBillingTokenConfig = operations.NewOperation(
+	"fee-quoter:update-billing-token-config",
+	Version,
+	"Updates a registered billing (fee) token's price and premium on the FeeQuoter contract",
+	func(b operations.Bundle, chain cldf_solana.Chain, input AddBillingTokenConfigInput) (sequences.OnChainOutput, error) {
+		solcommon.SetProgramID(&fee_quoter.ProgramID, fee_quoter.ParseInstructionWithoutAccounts, input.FeeQuoter)
+		authority, err := GetAuthority(b.GetContext(), chain, input.FeeQuoter)
+		if err != nil {
+			return sequences.OnChainOutput{}, err
+		}
+		feeQuoterConfigPDA, _, _ := state.FindFqConfigPDA(input.FeeQuoter)
+		billingTokenConfigPDA, _, err := state.FindFqBillingTokenConfigPDA(input.Mint, input.FeeQuoter)
+		if err != nil {
+			return sequences.OnChainOutput{}, fmt.Errorf("failed to derive billing token config PDA for %s: %w", input.Mint, err)
+		}
+		usdPerToken, err := bigIntTo28Bytes(input.UsdPerToken)
+		if err != nil {
+			return sequences.OnChainOutput{}, fmt.Errorf("billing token %s price: %w", input.Mint, err)
+		}
+		// A proposal must rebuild identically, so callers building one pass Timestamp.
+		timestamp := input.Timestamp
+		if timestamp == 0 {
+			timestamp = time.Now().Unix()
+		}
+		instruction, err := fee_quoter.NewUpdateBillingTokenConfigInstruction(
+			fee_quoter.BillingTokenConfig{
+				Enabled: true,
+				Mint:    input.Mint,
+				UsdPerToken: fee_quoter.TimestampedPackedU224{
+					Value:     usdPerToken,
+					Timestamp: timestamp,
+				},
+				PremiumMultiplierWeiPerEth: input.PremiumMultiplierWeiPerEth,
+			},
+			feeQuoterConfigPDA,
+			billingTokenConfigPDA,
+			authority,
+		)
+		if err != nil {
+			return sequences.OnChainOutput{}, fmt.Errorf("failed to build update billing token config instruction: %w", err)
 		}
 		return solcommon.ConfirmOrBatch(chain, authority, []solana.Instruction{instruction}, input.FeeQuoter, ContractType.String())
 	},
@@ -364,16 +438,24 @@ var UpdatePrices = operations.NewOperation(
 		// Convert input types to the fee_quoter binding types.
 		gasUpdates := make([]fee_quoter.GasPriceUpdate, 0, len(input.GasPriceUpdates))
 		for _, gu := range input.GasPriceUpdates {
+			usdPerUnitGas, convErr := bigIntTo28Bytes(gu.UsdPerUnitGas)
+			if convErr != nil {
+				return sequences.OnChainOutput{}, fmt.Errorf("gas price for dest chain %d: %w", gu.DestChainSelector, convErr)
+			}
 			gasUpdates = append(gasUpdates, fee_quoter.GasPriceUpdate{
 				DestChainSelector: gu.DestChainSelector,
-				UsdPerUnitGas:     bigIntTo28Bytes(gu.UsdPerUnitGas),
+				UsdPerUnitGas:     usdPerUnitGas,
 			})
 		}
 		tokenUpdates := make([]fee_quoter.TokenPriceUpdate, 0, len(input.TokenPriceUpdates))
 		for _, tu := range input.TokenPriceUpdates {
+			usdPerToken, convErr := bigIntTo28Bytes(tu.UsdPerToken)
+			if convErr != nil {
+				return sequences.OnChainOutput{}, fmt.Errorf("token price for %s: %w", tu.Mint, convErr)
+			}
 			tokenUpdates = append(tokenUpdates, fee_quoter.TokenPriceUpdate{
 				SourceToken: tu.Mint,
-				UsdPerToken: bigIntTo28Bytes(tu.UsdPerToken),
+				UsdPerToken: usdPerToken,
 			})
 		}
 
@@ -419,21 +501,21 @@ var UpdatePrices = operations.NewOperation(
 
 // bigIntTo28Bytes converts a *big.Int to a 28-byte big-endian array as expected by FeeQuoter.
 // Invalid inputs now fail fast instead of being silently zeroed or truncated.
-func bigIntTo28Bytes(v *big.Int) [28]uint8 {
+func bigIntTo28Bytes(v *big.Int) ([28]uint8, error) {
 	var result [28]uint8
 	if v == nil {
-		panic("invalid 28-byte integer: nil value")
+		return result, errors.New("invalid 28-byte integer: nil value")
 	}
 	if v.Sign() < 0 {
-		panic("invalid 28-byte integer: negative value " + v.String())
+		return result, fmt.Errorf("invalid 28-byte integer: negative value %s", v)
 	}
 	if v.BitLen() > 224 {
-		panic(fmt.Sprintf("invalid 28-byte integer: bit length %d exceeds 224", v.BitLen()))
+		return result, fmt.Errorf("invalid 28-byte integer: bit length %d exceeds 224", v.BitLen())
 	}
 
 	b := v.Bytes() // big-endian
 	copy(result[28-len(b):], b)
-	return result
+	return result, nil
 }
 
 var SetTokenTransferFeeConfig = operations.NewOperation(
