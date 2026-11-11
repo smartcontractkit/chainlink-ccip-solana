@@ -11,7 +11,6 @@ import (
 	"github.com/gagliardetto/solana-go"
 
 	api "github.com/smartcontractkit/chainlink-ccip/deployment/fastcurse"
-	datastore_utils "github.com/smartcontractkit/chainlink-ccip/deployment/utils/datastore"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/utils/sequences"
 	cldf_chain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
 	cldf_solana "github.com/smartcontractkit/chainlink-deployments-framework/chain/solana"
@@ -93,7 +92,7 @@ func (ca *CurseAdapter) Initialize(e cldf.Environment, selector uint64) error {
 	if !exists {
 		return fmt.Errorf("solana chain with selector %d not found in environment", selector)
 	}
-	rmnRemoteRef, err := datastore_utils.FindAndFormatRef(
+	rmnRemoteRef, err := solcommon.FindAndFormatCompatibleRef(
 		e.DataStore,
 		datastore.AddressRef{
 			ChainSelector: selector,
@@ -115,7 +114,7 @@ func (ca *CurseAdapter) Initialize(e cldf.Environment, selector uint64) error {
 	if err != nil {
 		return fmt.Errorf("failed to find RMNRemoteCurses PDA: %w", err)
 	}
-	routerRef, err := datastore_utils.FindAndFormatRef(
+	routerRef, err := solcommon.FindAndFormatCompatibleRef(
 		e.DataStore,
 		datastore.AddressRef{
 			ChainSelector: selector,
@@ -142,7 +141,7 @@ func (ca *CurseAdapter) IsSubjectCursedOnChain(e cldf.Environment, selector uint
 
 func (ca *CurseAdapter) IsChainConnectedToTargetChain(e cldf.Environment, selector uint64, targetSel uint64) (bool, error) {
 	// get offRamp address
-	offRampAddr, err := datastore_utils.FindAndFormatRef(e.DataStore, datastore.AddressRef{
+	offRampAddr, err := solcommon.FindAndFormatCompatibleRef(e.DataStore, datastore.AddressRef{
 		ChainSelector: selector,
 		Type:          datastore.ContractType(offramp.ContractType),
 		Version:       offramp.Version,

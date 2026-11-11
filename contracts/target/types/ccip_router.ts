@@ -8,7 +8,7 @@ export type CcipRouter = {
   "address": "Ccip842gzYHhvdDkSyi2YVCoAWPbYJoApMFzSxQroE9C",
   "metadata": {
     "name": "ccipRouter",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "spec": "0.1.0",
     "description": "Created with Anchor"
   },
@@ -6705,12 +6705,8 @@ export type CcipRouter = {
             "type": "pubkey"
           },
           {
-            "name": "accountResolution",
-            "type": {
-              "defined": {
-                "name": "resolutionType"
-              }
-            }
+            "name": "accountResolutionEnabled",
+            "type": "bool"
           },
           {
             "name": "bump",
@@ -6719,6 +6715,10 @@ export type CcipRouter = {
           {
             "name": "interfaceVersion",
             "type": "u8"
+          },
+          {
+            "name": "skipLookupTableAdditionalEntries",
+            "type": "bool"
           }
         ]
       }

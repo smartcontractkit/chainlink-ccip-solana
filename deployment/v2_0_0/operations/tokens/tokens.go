@@ -1,15 +1,18 @@
 package tokens
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/Masterminds/semver/v3"
 	token_metadata "github.com/gagliardetto/metaplex-go/clients/token-metadata"
 	"github.com/gagliardetto/solana-go"
 	addresslookuptable "github.com/gagliardetto/solana-go/programs/address-lookup-table"
+	"github.com/gagliardetto/solana-go/programs/token"
 	"github.com/gagliardetto/solana-go/rpc"
 
 	solCommonUtil "github.com/smartcontractkit/chainlink-ccip/chains/solana/utils/common"
@@ -109,23 +112,34 @@ var DeploySolanaToken = operations.NewOperation(
 			}
 			mint = privKey.PublicKey()
 		}
-		instructions, err := soltokens.CreateTokenWith(
-			b.GetContext(),
-			tokenProgramID,
-			mint,
-			tokenAdminPubKey,
-			freezeAuthority,
-			input.TokenDecimals,
-			chain.Client,
-			cldf_solana.SolDefaultCommitment,
-			false,
-		)
-		if err != nil {
-			return datastore.AddressRef{}, err
+		// A fixed mint key may already be on chain from a partial deploy; reuse that mint.
+		resumed := false
+		if input.TokenPrivKey.IsValid() {
+			resumed, err = existingMint(b.GetContext(), chain, mint, tokenProgramID, input.TokenDecimals)
+			if err != nil {
+				return datastore.AddressRef{}, err
+			}
 		}
-		err = chain.Confirm(instructions, solCommonUtil.AddSigners(privKey))
-		if err != nil {
-			return datastore.AddressRef{}, err
+		if resumed {
+			b.Logger.Infof("Token mint %s already exists on chain, resuming its setup", mint)
+		} else {
+			instructions, ixErr := soltokens.CreateTokenWith(
+				b.GetContext(),
+				tokenProgramID,
+				mint,
+				tokenAdminPubKey,
+				freezeAuthority,
+				input.TokenDecimals,
+				chain.Client,
+				cldf_solana.SolDefaultCommitment,
+				false,
+			)
+			if ixErr != nil {
+				return datastore.AddressRef{}, ixErr
+			}
+			if err = chain.Confirm(instructions, solCommonUtil.AddSigners(privKey)); err != nil {
+				return datastore.AddressRef{}, err
+			}
 		}
 		// CREATE ATAs
 		for _, sender := range input.ATAList {
@@ -148,6 +162,17 @@ var DeploySolanaToken = operations.NewOperation(
 				if err != nil {
 					return datastore.AddressRef{}, fmt.Errorf("failed to derive associated token address: %w", err)
 				}
+				if resumed {
+					// Skip senders that already hold the pre-mint.
+					balance, balErr := chain.Client.GetTokenAccountBalance(b.GetContext(), ata, cldf_solana.SolDefaultCommitment)
+					if balErr != nil {
+						return datastore.AddressRef{}, fmt.Errorf("failed to read balance of %s: %w", ata, balErr)
+					}
+					if balance.Value.Amount != "0" {
+						b.Logger.Infof("Pre-mint already sent to %s, skipping", ata)
+						continue
+					}
+				}
 				mintToI, err1 := soltokens.MintTo(input.PreMint, tokenProgramID, mint, ata, chain.DeployerKey.PublicKey())
 				if err1 != nil {
 					return datastore.AddressRef{}, err1
@@ -159,9 +184,20 @@ var DeploySolanaToken = operations.NewOperation(
 		}
 		// DISABLE FREEZE AUTHORITY
 		if input.DisableFreezeAuthority {
-			err = solcommon.DisableFreezeAuthority(b.GetContext(), chain, []solana.PublicKey{mint})
-			if err != nil {
-				return datastore.AddressRef{}, err
+			// Revoking an already-revoked freeze authority fails.
+			disable := true
+			if resumed {
+				current, faErr := solcommon.GetTokenFreezeAuthority(chain, mint)
+				if faErr != nil {
+					return datastore.AddressRef{}, faErr
+				}
+				disable = !current.IsZero()
+			}
+			if disable {
+				err = solcommon.DisableFreezeAuthority(b.GetContext(), chain, []solana.PublicKey{mint})
+				if err != nil {
+					return datastore.AddressRef{}, err
+				}
 			}
 		}
 		return datastore.AddressRef{
@@ -174,11 +210,75 @@ var DeploySolanaToken = operations.NewOperation(
 	},
 )
 
+// existingMint reports whether an initialized mint with the given decimals is already on chain at
+// the address. It fails when the account exists but is not a matching mint.
+func existingMint(ctx context.Context, chain cldf_solana.Chain, mint, tokenProgramID solana.PublicKey, decimals uint8) (bool, error) {
+	acct, err := chain.Client.GetAccountInfoWithOpts(ctx, mint, &rpc.GetAccountInfoOpts{Commitment: cldf_solana.SolDefaultCommitment})
+	if err != nil {
+		if errors.Is(err, rpc.ErrNotFound) {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to read account %s: %w", mint, err)
+	}
+	if acct == nil || acct.Value == nil || acct.Value.Owner == solana.SystemProgramID {
+		return false, nil
+	}
+	if acct.Value.Owner != tokenProgramID || !solcommon.IsMintAccountData(acct.Value.Data.GetBinary()) {
+		return false, fmt.Errorf("account %s already exists and is not a mint of token program %s", mint, tokenProgramID)
+	}
+	onChainDecimals, err := solcommon.GetTokenDecimals(chain, mint)
+	if err != nil {
+		return false, err
+	}
+	if onChainDecimals != decimals {
+		return false, fmt.Errorf("mint %s already exists with %d decimals, expected %d", mint, onChainDecimals, decimals)
+	}
+	return true, nil
+}
+
 type TokenMultisigParams struct {
 	Signers      []solana.PublicKey
 	TokenProgram solana.PublicKey
 	TokenMint    solana.PublicKey
 	TokenSymbol  string
+	// ExistingAddresses are searched for a multisig to reuse.
+	ExistingAddresses []datastore.AddressRef
+}
+
+// existingTokenMultisig returns the ref of a recorded multisig of the mint whose on-chain threshold
+// and signers match, or nil.
+func existingTokenMultisig(ctx context.Context, chain cldf_solana.Chain, input TokenMultisigParams, m uint8) (*datastore.AddressRef, error) {
+	for _, ref := range input.ExistingAddresses {
+		if ref.ChainSelector != chain.Selector || ref.Type != datastore.ContractType(TokenMultisigType) ||
+			ref.Qualifier != input.TokenSymbol || !ref.Labels.Contains(input.TokenMint.String()) {
+			continue
+		}
+		address, err := solana.PublicKeyFromBase58(ref.Address)
+		if err != nil {
+			continue
+		}
+		acct, err := chain.Client.GetAccountInfoWithOpts(ctx, address, &rpc.GetAccountInfoOpts{Commitment: cldf_solana.SolDefaultCommitment})
+		if err != nil {
+			if errors.Is(err, rpc.ErrNotFound) {
+				continue
+			}
+			return nil, fmt.Errorf("failed to read multisig %s: %w", address, err)
+		}
+		if acct == nil || acct.Value == nil || acct.Value.Owner != input.TokenProgram {
+			continue
+		}
+		var onChain token.Multisig
+		if err = chain.Client.GetAccountDataBorshInto(ctx, address, &onChain); err != nil {
+			return nil, fmt.Errorf("failed to decode multisig %s: %w", address, err)
+		}
+		if !onChain.IsInitialized || onChain.M != m || int(onChain.N) != len(input.Signers) {
+			continue
+		}
+		if slices.Equal(onChain.Signers[:onChain.N], input.Signers) {
+			return &ref, nil
+		}
+	}
+	return nil, nil
 }
 
 const (
@@ -210,6 +310,16 @@ var CreateTokenMultisig = operations.NewOperation(
 		}
 		if len(input.Signers) > 11 {
 			return sequences.OnChainOutput{}, fmt.Errorf("too many signers: %d > %d", len(input.Signers), 11)
+		}
+
+		// --- Reuse an existing multisig ---
+		existing, err := existingTokenMultisig(ctx, chain, input, m)
+		if err != nil {
+			return sequences.OnChainOutput{}, err
+		}
+		if existing != nil {
+			b.Logger.Infof("Token multisig %s already exists for mint %s", existing.Address, input.TokenMint)
+			return sequences.OnChainOutput{Addresses: []datastore.AddressRef{*existing}}, nil
 		}
 
 		// --- Create multisig keypair (must sign CreateAccount) ---
@@ -393,29 +503,39 @@ var UpsertTokenMetadata = operations.NewOperation(
 		} else {
 			// Metadata account already exists — update only the non-empty fields.
 			currentData := soltokens.GetTokenDataV2(existingMetadata)
-			if input.Metadata.UpdateName != "" {
+			dataChanged := false
+			if input.Metadata.UpdateName != "" && input.Metadata.UpdateName != currentData.Name {
 				currentData.Name = input.Metadata.UpdateName
+				dataChanged = true
 			}
-			if input.Metadata.UpdateSymbol != "" {
+			if input.Metadata.UpdateSymbol != "" && input.Metadata.UpdateSymbol != currentData.Symbol {
 				currentData.Symbol = input.Metadata.UpdateSymbol
+				dataChanged = true
 			}
-			if input.Metadata.UpdateURI != "" {
+			if input.Metadata.UpdateURI != "" && input.Metadata.UpdateURI != currentData.Uri {
 				currentData.Uri = input.Metadata.UpdateURI
+				dataChanged = true
 			}
 
-			// Only change the update authority if explicitly requested.
+			// Only change the update authority if explicitly requested and different from the current one.
 			var newUpdateAuthority *solana.PublicKey
-			if input.Metadata.UpdateAuthority != "" {
+			if input.Metadata.UpdateAuthority != "" && !updateAuthority.Equals(existingMetadata.UpdateAuthority) {
 				newUpdateAuthority = &updateAuthority
 			}
 
+			if !dataChanged && newUpdateAuthority == nil {
+				b.Logger.Infof("Metadata for token %s is already up to date", mint)
+				return sequences.OnChainOutput{}, nil
+			}
+
+			// The current update authority signs the update; a new one only takes over afterwards.
 			updateIxn := token_metadata.NewUpdateMetadataAccountV2Instruction(
 				token_metadata.UpdateMetadataAccountArgsV2{
 					Data:            &currentData,
 					UpdateAuthority: newUpdateAuthority,
 				},
 				metadataPDA,
-				updateAuthority,
+				existingMetadata.UpdateAuthority,
 			)
 			ixn, err = updateIxn.ValidateAndBuild()
 			if err != nil {

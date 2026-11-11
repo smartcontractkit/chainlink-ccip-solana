@@ -8,7 +8,7 @@ export type CcipOfframp = {
   "address": "off43sBHBsmWTU6VbfwKYCNwyJ4rSDhunYvz3QL7bF9",
   "metadata": {
     "name": "ccipOfframp",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "spec": "0.1.0",
     "description": "Created with Anchor"
   },
@@ -304,6 +304,101 @@ export type CcipOfframp = {
               "name": "closeExecutionInputsBufferParams"
             }
           }
+        }
+      ]
+    },
+    {
+      "name": "deleteSourceChain",
+      "docs": [
+        "Deletes the source chain PDA.",
+        "",
+        "The Admin is the only one able to delete the chain as source.",
+        "",
+        "# Arguments",
+        "",
+        "* `ctx` - The context containing the accounts required for deleting the chain.",
+        "* `source_chain_selector` - The source chain selector to be deleted."
+      ],
+      "discriminator": [
+        81,
+        199,
+        248,
+        220,
+        192,
+        60,
+        76,
+        40
+      ],
+      "accounts": [
+        {
+          "name": "sourceChain",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  117,
+                  114,
+                  99,
+                  101,
+                  95,
+                  99,
+                  104,
+                  97,
+                  105,
+                  110,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "sourceChainSelector"
+              }
+            ]
+          }
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "eventAuthority"
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "sourceChainSelector",
+          "type": "u64"
         }
       ]
     },
@@ -1186,6 +1281,9 @@ export type CcipOfframp = {
               }
             ]
           }
+        },
+        {
+          "name": "sourceChain"
         },
         {
           "name": "poolProgram"
@@ -2079,6 +2177,19 @@ export type CcipOfframp = {
         181,
         30
       ]
+    },
+    {
+      "name": "sourceChainDeleted",
+      "discriminator": [
+        173,
+        198,
+        67,
+        50,
+        111,
+        8,
+        221,
+        185
+      ]
     }
   ],
   "errors": [
@@ -2376,6 +2487,16 @@ export type CcipOfframp = {
       "code": 9058,
       "name": "receiverRegistryAccountMissing",
       "msg": "Receiver registry account missing for arbitrary message"
+    },
+    {
+      "code": 9059,
+      "name": "invalidSourcePoolAddress",
+      "msg": "Invalid source pool address"
+    },
+    {
+      "code": 9060,
+      "name": "invalidLegacyAddressLength",
+      "msg": "Invalid legacy address length"
     }
   ],
   "types": [
@@ -3371,6 +3492,20 @@ export type CcipOfframp = {
             "type": {
               "vec": "pubkey"
             }
+          },
+          {
+            "name": "legacyAddressLength",
+            "docs": [
+              "Native address width of the source chain, in bytes. The OffRamp trims the source pool",
+              "address in each token transfer to this width (dropping leading zero bytes only) before",
+              "handing it to the pool, because pools configured for CCIP 1.6 store remote pool addresses",
+              "at their native width while 2.0 onramps may pad them (the EVM onramp pads to 32 bytes).",
+              "Set it to the source chain family's address width: 20 for EVM, 32 for SVM. Deployment",
+              "tooling takes it from the chain family adapter's `GetAddressBytesLength`, the same source as",
+              "the Router's `address_bytes_length` for that chain. Must be in",
+              "`1..=`[`MAX_LEGACY_ADDRESS_LENGTH`]."
+            ],
+            "type": "u8"
           }
         ]
       }
@@ -3391,6 +3526,18 @@ export type CcipOfframp = {
                 "name": "sourceChainConfig"
               }
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "sourceChainDeleted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "sourceChainSelector",
+            "type": "u64"
           }
         ]
       }

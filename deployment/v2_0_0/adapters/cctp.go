@@ -303,7 +303,7 @@ func (a *CCTPChainAdapter) poolAndMint(ds datastore.DataStore, chainSelector uin
 // poolProgram resolves the shared cctp_token_pool program. There is one instance per chain, not
 // one per token, hence the fixed pool-program qualifier.
 func (a *CCTPChainAdapter) poolProgram(ds datastore.DataStore, chainSelector uint64) (solana.PublicKey, error) {
-	ref, err := datastore_utils.FindAndFormatRef(ds, datastore.AddressRef{
+	ref, err := solcommon.FindAndFormatCompatibleRef(ds, datastore.AddressRef{
 		Type:      datastore.ContractType(common_utils.CCTPTokenPool),
 		Version:   solcommon.Version2_0_0,
 		Qualifier: solcommon.PoolProgramQualifier,

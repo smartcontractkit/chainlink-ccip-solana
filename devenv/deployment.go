@@ -776,7 +776,7 @@ func ensureV2PoolTokenTransferFeeConfigs(env *deployment.Environment, selector u
 			datastore.AddressRefByType(datastore.ContractType(poolType)),
 		)
 		for _, ref := range refs {
-			if ref.Version == nil || ref.Version.String() != "2.0.0" {
+			if !solcommon.RefVersionMatches(ref.Version, solcommon.Version2_0_0) {
 				continue
 			}
 			// PoolProgramQualifier is a plain alias to the deployed program, not tied to any

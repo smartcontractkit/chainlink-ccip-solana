@@ -21,11 +21,14 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/ccip_offramp"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/rmn_remote"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/test_ccip_receiver"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/tests/config"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/tests/testutils"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/tests/testutils/eth"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/ccip"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/state"
+	"github.com/smartcontractkit/chainlink-ccip-solana/pkg/destinationreader"
+	"github.com/smartcontractkit/chainlink-ccip-solana/pkg/logpoller"
 	"github.com/smartcontractkit/chainlink-ccip-solana/pkg/solanarpc"
 	"github.com/smartcontractkit/chainlink-ccip-solana/pkg/transmitter"
 )
@@ -38,7 +41,7 @@ func TestBufferedFlow(t *testing.T) {
 	env := testutils.NewTestEnv(t).WithTrafficConfig().Build()
 	ctx := env.Ctx()
 	signers := configureCommitteeVerifier(ctx, t, env.Client)
-	tr, ks := newTransmitter(ctx, t, env)
+	tr, ks, rpcClient := newTransmitter(ctx, t, env)
 
 	t.Run("executes a valid message", func(t *testing.T) {
 		report := newReport(t, signers, 1, validBlob(t), 1500)
@@ -74,8 +77,8 @@ func TestBufferedFlow(t *testing.T) {
 		requireNoBuffer(ctx, t, env, tr, report)
 	})
 
-	// A message that the program rejects after the buffer writes: the transmitter does not send the
-	// exec tx and closes the buffer before it returns, so a retry of the same message can reuse the
+	// A message that the program rejects after the buffer writes: the exec tx is sent and fails, and the
+	// transmitter closes the buffer before it returns, so a retry of the same message can reuse the
 	// buffer PDA. After the cause is gone, the retry executes.
 	t.Run("rejected attempt closes the buffer, then the same message executes", func(t *testing.T) {
 		setCurse(ctx, t, env, true)
@@ -88,16 +91,57 @@ func TestBufferedFlow(t *testing.T) {
 		report := newReport(t, signers, 5, validBlob(t), 1500)
 
 		err := tr.ConvertAndWriteMessageToChain(ctx, report)
-		require.ErrorContains(t, err, "exec simulation failed")
+		require.ErrorContains(t, err, "failed with status")
 		require.NotErrorIs(t, err, executor.ErrMessageRejectedByTransmitter)
 		requireNoBuffer(ctx, t, env, tr, report)
 
 		err = tr.ConvertAndWriteMessageToChain(ctx, report)
-		require.ErrorContains(t, err, "exec simulation failed")
+		require.ErrorContains(t, err, "failed with status")
 		requireNoBuffer(ctx, t, env, tr, report)
 
 		setCurse(ctx, t, env, false)
 		cursed = false
+		require.NoError(t, tr.ConvertAndWriteMessageToChain(ctx, report))
+		requireNoBuffer(ctx, t, env, tr, report)
+	})
+
+	// A receiver that rejects the message makes the exec tx land failed after InProgress, which
+	// leaves the on-chain mark for manual execution. The reader caches the attempt but cannot
+	// simulate an oversized message, so the attempt does not stop the message.
+	t.Run("receiver revert lands a failed attempt that does not stop the message", func(t *testing.T) {
+		dr := newDestinationReader(ctx, t, rpcClient, tr.FeePayer())
+		setRejectAll(ctx, t, env, true)
+		rejecting := true
+		t.Cleanup(func() {
+			if rejecting {
+				setRejectAll(context.Background(), t, env, false)
+			}
+		})
+		report := newReport(t, signers, 8, validBlob(t), 1500)
+
+		err := tr.ConvertAndWriteMessageToChain(ctx, report)
+		require.ErrorContains(t, err, "buffered flow: execute")
+		require.NotErrorIs(t, err, executor.ErrMessageRejectedByTransmitter)
+		requireNoBuffer(ctx, t, env, tr, report)
+
+		require.Eventually(t, func() bool {
+			attempts, attemptsErr := dr.GetExecutionAttempts(ctx, report.Message)
+			return attemptsErr == nil && len(attempts) == 1
+		}, 30*time.Second, 500*time.Millisecond, "the failed attempt must be cached")
+		attempts, err := dr.GetExecutionAttempts(ctx, report.Message)
+		require.NoError(t, err)
+		require.Equal(t, report.CCVData, attempts[0].Report.CCVData, "the cached attempt carries the transmitted CCV data")
+		require.Equal(t, uint64(report.Message.ExecutionGasLimit), attempts[0].TransactionGasLimit.Uint64(), "the cached attempt carries the honest gas limit")
+		ccv := protocol.UnknownAddress(config.CommitteeVerifierProgram.Bytes())
+		check, err := dr.HasHonestAttempt(ctx, report.Message,
+			[]protocol.VerifierResult{{VerifierDestAddress: ccv, CCVData: report.CCVData[0]}},
+			protocol.CCVAddressInfo{RequiredCCVs: []protocol.UnknownAddress{ccv}})
+		require.NoError(t, err)
+		require.False(t, check.Honest)
+		require.True(t, check.NotHonestAttemptExists)
+
+		setRejectAll(ctx, t, env, false)
+		rejecting = false
 		require.NoError(t, tr.ConvertAndWriteMessageToChain(ctx, report))
 		requireNoBuffer(ctx, t, env, tr, report)
 	})
@@ -187,6 +231,36 @@ func setCurse(ctx context.Context, t *testing.T, env *testutils.TestEnv, cursed 
 	testutils.SendAndConfirm(ctx, t, env.Client, []solana.Instruction{ix}, testutils.CcipAdmin, config.DefaultCommitment)
 }
 
+// setRejectAll makes the test receiver reject or accept every message. testutils.User owns the receiver.
+func setRejectAll(ctx context.Context, t *testing.T, env *testutils.TestEnv, reject bool) {
+	t.Helper()
+	ix, err := test_ccip_receiver.NewSetRejectAllInstruction(reject, config.ReceiverTargetAccountPDA, testutils.User.PublicKey())
+	require.NoError(t, err)
+	testutils.SendAndConfirm(ctx, t, env.Client, []solana.Instruction{ix}, testutils.User, config.DefaultCommitment)
+}
+
+// newDestinationReader wires the reader as the executor factory does: its log poller includes reverted txs.
+func newDestinationReader(ctx context.Context, t *testing.T, rpcClient *solanarpc.Client, simFeePayer solana.PublicKey) *destinationreader.DestinationReader {
+	t.Helper()
+	lpCfg := logpoller.DefaultConfig()
+	lpCfg.IncludeReverted = true
+	lp, err := logpoller.NewService(rpcClient, config.CcipOfframpProgram, "transmitter-integration", logger.TestSugared(t), lpCfg)
+	require.NoError(t, err)
+	dr, err := destinationreader.NewDestinationReader(destinationreader.Params{
+		Lggr:             logger.Test(t),
+		ChainSelector:    protocol.ChainSelector(config.SvmChainSelector),
+		RPC:              rpcClient,
+		OfframpProgramID: config.CcipOfframpProgram,
+		RMNRemoteAddress: config.RMNRemoteProgram,
+		LogPoller:        lp,
+	})
+	require.NoError(t, err)
+	dr.SetSimulationFeePayer(simFeePayer)
+	require.NoError(t, dr.Start(ctx))
+	t.Cleanup(func() { require.NoError(t, dr.Close()) })
+	return dr
+}
+
 // requireTerminal asserts the transmitter rejects the message for good before it writes a buffer.
 func requireTerminal(ctx context.Context, t *testing.T, env *testutils.TestEnv, tr *transmitter.SolanaContractTransmitter, report protocol.AbstractAggregatedReport) {
 	t.Helper()
@@ -195,7 +269,7 @@ func requireTerminal(ctx context.Context, t *testing.T, env *testutils.TestEnv, 
 	requireNoBuffer(ctx, t, env, tr, report)
 }
 
-func newTransmitter(ctx context.Context, t *testing.T, env *testutils.TestEnv) (*transmitter.SolanaContractTransmitter, keystore.Keystore) {
+func newTransmitter(ctx context.Context, t *testing.T, env *testutils.TestEnv) (*transmitter.SolanaContractTransmitter, keystore.Keystore, *solanarpc.Client) {
 	t.Helper()
 	// multinode expects the genesis hash as the chain ID, and a local validator gets a new one per run
 	genesis, err := env.Client.GetGenesisHash(ctx)
@@ -235,7 +309,7 @@ func newTransmitter(ctx context.Context, t *testing.T, env *testutils.TestEnv) (
 
 	fund := system.NewTransferInstruction(100*solana.LAMPORTS_PER_SOL, testutils.User.PublicKey(), tr.FeePayer()).Build()
 	testutils.SendAndConfirm(ctx, t, env.Client, []solana.Instruction{fund}, testutils.User, config.DefaultCommitment)
-	return tr, ks
+	return tr, ks, rpcClient
 }
 
 // configureCommitteeVerifier sets a threshold-of-5 signer set for the EVM lane on the committee verifier.

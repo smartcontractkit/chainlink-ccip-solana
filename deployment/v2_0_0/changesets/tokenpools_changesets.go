@@ -12,6 +12,7 @@ import (
 	cldf "github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	cldf_ops "github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
+	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/solcommon"
 	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/sequences"
 )
 
@@ -48,7 +49,7 @@ func updateSelfServedAllowedVerify(env cldf.Environment, input UpdateSelfServedA
 		return errors.New("tokenPoolRef must not be empty")
 	}
 
-	fullRef, err := datastore_utils.FindAndFormatRef(env.DataStore, input.TokenPoolRef, input.ChainSelector, datastore_utils.FullRef)
+	fullRef, err := solcommon.FindAndFormatCompatibleRef(env.DataStore, input.TokenPoolRef, input.ChainSelector, datastore_utils.FullRef)
 	if err != nil {
 		return fmt.Errorf("failed to resolve token pool ref: %w", err)
 	}
@@ -67,7 +68,7 @@ func updateSelfServedAllowedVerify(env cldf.Environment, input UpdateSelfServedA
 }
 
 func updateSelfServedAllowedApply(e cldf.Environment, input UpdateSelfServedAllowedChangesetInput) (cldf.ChangesetOutput, error) {
-	fullRef, err := datastore_utils.FindAndFormatRef(e.DataStore, input.TokenPoolRef, input.ChainSelector, datastore_utils.FullRef)
+	fullRef, err := solcommon.FindAndFormatCompatibleRef(e.DataStore, input.TokenPoolRef, input.ChainSelector, datastore_utils.FullRef)
 	if err != nil {
 		return cldf.ChangesetOutput{}, fmt.Errorf("failed to resolve token pool ref: %w", err)
 	}

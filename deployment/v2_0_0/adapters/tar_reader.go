@@ -140,7 +140,7 @@ func (r *SolanaAdminRegistryManager) resolveRouter(e deployment.Environment, cha
 		if datastore_utils.IsAddressRefEmpty(override) {
 			continue
 		}
-		ref, err := datastore_utils.FindAndFormatRef(e.DataStore, override, chainSelector, datastore_utils.FullRef)
+		ref, err := solcommon.FindAndFormatCompatibleRef(e.DataStore, override, chainSelector, datastore_utils.FullRef)
 		if err != nil || ref.Address == "" {
 			continue
 		}

@@ -75,8 +75,8 @@ submitBuffered
   │               each with a new blockhash, then wait until each is Finalized
   ├─ resolveAndFetchLUTs: ccip.ResolveExecAccountsWithBuffer → execute_v2 ix + LUTs
   ├─ refreshBlockhash
-  └─ executeAndWait: simulate execute_v2 with the message's compute unit limit,
-                     enqueue it, wait until Finalized
+  └─ executeAndWait: enqueue execute_v2 with the message's compute unit limit,
+                     wait until Finalized
                      (execute_v2 closes the buffer on-chain)
 ```
 
@@ -87,7 +87,7 @@ flowchart TD
     Write -- error --> Fail
     Write --> Resolve[resolveAndFetchLUTs]
     Resolve -- error --> Fail
-    Resolve --> Exec[executeAndWait<br/>simulate, enqueue, Finalized]
+    Resolve --> Exec[executeAndWait<br/>enqueue, Finalized]
     Exec -- error --> Fail
     Exec --> OkEnd([return nil<br/>execute_v2 closed the buffer])
     Fail[(cleanup:<br/>wait for in-flight txs → close → wait for close)] --> FailEnd([return error])
@@ -124,7 +124,7 @@ These errors wrap `executor.ErrMessageRejectedByTransmitter`, so the executor do
 | The payload needs more than 64 chunks | `prepareChunks`, before any write |
 | `execute_v2` is still larger than 1232 bytes after buffering | `executeAndWait` |
 
-The transmitter does not read program errors from simulation logs.
+The transmitter does not read program errors.
 A program error is retryable.
 
 ### Retryable errors
@@ -132,14 +132,18 @@ A program error is retryable.
 All other errors are retryable.
 This includes errors that depend on chain state, because a later retry can succeed: `UnsupportedTokenReceiverUseAsIsForPoolV1` (pool version), `TooManyAccountLocks` (resolved account set), and `MaxLoadedAccountsDataSizeExceeded` (account sizes).
 It also includes token pool rate limits and RPC errors.
-If the `execute_v2` simulation fails, the transmitter returns a retryable error and does not send the tx.
-The simulation uses the same compute unit limit as the tx, so a message with too low a gas limit also fails here.
-A failed buffered tx does not stop the executor's retries (`HasHonestAttempt` cannot use it), so each failed tx that lands would cost the exec fee again.
-If the simulation cannot run, for example because of an RPC error, the transmitter sends the tx, because a retry pays for all chunk writes again.
+The transmitter does not simulate `execute_v2` before it sends it.
+A program error usually lands as a failed tx, and the transmitter returns a retryable error.
+The tx can also not land, because the `txm` simulation after the first broadcast stops further broadcasts.
+When the error happens after the `InProgress` event, the failed tx is the on-chain trace of the attempt, and the message can be executed manually.
+The destination reader caches the failed attempt, but it cannot simulate an oversized message, so it reports the attempt as not honest.
+The upstream executor then lets only the first-ranked executor of the pool retry the message until it expires.
+A failure before the first verify CPI leaves no CCV data in the tx, so the reader caches nothing, and every executor of the pool keeps retrying.
 
 The sender controls up to 64 messaging accounts through the dest blob, so a sender can cause `TooManyAccountLocks` or `MaxLoadedAccountsDataSizeExceeded`.
 The executor limits the rate: it retries a message at a fixed interval (pool size × `execution_interval`) until the message expires (`max_retry_duration`).
-Each retry that fails the simulation pays the chunk writes and the close (about 5,000 lamports per tx with the default `txm` fees), but not the exec tx, because the simulation fails first.
+Each failed retry pays the chunk writes and the close, and the exec tx when it lands (about 5,000 lamports per tx with the default `txm` fees).
+Its cleanup also waits until the blockhash of the failed exec tx expires (about 60 to 90 seconds), because `txm` reports a landed failure as `Fatal`.
 
 ### Cleanup after a failure
 
@@ -160,7 +164,7 @@ The rules for "cannot land" are in the comment on `stillInFlight` in `buffer.go`
 NOTE: If the bound expires first, or the process stops (`buffer_cleanup_timeout` is usually shorter than the wait), a write or the close can still land later. The next attempt of that message can then fail once:
 
 - A buffer left by the earlier run already exists: the `txm` simulation of the first write fails (`BufferInvalidLength` or `BufferAlreadyContainsChunk`), so the write is not sent.
-- A stale close deletes the buffer of the next attempt, or a stale write lands in it: the attempt fails at account resolution or at the `execute_v2` simulation.
+- A stale close deletes the buffer of the next attempt, or a stale write lands in it: the attempt fails at account resolution or lands a failed `execute_v2` tx.
 
 In both cases, cleanup closes the buffer, and the executor retries the message. The rent goes back to the same fee payer.
 
@@ -213,11 +217,11 @@ The transmitter key must have funds on the target chain. The key is the fee paye
 | File | Coverage |
 | --- | --- |
 | `keystore_test.go` | Key loading, signing, and the `core.Keystore` adapter |
-| `buffer_test.go` | Chunking, the chunk limit, PDA derivation, tx size, a new blockhash per chunk, the `execute_v2` simulation and its compute unit limit, the wait for in-flight txs, and the cleanup order |
+| `buffer_test.go` | Chunking, the chunk limit, PDA derivation, tx size, a new blockhash per chunk, a failed exec tx that stays retryable, the wait for in-flight txs, and the cleanup order |
 | `transmitter_test.go` | Canceled startup, encoding errors, the input checks, oversized tx detection, and the compute unit limit |
 | `config_test.go` | Defaults, validation, and TOML decoding |
 | `leak_test.go` | Goroutine leaks, `Close` idempotency, and rejection after `Close` |
-| `integration-tests/transmitter` | The buffered flow against a local validator: a valid message, and terminal dest blobs rejected before any write |
+| `integration-tests/transmitter` | The buffered flow against a local validator: a valid message, terminal dest blobs rejected before any write, failed exec txs that close the buffer, and a receiver revert that the destination reader caches but does not treat as honest |
 
 Run the unit tests:
 

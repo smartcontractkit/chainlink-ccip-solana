@@ -630,27 +630,6 @@ func UnmarshalReceiverRegistry(buf []byte) (*ReceiverRegistry, error) {
 	return obj, nil
 }
 
-type ResolutionType binary.BorshEnum
-
-const (
-	ResolutionType_NoResolution ResolutionType = iota
-	ResolutionType_Standard
-	ResolutionType_WithoutExtendedLookupTable
-)
-
-func (value ResolutionType) String() string {
-	switch value {
-	case ResolutionType_NoResolution:
-		return "NoResolution"
-	case ResolutionType_Standard:
-		return "Standard"
-	case ResolutionType_WithoutExtendedLookupTable:
-		return "WithoutExtendedLookupTable"
-	default:
-		return ""
-	}
-}
-
 type ResolveAccountsParams struct {
 	// The account expected to sign the final instruction being resolved.
 	Caller solanago.PublicKey `json:"caller"`
@@ -1140,15 +1119,16 @@ func UnmarshalSuiExtraArgsV1(buf []byte) (*SuiExtraArgsV1, error) {
 }
 
 type TokenAdminRegistry struct {
-	Version              uint8              `json:"version"`
-	Administrator        solanago.PublicKey `json:"administrator"`
-	PendingAdministrator solanago.PublicKey `json:"pending_administrator"`
-	LookupTable          solanago.PublicKey `json:"lookup_table"`
-	WritableIndexes      [2]binary.Uint128  `json:"writable_indexes"`
-	Mint                 solanago.PublicKey `json:"mint"`
-	AccountResolution    ResolutionType     `json:"account_resolution"`
-	Bump                 uint8              `json:"bump"`
-	InterfaceVersion     uint8              `json:"interface_version"`
+	Version                          uint8              `json:"version"`
+	Administrator                    solanago.PublicKey `json:"administrator"`
+	PendingAdministrator             solanago.PublicKey `json:"pending_administrator"`
+	LookupTable                      solanago.PublicKey `json:"lookup_table"`
+	WritableIndexes                  [2]binary.Uint128  `json:"writable_indexes"`
+	Mint                             solanago.PublicKey `json:"mint"`
+	AccountResolutionEnabled         bool               `json:"account_resolution_enabled"`
+	Bump                             uint8              `json:"bump"`
+	InterfaceVersion                 uint8              `json:"interface_version"`
+	SkipLookupTableAdditionalEntries bool               `json:"skip_lookup_table_additional_entries"`
 }
 
 func (obj TokenAdminRegistry) MarshalWithEncoder(encoder *binary.Encoder) (err error) {
@@ -1182,10 +1162,10 @@ func (obj TokenAdminRegistry) MarshalWithEncoder(encoder *binary.Encoder) (err e
 	if err != nil {
 		return errors.NewField("Mint", err)
 	}
-	// Serialize `AccountResolution`:
-	err = encoder.Encode(obj.AccountResolution)
+	// Serialize `AccountResolutionEnabled`:
+	err = encoder.Encode(obj.AccountResolutionEnabled)
 	if err != nil {
-		return errors.NewField("AccountResolution", err)
+		return errors.NewField("AccountResolutionEnabled", err)
 	}
 	// Serialize `Bump`:
 	err = encoder.Encode(obj.Bump)
@@ -1196,6 +1176,11 @@ func (obj TokenAdminRegistry) MarshalWithEncoder(encoder *binary.Encoder) (err e
 	err = encoder.Encode(obj.InterfaceVersion)
 	if err != nil {
 		return errors.NewField("InterfaceVersion", err)
+	}
+	// Serialize `SkipLookupTableAdditionalEntries`:
+	err = encoder.Encode(obj.SkipLookupTableAdditionalEntries)
+	if err != nil {
+		return errors.NewField("SkipLookupTableAdditionalEntries", err)
 	}
 	return nil
 }
@@ -1241,10 +1226,10 @@ func (obj *TokenAdminRegistry) UnmarshalWithDecoder(decoder *binary.Decoder) (er
 	if err != nil {
 		return errors.NewField("Mint", err)
 	}
-	// Deserialize `AccountResolution`:
-	err = decoder.Decode(&obj.AccountResolution)
+	// Deserialize `AccountResolutionEnabled`:
+	err = decoder.Decode(&obj.AccountResolutionEnabled)
 	if err != nil {
-		return errors.NewField("AccountResolution", err)
+		return errors.NewField("AccountResolutionEnabled", err)
 	}
 	// Deserialize `Bump`:
 	err = decoder.Decode(&obj.Bump)
@@ -1255,6 +1240,11 @@ func (obj *TokenAdminRegistry) UnmarshalWithDecoder(decoder *binary.Decoder) (er
 	err = decoder.Decode(&obj.InterfaceVersion)
 	if err != nil {
 		return errors.NewField("InterfaceVersion", err)
+	}
+	// Deserialize `SkipLookupTableAdditionalEntries`:
+	err = decoder.Decode(&obj.SkipLookupTableAdditionalEntries)
+	if err != nil {
+		return errors.NewField("SkipLookupTableAdditionalEntries", err)
 	}
 	return nil
 }

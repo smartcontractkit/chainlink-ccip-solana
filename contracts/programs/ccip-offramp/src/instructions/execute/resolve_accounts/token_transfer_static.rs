@@ -195,7 +195,7 @@ pub fn retrieve_token_static_accounts_stage<'info>(
     let pending = lut_account.addresses.len().saturating_sub(lut_cursor);
 
     let (take, is_final_page) = if token_admin_registry
-        .account_resolution
+        .account_resolution()
         .use_lookup_table_additional_entries()
     {
         plan_lut_extras_page(pending, accounts_to_save.len())?
@@ -256,7 +256,7 @@ pub fn retrieve_token_static_accounts_stage<'info>(
         checked_add_u8(account_list_lengths.token_transfer, accounts_to_save.len())?;
 
     if token_admin_registry.interface_version > 1
-        && token_admin_registry.account_resolution.is_enabled()
+        && token_admin_registry.account_resolution().is_enabled()
     {
         begin_nested_token_stages(
             exec_params.buffer_account,
@@ -264,9 +264,10 @@ pub fn retrieve_token_static_accounts_stage<'info>(
             pool_program,
             token_mint,
             account_list_lengths,
+            msg.source_chain_selector,
         )
     } else if token_admin_registry.interface_version == 1
-        && token_admin_registry.account_resolution.is_enabled()
+        && token_admin_registry.account_resolution().is_enabled()
     {
         Err(CcipOfframpError::UnsupportedPoolV1ResolutionOnLaneV2.into())
     } else {
@@ -324,10 +325,12 @@ fn begin_nested_token_stages(
     pool_program: Pubkey,
     token_mint: Pubkey,
     account_list_lengths: OfframpAccountListLengths,
+    selector: u64,
 ) -> Result<ResolveAccountsResponse> {
     Ok(ResolveAccountsResponse {
         ask_again_with: ask_again_with_for_nested_tokens(
             find(&[seed::CONFIG], crate::ID),
+            find(&[seed::SOURCE_CHAIN, &selector.to_le_bytes()], crate::ID),
             pool_program,
             find(
                 &[seed::EXTERNAL_TOKEN_POOLS_SIGNER, pool_program.as_ref()],
@@ -355,6 +358,7 @@ fn begin_nested_token_stages(
 
 pub(crate) fn ask_again_with_for_nested_tokens(
     offramp_config: Pubkey,
+    source_chain: Pubkey,
     pool_program: Pubkey,
     pool_signer: Pubkey,
     buffer_account: Option<Pubkey>,
@@ -362,8 +366,9 @@ pub(crate) fn ask_again_with_for_nested_tokens(
 ) -> Vec<Pubkey> {
     let mut ask_again_with =
         // SAFETY: a capacity hint only — a wrong value costs a realloc, never correctness, and the operands are account counts bounded by the per-tx account limit.
-        Vec::with_capacity(3 + buffer_account.is_some() as usize + inner_accounts.len());
+        Vec::with_capacity(4 + buffer_account.is_some() as usize + inner_accounts.len());
     ask_again_with.push(offramp_config);
+    ask_again_with.push(source_chain);
     ask_again_with.push(pool_program);
     ask_again_with.push(pool_signer);
     if let Some(buffer) = buffer_account {
@@ -494,5 +499,36 @@ mod tests {
             "expected a bounded page count, got {} pages: {pages:?}",
             pages.len()
         );
+    }
+
+    #[test]
+    fn first_nested_handoff_fits_the_ask_again_with_budget() {
+        // `MAX_ACCOUNTS_PER_RESPONSE` is budgeted against `MAX_ASK_AGAIN_WITH`, and this handoff
+        // goes out on the static stage's final page, which can be full. A buffered message is the
+        // widest case and sits exactly at the bound, so any account added to the prefix needs the
+        // budget in `ccip_common::resolution` revisited first.
+        for buffer_account in [None, Some(Pubkey::new_unique())] {
+            let response = begin_nested_token_stages(
+                buffer_account,
+                vec![Pubkey::new_unique().readonly(); MAX_ACCOUNTS_PER_RESPONSE],
+                Pubkey::new_unique(),
+                Pubkey::new_unique(),
+                OfframpAccountListLengths {
+                    buffer: 1,
+                    messaging: u8::MAX,
+                    token_transfer: u8::MAX,
+                    receiver_ccv: 2,
+                    receiver_registry: 1,
+                    ccvs: vec![],
+                },
+                1,
+            )
+            .unwrap();
+
+            let expected = 4 + buffer_account.is_some() as usize + 1;
+            assert_eq!(response.ask_again_with.len(), expected);
+            assert!(response.ask_again_with.len() <= MAX_ASK_AGAIN_WITH);
+            require_response_fits(&response).unwrap();
+        }
     }
 }

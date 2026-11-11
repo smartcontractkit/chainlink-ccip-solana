@@ -352,6 +352,7 @@ func configureChainForLanes(
 			IsRMNVerificationDisabled: true,
 			DefaultCCVs:               defaultCCVs,
 			LaneMandatedCCVs:          laneMandatedCCVs,
+			LegacyAddressLength:       remoteConfig.AddressBytesLength,
 		})
 		if err != nil {
 			return seq_core.OnChainOutput{}, fmt.Errorf("failed to configure OffRamp for remote %d: %w", remoteSelector, err)

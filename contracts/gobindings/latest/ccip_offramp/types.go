@@ -2544,6 +2544,16 @@ type SourceChainConfig struct {
 	// Lane-mandated CCVs that are always required for this lane.
 	// No Pubkey::default() or duplicates allowed (with default_ccvs or in lane_mandated_ccvs).
 	LaneMandatedCcvs []solanago.PublicKey `json:"lane_mandated_ccvs"`
+
+	// Native address width of the source chain, in bytes. The OffRamp trims the source pool
+	// address in each token transfer to this width (dropping leading zero bytes only) before
+	// handing it to the pool, because pools configured for CCIP 1.6 store remote pool addresses
+	// at their native width while 2.0 onramps may pad them (the EVM onramp pads to 32 bytes).
+	// Set it to the source chain family's address width: 20 for EVM, 32 for SVM. Deployment
+	// tooling takes it from the chain family adapter's `GetAddressBytesLength`, the same source as
+	// the Router's `address_bytes_length` for that chain. Must be in
+	// `1..=`[`MAX_LEGACY_ADDRESS_LENGTH`].
+	LegacyAddressLength uint8 `json:"legacy_address_length"`
 }
 
 func (obj SourceChainConfig) MarshalWithEncoder(encoder *binary.Encoder) (err error) {
@@ -2566,6 +2576,11 @@ func (obj SourceChainConfig) MarshalWithEncoder(encoder *binary.Encoder) (err er
 	err = encoder.Encode(obj.LaneMandatedCcvs)
 	if err != nil {
 		return errors.NewField("LaneMandatedCcvs", err)
+	}
+	// Serialize `LegacyAddressLength`:
+	err = encoder.Encode(obj.LegacyAddressLength)
+	if err != nil {
+		return errors.NewField("LegacyAddressLength", err)
 	}
 	return nil
 }
@@ -2600,6 +2615,11 @@ func (obj *SourceChainConfig) UnmarshalWithDecoder(decoder *binary.Decoder) (err
 	err = decoder.Decode(&obj.LaneMandatedCcvs)
 	if err != nil {
 		return errors.NewField("LaneMandatedCcvs", err)
+	}
+	// Deserialize `LegacyAddressLength`:
+	err = decoder.Decode(&obj.LegacyAddressLength)
+	if err != nil {
+		return errors.NewField("LegacyAddressLength", err)
 	}
 	return nil
 }
@@ -2674,6 +2694,55 @@ func (obj *SourceChainConfigUpdated) Unmarshal(buf []byte) error {
 
 func UnmarshalSourceChainConfigUpdated(buf []byte) (*SourceChainConfigUpdated, error) {
 	obj := new(SourceChainConfigUpdated)
+	err := obj.Unmarshal(buf)
+	if err != nil {
+		return nil, err
+	}
+	return obj, nil
+}
+
+type SourceChainDeleted struct {
+	SourceChainSelector uint64 `json:"source_chain_selector"`
+}
+
+func (obj SourceChainDeleted) MarshalWithEncoder(encoder *binary.Encoder) (err error) {
+	// Serialize `SourceChainSelector`:
+	err = encoder.Encode(obj.SourceChainSelector)
+	if err != nil {
+		return errors.NewField("SourceChainSelector", err)
+	}
+	return nil
+}
+
+func (obj SourceChainDeleted) Marshal() ([]byte, error) {
+	buf := bytes.NewBuffer(nil)
+	encoder := binary.NewBorshEncoder(buf)
+	err := obj.MarshalWithEncoder(encoder)
+	if err != nil {
+		return nil, fmt.Errorf("error while encoding SourceChainDeleted: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+func (obj *SourceChainDeleted) UnmarshalWithDecoder(decoder *binary.Decoder) (err error) {
+	// Deserialize `SourceChainSelector`:
+	err = decoder.Decode(&obj.SourceChainSelector)
+	if err != nil {
+		return errors.NewField("SourceChainSelector", err)
+	}
+	return nil
+}
+
+func (obj *SourceChainDeleted) Unmarshal(buf []byte) error {
+	err := obj.UnmarshalWithDecoder(binary.NewBorshDecoder(buf))
+	if err != nil {
+		return fmt.Errorf("error while unmarshaling SourceChainDeleted: %w", err)
+	}
+	return nil
+}
+
+func UnmarshalSourceChainDeleted(buf []byte) (*SourceChainDeleted, error) {
+	obj := new(SourceChainDeleted)
 	err := obj.Unmarshal(buf)
 	if err != nil {
 		return nil, err

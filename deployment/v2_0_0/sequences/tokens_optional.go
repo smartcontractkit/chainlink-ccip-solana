@@ -348,7 +348,7 @@ func (a *SolanaAdapter) GetOnchainRateLimits(
 	if err != nil {
 		return tokenapi.OnchainRateLimits{}, err
 	}
-	fullPoolRef, err := datastore_utils.FindAndFormatRef(ds, poolRef, chainSelector, datastore_utils.FullRef)
+	fullPoolRef, err := solcommon.FindAndFormatCompatibleRef(ds, poolRef, chainSelector, datastore_utils.FullRef)
 	if err != nil {
 		return tokenapi.OnchainRateLimits{}, fmt.Errorf("failed to resolve pool ref (%s): %w", datastore_utils.SprintRef(poolRef), err)
 	}

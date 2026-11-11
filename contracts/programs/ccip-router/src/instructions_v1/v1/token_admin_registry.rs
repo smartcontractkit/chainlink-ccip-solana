@@ -5,7 +5,7 @@ use ccip_common::seed;
 use solana_address_lookup_table_interface as address_lookup_table;
 use solana_address_lookup_table_interface::state::AddressLookupTable;
 
-use ccip_common::router_accounts::{ResolutionType, TokenAdminRegistry};
+use ccip_common::router_accounts::TokenAdminRegistry;
 
 use crate::context::ANCHOR_DISCRIMINATOR;
 use crate::events::token_admin_registry as events;
@@ -183,7 +183,7 @@ impl TokenAdminRegistryTrait for Impl {
             );
 
             // Check that version is within range of old versions that need to be migrated
-            // (currently v1 and v2, being migrated to v3 which is the latest version as of mid-2026)
+            // (currently v1, v2 and v3, being migrated to v4 which is the latest version as of late 2026)
             let version_byte = data[DISCRIM_LEN];
             require_gte!(
                 version_byte,
@@ -196,6 +196,14 @@ impl TokenAdminRegistryTrait for Impl {
                 CcipRouterError::InvalidInputsTokenAdminRegistryAccounts
             )
         }
+
+        // Decode the old layout before resizing. The loader picks the layout from the account length
+        // (which the context restricts to the v1, v2 and v3 sizes), checks that the stored version byte
+        // agrees with it, and fills the fields that layout lacks with their safe defaults. Decoding the
+        // resized data as the latest layout instead would misread v3: its resolution byte may hold 2,
+        // which is not a valid v4 bool.
+        let old =
+            ccip_common::v1::load_token_admin_registry_checked(&acc_info, ctx.accounts.mint.key())?;
 
         // Extend the account to the new size (realloc)
         {
@@ -218,35 +226,15 @@ impl TokenAdminRegistryTrait for Impl {
             acc_info.resize(required_space)?;
         }
 
-        // old data in new extended struct - do not trust data in newly-added fields, check the version first
-        let old: TokenAdminRegistry;
-
-        // Load realloc'd data
-        {
-            let data = acc_info.try_borrow_data()?;
-            let mut data: &[u8] = &data;
-
-            old = TokenAdminRegistry::try_deserialize(&mut data)?;
-        }
-
-        // Upgrade data from v1/v2 to v3
+        // Upgrade data from v1/v2/v3 to v4. The loader already mapped every field:
+        // - account_resolution_enabled: false for v1 (no such field), kept for v2/v3
+        // - interface_version: 1 for v1/v2 (they only served pools implementing the v1 interface), kept for v3
+        // - skip_lookup_table_additional_entries: set only if a v3 registry held WithoutExtendedLookupTable
+        let old_version = old.version;
         let new_token_admin_registry = TokenAdminRegistry {
             version: TokenAdminRegistry::LATEST_VERSION,
-            administrator: old.administrator,
-            pending_administrator: old.pending_administrator,
-            lookup_table: old.lookup_table,
-            writable_indexes: old.writable_indexes,
-            mint: old.mint,
-
-            // New fields after v1, which (may) need setting
-            account_resolution: if old.version == 2 {
-                // v2 already had the supports_auto_derivation field (just renamed in v3), so keep the existing value
-                old.account_resolution
-            } else {
-                ResolutionType::NoResolution // v1 did not have the supports_auto_derivation field, so default to false for safety
-            },
-            bump,                 // set the bump, introduced in v3
-            interface_version: 1, // v1 & v2 of the TAR struct are just for pools implementing the pool's v1 interface
+            bump, // set the bump, introduced in v3 (v1/v2 load it as unset)
+            ..old
         };
 
         // Persist the upgraded account data
@@ -254,10 +242,14 @@ impl TokenAdminRegistryTrait for Impl {
 
         emit!(crate::events::PdaUpgraded {
             address: acc_info.key(),
-            old_version: old.version,
+            old_version,
             new_version: TokenAdminRegistry::LATEST_VERSION,
             name: "TokenAdminRegistry".to_string(),
-            seeds: [seed::TOKEN_ADMIN_REGISTRY, old.mint.as_ref()].concat(),
+            seeds: [
+                seed::TOKEN_ADMIN_REGISTRY,
+                new_token_admin_registry.mint.as_ref()
+            ]
+            .concat(),
         });
 
         Ok(())
@@ -400,9 +392,11 @@ fn init_with_pending_administrator(
         lookup_table: Pubkey::new_from_array([0; 32]),
         writable_indexes: [0, 0],
         mint: token_mint,
-        account_resolution: TokenAdminRegistry::DEFAULT_ACCOUNT_RESOLUTION,
+        account_resolution_enabled: TokenAdminRegistry::DEFAULT_ACCOUNT_RESOLUTION_ENABLED,
         interface_version: TokenAdminRegistry::DEFAULT_INTERFACE_VERSION,
         bump,
+        skip_lookup_table_additional_entries:
+            TokenAdminRegistry::DEFAULT_SKIP_LOOKUP_TABLE_ADDITIONAL_ENTRIES,
     });
 
     emit!(events::AdministratorTransferRequested {

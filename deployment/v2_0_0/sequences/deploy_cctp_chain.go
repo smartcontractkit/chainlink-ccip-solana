@@ -16,7 +16,7 @@ import (
 	cldf_ops "github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	mcms_types "github.com/smartcontractkit/mcms/types"
 
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/ccip_common"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/ccip_router"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/state"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/tokens"
 	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/solcommon"
@@ -193,12 +193,13 @@ var DeployCCTPChain = cldf_ops.NewSequence(
 		collect(setPoolRep.Output)
 		// WithoutExtendedLookupTable matches how the program-level tests register this pool
 		// (contracts/tests/testutils/setup.go): cctp_token_pool resolves its own accounts, so the
-		// router does not need an extended lookup table for it.
+		// router does not need an extended lookup table for it. TAR v4 stores this as Standard in the
+		// legacy byte plus a trailing skip flag, so a 1.6 lane can still decode the registry.
 		interfaceRep, err := cldf_ops.ExecuteOperation(b, routerops.SetPoolInterfaceImplementation, solChain, routerops.SetPoolInterfaceImplParams{
 			Router:                      router,
 			TokenMint:                   mint,
 			InterfaceVersion:            2,
-			ImplementsAccountResolution: uint8(ccip_common.ResolutionType_WithoutExtendedLookupTable),
+			ImplementsAccountResolution: uint8(ccip_router.ResolutionType_WithoutExtendedLookupTable),
 		})
 		if err != nil {
 			return seq_core.OnChainOutput{}, fmt.Errorf("set pool interface implementation: %w", err)
@@ -317,6 +318,14 @@ func ensureAssociatedTokenAccount(b cldf_ops.Bundle, solChain cldf_solana.Chain,
 	ata, _, err := tokens.FindAssociatedTokenAddress(tokenProgram, mint, owner)
 	if err != nil {
 		return fmt.Errorf("derive associated token address (mint %s, owner %s): %w", mint, owner, err)
+	}
+	exists, err := accountExists(b.GetContext(), solChain, ata)
+	if err != nil {
+		return fmt.Errorf("fetch associated token account (mint %s, owner %s, ata %s): %w", mint, owner, ata, err)
+	}
+	if exists {
+		b.Logger.Infow("Associated token account already exists, skipping", "mint", mint, "owner", owner, "ata", ata)
+		return nil
 	}
 	ixn, _, err := tokens.CreateAssociatedTokenAccount(tokenProgram, mint, owner, solChain.DeployerKey.PublicKey())
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
+	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/solcommon"
 	routerops "github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/operations/router"
 )
 
@@ -21,7 +22,7 @@ func (r *SolanaFeeResolver) GetOnRampRef(_ operations.Bundle, chains cldf_chain.
 	if _, ok := chains.SolanaChains()[src]; !ok {
 		return datastore.AddressRef{}, fmt.Errorf("solana chain not found for selector %d", src)
 	}
-	routerRef, err := datastore_utils.FindAndFormatRef(ds, datastore.AddressRef{
+	routerRef, err := solcommon.FindAndFormatCompatibleRef(ds, datastore.AddressRef{
 		Type:          datastore.ContractType(routerops.ContractType),
 		Version:       routerops.Version,
 		ChainSelector: src,

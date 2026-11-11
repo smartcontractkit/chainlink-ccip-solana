@@ -8,7 +8,7 @@ export type BurnmintTokenPool = {
   "address": "41FGToCmdaWa1dgZLKFAjvmx6e6AjVTX7SVRibvsMGVB",
   "metadata": {
     "name": "burnmintTokenPool",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "spec": "0.1.0",
     "description": "Created with Anchor"
   },

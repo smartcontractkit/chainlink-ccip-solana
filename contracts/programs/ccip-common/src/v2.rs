@@ -389,10 +389,12 @@ impl<'a> CcipV2OfframpOnrampCommonTokenAccounts<'a> {
         // reconstruct + validate expected values in token pool lookup table
         // base set of constant accounts (10)
         // + additional constant accounts (remaining_accounts) that are not required but may be used for additional token pool functionality (like CPI)
-        let is_resolution_enabled = token_admin_registry_account.account_resolution.is_enabled();
+        let is_resolution_enabled = token_admin_registry_account
+            .account_resolution()
+            .is_enabled();
 
         let use_additional_lut_entries = token_admin_registry_account
-            .account_resolution
+            .account_resolution()
             .use_lookup_table_additional_entries();
         {
             // validate pool addresses

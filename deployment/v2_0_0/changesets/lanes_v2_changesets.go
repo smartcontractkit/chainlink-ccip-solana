@@ -16,6 +16,7 @@ import (
 	cldf "github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	cldf_ops "github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/ccip_router"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/cctp_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/common"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/state"
@@ -159,6 +160,23 @@ func promoteLanesV2Verify(env cldf.Environment, input LanesV2ChangesetInput) err
 	return nil
 }
 
+// checkCctpTokenAdminRegistryReady checks that a CCTP mint's registry is in the state
+// MigrateCctpTokenPoolToV2 leaves it in: interface version 2 with WithoutExtendedLookupTable
+// resolution. Standard would also pass an interface version check, but it makes 2.0 resolution
+// append the pool lookup table's additional entries, which on a legacy CCTP table are the
+// CCTPv1-specific accounts. The TAR v3 to v4 upgrade preserves the resolution mode, so a registry
+// set to Standard (e.g. by the 1.6 outage recovery) stays Standard until it is set explicitly.
+func checkCctpTokenAdminRegistryReady(mint solana.PublicKey, tar ccip_router.TokenAdminRegistry) error {
+	if tar.InterfaceVersion != 2 {
+		return fmt.Errorf("CCTP mint %s is registered at interface version %d; migrate it to version 2 before promotion", mint, tar.InterfaceVersion)
+	}
+	if resolution := router.TokenAdminRegistryResolutionType(tar); resolution != ccip_router.ResolutionType_WithoutExtendedLookupTable {
+		return fmt.Errorf("CCTP mint %s has account resolution %s; set it to %s (re-run the CCTP pool migration) before promotion",
+			mint, resolution, ccip_router.ResolutionType_WithoutExtendedLookupTable)
+	}
+	return nil
+}
+
 func verifyCctpLaneReadiness(env cldf.Environment, chainSelector, remote uint64, mint solana.PublicKey) error {
 	if env.DataStore == nil {
 		return errors.New("datastore is required to verify CCTP readiness")
@@ -194,8 +212,8 @@ func verifyCctpLaneReadiness(env cldf.Environment, chainSelector, remote uint64,
 	if err != nil {
 		return fmt.Errorf("read token admin registry for CCTP mint %s: %w", mint, err)
 	}
-	if tar.InterfaceVersion != 2 {
-		return fmt.Errorf("CCTP mint %s is registered at interface version %d; migrate it to version 2 before promotion", mint, tar.InterfaceVersion)
+	if err = checkCctpTokenAdminRegistryReady(mint, tar); err != nil {
+		return err
 	}
 
 	configPDA, _, err := state.FindCVConfigPDA(pool)

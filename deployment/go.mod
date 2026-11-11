@@ -19,8 +19,8 @@ require (
 	github.com/smartcontractkit/chain-selectors v1.0.113-0.20261008145209-9a0d5970fd1e
 	github.com/smartcontractkit/chainlink-ccip-solana v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings v0.0.0-00010101000000-000000000000
-	github.com/smartcontractkit/chainlink-ccip/chains/solana v0.0.0-20261016104152-f8f0f105041f
-	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20261016104152-f8f0f105041f
+	github.com/smartcontractkit/chainlink-ccip/chains/solana v0.0.0-20261105144145-1386a22b82fb
+	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20261105144145-1386a22b82fb
 	github.com/smartcontractkit/chainlink-ccv v0.16.1-0.20261030192717-51125e91f2d0
 	github.com/smartcontractkit/chainlink-ccv/deployment v0.1.1-0.20261030192717-51125e91f2d0
 	github.com/smartcontractkit/chainlink-common v0.11.2-0.20260915214759-02f2214d5823
@@ -35,7 +35,7 @@ require (
 	github.com/digital-asset/dazl-client/v8 v8.9.0 // indirect
 	github.com/ethereum/go-ethereum v1.17.4
 	github.com/grafana/regexp v0.0.0-20240518133315-a468a5bfb3bc // indirect
-	github.com/smartcontractkit/chainlink-ccip/chains/solana/gobindings v0.0.0-20261016104152-f8f0f105041f // indirect
+	github.com/smartcontractkit/chainlink-ccip/chains/solana/gobindings v0.0.0-20261105144145-1386a22b82fb // indirect
 	github.com/smartcontractkit/chainlink-protos/node-platform v0.0.0-20260709145319-7782fb89eb16 // indirect
 	github.com/smartcontractkit/chainlink-ton v1.0.5-0.20260713162202-124316cd10ff // indirect
 	github.com/stellar/go-stellar-sdk v0.5.0 // indirect

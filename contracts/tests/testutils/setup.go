@@ -345,9 +345,10 @@ func (b *TestEnvBuilder) Build() *TestEnv {
 			Bytes: env.OnRampAddress,
 			Len:   32,
 		}},
-		IsEnabled:        true,
-		DefaultCcvs:      []solana.PublicKey{config.CommitteeVerifierProgram},
-		LaneMandatedCcvs: []solana.PublicKey{},
+		IsEnabled:           true,
+		DefaultCcvs:         []solana.PublicKey{config.CommitteeVerifierProgram},
+		LaneMandatedCcvs:    []solana.PublicKey{},
+		LegacyAddressLength: 20, // default value for EVM chains - compatibility with 1.6 pools that work across lane versions
 	}
 	env.ValidFqDestChainConfig = fee_quoter.DestChainConfig{
 		IsEnabled:                   true,
@@ -1623,10 +1624,11 @@ func (env *TestEnv) setupTrafficConfig(ctx context.Context, withCCTPv2 bool) {
 		ccip_offramp.AddSourceChainParams{
 			NewChainSelector: config.SvmChainSelector,
 			SourceChainConfig: ccip_offramp.SourceChainConfig{
-				OnRamps:          []ccip_offramp.OnRampAddress{{Bytes: paddedCcipRouterProgram, Len: 32}},
-				IsEnabled:        true,
-				DefaultCcvs:      []solana.PublicKey{config.CommitteeVerifierProgram},
-				LaneMandatedCcvs: []solana.PublicKey{},
+				OnRamps:             []ccip_offramp.OnRampAddress{{Bytes: paddedCcipRouterProgram, Len: 32}},
+				IsEnabled:           true,
+				DefaultCcvs:         []solana.PublicKey{config.CommitteeVerifierProgram},
+				LaneMandatedCcvs:    []solana.PublicKey{},
+				LegacyAddressLength: 32, // solana-to-solana uses 32 bytes always
 			},
 		},
 		config.OfframpSvmSourceChainPDA,
@@ -1906,7 +1908,8 @@ func (env *TestEnv) setupPerChainPoolConfig(ctx context.Context, withCCTPv2 bool
 			PoolAddresses: []burnmint_tokenpool.RemoteAddress{}, TokenAddress: burnmint_tokenpool.RemoteAddress{Address: config.EVMToken3AddressBytes}, Decimals: evmTokenDecimals,
 		}, env.LinkPool.PoolConfig, env.LinkPool.Chain[selector], Admin.PublicKey(), solana.SystemProgramID)
 		require.NoError(t, err)
-		poolAddresses := []burnmint_tokenpool.RemoteAddress{{Address: []byte{4, 5, 6}}}
+
+		poolAddresses := []burnmint_tokenpool.RemoteAddress{{Address: config.EVMRemotePoolAddressBytesTrim}}
 		ix3, err := burnmint_tokenpool.NewAppendRemotePoolAddressesInstruction(selector, env.Token1.Mint, poolAddresses, env.Token1.PoolConfig, env.Token1.Chain[selector], Token1Admin.PublicKey(), solana.SystemProgramID)
 		require.NoError(t, err)
 		ix4, err := burnmint_tokenpool.NewAppendRemotePoolAddressesInstruction(selector, env.Token2.Mint, poolAddresses, env.Token2.PoolConfig, env.Token2.Chain[selector], Token2Admin.PublicKey(), solana.SystemProgramID)
@@ -1917,7 +1920,7 @@ func (env *TestEnv) setupPerChainPoolConfig(ctx context.Context, withCCTPv2 bool
 	}
 
 	// Append remote pool addresses for token0
-	ixEvm, err := burnmint_tokenpool.NewAppendRemotePoolAddressesInstruction(config.EvmChainSelector, env.Token0.Mint, []burnmint_tokenpool.RemoteAddress{{Address: []byte{1, 2, 3}}},
+	ixEvm, err := burnmint_tokenpool.NewAppendRemotePoolAddressesInstruction(config.EvmChainSelector, env.Token0.Mint, []burnmint_tokenpool.RemoteAddress{{Address: config.EVMRemotePoolAddressBytesTrim}},
 		env.Token0.PoolConfig, env.Token0.Chain[config.EvmChainSelector], Token0Admin.PublicKey(), solana.SystemProgramID)
 	require.NoError(t, err)
 	ixSvm, err := burnmint_tokenpool.NewAppendRemotePoolAddressesInstruction(config.SvmChainSelector, env.Token0.Mint, []burnmint_tokenpool.RemoteAddress{{Address: []byte{1, 2, 3}}},
@@ -1976,7 +1979,7 @@ func (env *TestEnv) setupPerChainPoolConfig(ctx context.Context, withCCTPv2 bool
 		rlUsdcIx, err := cctp_token_pool.NewSetChainRateLimitInstruction(config.EvmChainSelector, env.UsdcPool.Mint, cctp_token_pool.RateLimitConfig{}, cctp_token_pool.RateLimitConfig{}, env.UsdcPool.PoolConfig, env.UsdcPool.Chain[config.EvmChainSelector], UsdcPoolAdmin.PublicKey())
 		require.NoError(t, err)
 
-		appendUsdcRemotePoolIx, err := cctp_token_pool.NewAppendRemotePoolAddressesInstruction(config.EvmChainSelector, env.UsdcPool.Mint, []cctp_token_pool.RemoteAddress{{Address: config.EVMUsdcPoolAddressBytes}}, env.UsdcPool.PoolConfig, env.UsdcPool.Chain[config.EvmChainSelector], UsdcPoolAdmin.PublicKey(), solana.SystemProgramID)
+		appendUsdcRemotePoolIx, err := cctp_token_pool.NewAppendRemotePoolAddressesInstruction(config.EvmChainSelector, env.UsdcPool.Mint, []cctp_token_pool.RemoteAddress{{Address: config.EVMUsdcPoolAddressBytesTrim}}, env.UsdcPool.PoolConfig, env.UsdcPool.Chain[config.EvmChainSelector], UsdcPoolAdmin.PublicKey(), solana.SystemProgramID)
 		require.NoError(t, err)
 
 		chainV2Ix, err := cctp_token_pool.NewInitChainConfigV2Instruction(

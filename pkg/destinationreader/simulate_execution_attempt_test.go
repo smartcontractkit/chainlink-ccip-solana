@@ -283,6 +283,26 @@ func TestHasHonestAttempt_SimulationRunsOnce(t *testing.T) {
 	require.Equal(t, int32(2), calls.Load())
 }
 
+// TestHasHonestAttempt_OversizedFailedAttemptProceeds pins that a failed attempt of an oversized
+// message does not stop the message: only the resolver round runs, and the attempt is not honest.
+func TestHasHonestAttempt_OversizedFailedAttemptProceeds(t *testing.T) {
+	t.Parallel()
+	fx := newSimFixture(t, protocol.ChainSelector(9837465928374658293))
+	fx.msg.Data = make([]byte, 1500)
+	fx.msg.DataLength = 1500
+
+	rpcClient, calls := newSimClient(t, simResponse(simReturnLog(t, testOfframpProgramID, marshalAnchor(t, resolveDone())), nil))
+	dr := newReaderWithRPC(t, rpcClient, true)
+	seedAttemptWithBlobs(t, dr, fx.msg, true, []protocol.UnknownAddress{fx.ccvA}, [][]byte{fx.dataA})
+
+	got, err := dr.HasHonestAttempt(context.Background(), fx.msg, []protocol.VerifierResult{fx.vResultA},
+		protocol.CCVAddressInfo{RequiredCCVs: []protocol.UnknownAddress{fx.ccvA}})
+	require.NoError(t, err)
+	require.False(t, got.Honest)
+	require.True(t, got.NotHonestAttemptExists)
+	require.Equal(t, int32(1), calls.Load())
+}
+
 // TestBuildExecutionInputsV2 covers the shared input assembly guards directly.
 func TestBuildExecutionInputsV2(t *testing.T) {
 	t.Parallel()

@@ -24,6 +24,7 @@ var (
 	Event_ReferenceAddressesSet      = [8]byte{146, 234, 139, 115, 99, 143, 216, 191}
 	Event_SourceChainAdded           = [8]byte{98, 127, 170, 88, 67, 55, 230, 8}
 	Event_SourceChainConfigUpdated   = [8]byte{31, 205, 106, 132, 10, 220, 181, 30}
+	Event_SourceChainDeleted         = [8]byte{173, 198, 67, 50, 111, 8, 221, 185}
 )
 
 // Instruction discriminators
@@ -32,6 +33,7 @@ var (
 	Instruction_AddSourceChain                                         = [8]byte{26, 58, 148, 88, 190, 27, 2, 144}
 	Instruction_BufferExecutionInputs                                  = [8]byte{123, 142, 203, 67, 134, 9, 215, 26}
 	Instruction_CloseExecutionInputsBuffer                             = [8]byte{198, 228, 50, 91, 166, 43, 53, 198}
+	Instruction_DeleteSourceChain                                      = [8]byte{81, 199, 248, 220, 192, 60, 76, 40}
 	Instruction_DisableSourceChainSelector                             = [8]byte{58, 101, 54, 252, 248, 31, 226, 121}
 	Instruction_ExecuteV2                                              = [8]byte{110, 12, 255, 88, 93, 207, 223, 214}
 	Instruction_GetCcvsForMsg                                          = [8]byte{86, 132, 32, 127, 168, 122, 87, 66}

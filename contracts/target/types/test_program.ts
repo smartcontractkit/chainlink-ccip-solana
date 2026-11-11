@@ -8,7 +8,7 @@ export type TestProgram = {
   "address": "9yDw4zo6CxspgkUD5mGcs8LQiKQCZhkZCbaMhKEUHboU",
   "metadata": {
     "name": "testProgram",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "spec": "0.1.0",
     "description": "Created with Anchor"
   },

@@ -343,13 +343,16 @@ pub fn checked_len_u8(len: usize) -> Result<u8> {
 /// travels back to the resolver. Every stage's whole response must fit in it.
 pub const MAX_RETURN_DATA_BYTES: usize = 1024;
 
-/// The longest `ask_again_with` any stage hands back. The widest lists are the nested-token
-/// handoffs — `[config, pool_program, pool_signer, buffer?, ..inner_accounts]` — and the pool's
-/// inner accounts are what make it variable; six covers every stage in both ramps with room for
-/// two inner accounts, and [`MAX_ACCOUNTS_PER_RESPONSE`] is budgeted against it.
-// TODO: two slots for inner accounts is restrictive for deeper nested CPIs. Revisit when
-// implementing the Lombard/CCTP verifiers, which will likely need a larger handoff (and so a
-// smaller `MAX_ACCOUNTS_PER_RESPONSE`, or a paginated `ask_again_with`).
+/// The longest `ask_again_with` a stage hands back while also carrying a full page of accounts;
+/// [`MAX_ACCOUNTS_PER_RESPONSE`] is budgeted against it. The widest such list is the OffRamp's
+/// first nested-token handoff, `[config, source_chain, pool_program, pool_signer, buffer?,
+/// pool_state]`, which sits exactly at six when the message is buffered (the Router's is
+/// `[config, pool_program, pool_signer, dest_chain, pool_state]`). Each ramp has a test pinning its
+/// first handoff to this bound, so growing it means re-budgeting here.
+///
+/// Later nested rounds forward the pool's own `ask_again_with` after the same fixed prefix, so a
+/// pool may ask for more inner accounts than fit this bound. Those rounds carry only what the pool
+/// returned, and their whole response is checked by [`require_response_fits`] instead.
 pub const MAX_ASK_AGAIN_WITH: usize = 6;
 
 /// Upper bound on the accounts one resolution response may carry, so that a stage emitting a

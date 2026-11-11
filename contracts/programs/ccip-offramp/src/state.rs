@@ -50,6 +50,11 @@ impl AccountSchemaVersion for ReferenceAddresses {
 /// messages have been executed (including manual executions).
 pub const MAX_ON_RAMPS: usize = 10;
 
+/// Upper bound on [`SourceChainConfig::legacy_address_length`]. It matches the capacity of
+/// [`OnRampAddress`], the widest remote address the OffRamp stores; the longest address width
+/// known today is TON's 36 bytes.
+pub const MAX_LEGACY_ADDRESS_LENGTH: u8 = 64;
+
 #[derive(Clone, AnchorSerialize, AnchorDeserialize, InitSpace, Debug)]
 pub struct SourceChainConfig {
     pub is_enabled: bool, // Flag whether the source chain is enabled or not
@@ -72,6 +77,16 @@ pub struct SourceChainConfig {
     #[max_len(0)]
     // max_len = 0 for InitSpace calculation, the actual length is calculated using the length of the allow_list. `realloc` should be used to handle the increase in account size accordingly
     pub lane_mandated_ccvs: Vec<Pubkey>,
+
+    /// Native address width of the source chain, in bytes. The OffRamp trims the source pool
+    /// address in each token transfer to this width (dropping leading zero bytes only) before
+    /// handing it to the pool, because pools configured for CCIP 1.6 store remote pool addresses
+    /// at their native width while 2.0 onramps may pad them (the EVM onramp pads to 32 bytes).
+    /// Set it to the source chain family's address width: 20 for EVM, 32 for SVM. Deployment
+    /// tooling takes it from the chain family adapter's `GetAddressBytesLength`, the same source as
+    /// the Router's `address_bytes_length` for that chain. Must be in
+    /// `1..=`[`MAX_LEGACY_ADDRESS_LENGTH`].
+    pub legacy_address_length: u8,
 }
 
 impl SourceChainConfig {
@@ -255,6 +270,7 @@ mod tests {
             on_ramps: vec![first.clone(), second.clone()],
             default_ccvs: vec![Pubkey::new_unique()],
             lane_mandated_ccvs: vec![],
+            legacy_address_length: 0,
         };
 
         assert!(config.allows_on_ramp(first.bytes()));
@@ -277,6 +293,7 @@ mod tests {
             ],
             default_ccvs: vec![Pubkey::new_unique()],
             lane_mandated_ccvs: vec![Pubkey::new_unique()],
+            legacy_address_length: 0,
         };
         let source_chain = SourceChain {
             version: SourceChain::MAX_V,

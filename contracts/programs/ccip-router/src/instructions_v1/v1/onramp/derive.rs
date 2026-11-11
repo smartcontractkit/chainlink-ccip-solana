@@ -492,7 +492,7 @@ pub fn derive_ccip_send_accounts_additional_tokens_static<'info>(
 
     let token_admin_registry = load_token_admin_registry_checked(token_registry, token_mint)?;
 
-    if token_admin_registry.account_resolution.is_enabled() {
+    if token_admin_registry.account_resolution().is_enabled() {
         // Nested derivation is supported, so we go one level deeper
         response.next_stage = DeriveAccountsCcipSendStage::NestedTokenDerive {
             token_substage: "Start".to_string(),

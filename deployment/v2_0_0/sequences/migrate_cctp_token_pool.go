@@ -14,7 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	cldf_ops "github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/ccip_common"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/ccip_router"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/state"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/tokens"
 	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/solcommon"
@@ -40,7 +40,9 @@ type MigrateCctpTokenPoolToV2Input struct {
 //     verifier half). It requires the pool program's upgrade authority, so it is batched into an
 //     MCMS proposal when the timelock holds it.
 //  2. The pool signer's token account and SOL balance, which stake rent for the v2 event accounts.
-//  3. The Token Admin Registry flip to interface version 2 without account derivation, lifting the
+//  3. The Token Admin Registry flip to interface version 2 with WithoutExtendedLookupTable
+//     resolution (account resolution stays on; only the lookup table's additional entries are
+//     skipped, since cctp_token_pool resolves its own accounts), lifting the
 //     UnsupportedPoolV1ResolutionOnLaneV2 gate ccip_send_v2 applies to 1.6 CCTP registries. The
 //     1.6 ccip_send path never reads the registry version, so live 1.6 lanes are unaffected and
 //     this does not need to share an MCMS batch with the lane promotion.
@@ -116,6 +118,8 @@ var MigrateCctpTokenPoolToV2 = cldf_ops.NewSequence(
 
 		// Step 3: the Token Admin Registry flip. WithoutExtendedLookupTable matches fresh 2.0
 		// deploys: the pool resolves its own accounts, so the router needs no extended table.
+		// TAR v4 keeps the legacy resolution byte at 1 and stores the skip in a trailing field,
+		// so the 1.6 OffRamp can still decode the registry.
 		// The registry exists from the pool's 1.6 registration and the flip edits it in place;
 		// a missing one means the pool was never registered.
 		tarPDA, _, err := state.FindTokenAdminRegistryPDA(input.USDCToken, router)
@@ -129,7 +133,7 @@ var MigrateCctpTokenPoolToV2 = cldf_ops.NewSequence(
 			Router:                      router,
 			TokenMint:                   input.USDCToken,
 			InterfaceVersion:            2,
-			ImplementsAccountResolution: uint8(ccip_common.ResolutionType_WithoutExtendedLookupTable),
+			ImplementsAccountResolution: uint8(ccip_router.ResolutionType_WithoutExtendedLookupTable),
 		}, &result.BatchOps); err != nil {
 			return seq_core.OnChainOutput{}, fmt.Errorf("set pool interface implementation: %w", err)
 		}
@@ -172,7 +176,7 @@ func ResolveCctpPoolForMigration(ds datastore.DataStore, chainSelector uint64) (
 			continue
 		}
 		switch {
-		case ref.Version.Equal(solcommon.Version2_0_0) && ref.Qualifier == solcommon.PoolProgramQualifier:
+		case solcommon.RefVersionMatches(ref.Version, solcommon.Version2_0_0) && ref.Qualifier == solcommon.PoolProgramQualifier:
 			upgraded = append(upgraded, ref)
 		case ref.Version.Major() == 1:
 			legacy = append(legacy, ref)

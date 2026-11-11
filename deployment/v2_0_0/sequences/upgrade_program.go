@@ -17,9 +17,11 @@ import (
 	"github.com/smartcontractkit/mcms/types"
 
 	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/solcommon"
+	cctpverifierops "github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/operations/cctpverifier"
 	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/operations/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/operations/feequoter"
+	lvops "github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/operations/lombardverifier"
 	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/operations/offramp"
 	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/operations/rmnremote"
 	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/operations/router"
@@ -60,14 +62,44 @@ type programEntry struct {
 	programName  string
 	qualifier    string
 	upgrade      *cldf_ops.Operation[solana.PublicKey, []solana.Instruction, cldf_solana.Chain]
+	// additionalRefs are registered by an in-place upgrade, as a fresh deploy does.
+	additionalRefs []additionalRef
+	// programPerVersion marks programs where each version is its own program with its own ref (OffRamp,
+	// test sender/receiver). Others keep one address across versions, so an upgrade updates the ref version.
+	programPerVersion bool
+}
+
+// ProgramRefInfo is how the datastore refs of a program type are keyed.
+type ProgramRefInfo struct {
+	ProgramName       string
+	ContractType      datastore.ContractType
+	Version           *semver.Version
+	DefaultQualifier  string
+	ProgramPerVersion bool
+}
+
+// ProgramRefInfoFor returns false for a type without an upgrade implementation.
+func ProgramRefInfoFor(programType ProgramUpgradeType) (ProgramRefInfo, bool) {
+	entry, ok := programRegistry[programType]
+	if !ok {
+		return ProgramRefInfo{}, false
+	}
+	return ProgramRefInfo{
+		ProgramName:       entry.programName,
+		ContractType:      entry.contractType,
+		Version:           entry.version,
+		DefaultQualifier:  entry.qualifier,
+		ProgramPerVersion: entry.programPerVersion,
+	}, true
 }
 
 var programRegistry = map[ProgramUpgradeType]programEntry{
 	UpgradeTypeOffRamp: {
-		contractType: datastore.ContractType(offramp.ContractType),
-		version:      offramp.Version,
-		programName:  offramp.ProgramName,
-		upgrade:      offramp.Upgrade,
+		contractType:      datastore.ContractType(offramp.ContractType),
+		version:           offramp.Version,
+		programName:       offramp.ProgramName,
+		upgrade:           offramp.Upgrade,
+		programPerVersion: true,
 	},
 	UpgradeTypeRouter: {
 		contractType: datastore.ContractType(router.ContractType),
@@ -85,6 +117,7 @@ var programRegistry = map[ProgramUpgradeType]programEntry{
 		contractType: datastore.ContractType(executor.ContractType),
 		version:      executor.Version,
 		programName:  executor.ProgramName,
+		qualifier:    "default",
 		upgrade:      executor.Upgrade,
 	},
 	UpgradeTypeCommitteeVerifier: {
@@ -101,18 +134,20 @@ var programRegistry = map[ProgramUpgradeType]programEntry{
 		upgrade:      rmnremote.Upgrade,
 	},
 	UpgradeTypeBurnMintTokenPool: {
-		contractType: datastore.ContractType(common_utils.BurnMintTokenPool),
-		version:      solcommon.Version2_0_0,
-		programName:  tokenpools.BurnMintProgramName,
-		qualifier:    solcommon.PoolProgramQualifier,
-		upgrade:      tokenpools.UpgradeBurnMint,
+		contractType:   datastore.ContractType(common_utils.BurnMintTokenPool),
+		version:        solcommon.Version2_0_0,
+		programName:    tokenpools.BurnMintProgramName,
+		qualifier:      solcommon.PoolProgramQualifier,
+		upgrade:        tokenpools.UpgradeBurnMint,
+		additionalRefs: []additionalRef{poolProgramAlias},
 	},
 	UpgradeTypeLockReleaseTokenPool: {
-		contractType: datastore.ContractType(common_utils.LockReleaseTokenPool),
-		version:      solcommon.Version2_0_0,
-		programName:  tokenpools.LockReleaseProgramName,
-		qualifier:    solcommon.PoolProgramQualifier,
-		upgrade:      tokenpools.UpgradeLockRelease,
+		contractType:   datastore.ContractType(common_utils.LockReleaseTokenPool),
+		version:        solcommon.Version2_0_0,
+		programName:    tokenpools.LockReleaseProgramName,
+		qualifier:      solcommon.PoolProgramQualifier,
+		upgrade:        tokenpools.UpgradeLockRelease,
+		additionalRefs: []additionalRef{poolProgramAlias},
 	},
 	UpgradeTypeCCTPTokenPool: {
 		contractType: datastore.ContractType(common_utils.CCTPTokenPool),
@@ -120,6 +155,11 @@ var programRegistry = map[ProgramUpgradeType]programEntry{
 		programName:  tokenpools.CctpProgramName,
 		qualifier:    solcommon.PoolProgramQualifier,
 		upgrade:      tokenpools.UpgradeCctp,
+		// The verifier is embedded in the pool program but looked up under its own type.
+		additionalRefs: []additionalRef{
+			poolProgramAlias,
+			{contractType: datastore.ContractType(cctpverifierops.ContractType), version: cctpverifierops.Version, qualifier: string(cctpverifierops.ContractType)},
+		},
 	},
 	UpgradeTypeLombardTokenPool: {
 		contractType: datastore.ContractType(tokenpools.LombardTokenPool),
@@ -127,32 +167,42 @@ var programRegistry = map[ProgramUpgradeType]programEntry{
 		programName:  tokenpools.LombardProgramName,
 		qualifier:    solcommon.PoolProgramQualifier,
 		upgrade:      tokenpools.UpgradeLombard,
+		// The verifier is also registered under the EVM-canonical resolver qualifier.
+		additionalRefs: []additionalRef{
+			poolProgramAlias,
+			{contractType: datastore.ContractType(lvops.ContractType), version: lvops.Version, qualifier: string(lvops.ContractType)},
+			{contractType: datastore.ContractType(lvops.ContractType), version: lvops.Version, qualifier: lvops.LombardVerifierResolverQualifier},
+		},
 	},
 	UpgradeTypeTestReceiverV2: {
-		contractType: datastore.ContractType(testreceiver.ContractType),
-		version:      testreceiver.Version,
-		programName:  testreceiver.ProgramName,
-		upgrade:      testreceiver.Upgrade,
+		contractType:      datastore.ContractType(testreceiver.ContractType),
+		version:           testreceiver.Version,
+		programName:       testreceiver.ProgramName,
+		upgrade:           testreceiver.Upgrade,
+		programPerVersion: true,
 	},
 	UpgradeTypeTestReceiverLegacy: {
-		contractType: datastore.ContractType(testreceiver.ContractType),
-		version:      testreceiver.LegacyVersion,
-		programName:  testreceiver.LegacyProgramName,
-		upgrade:      testreceiver.UpgradeLegacy,
+		contractType:      datastore.ContractType(testreceiver.ContractType),
+		version:           testreceiver.LegacyVersion,
+		programName:       testreceiver.LegacyProgramName,
+		upgrade:           testreceiver.UpgradeLegacy,
+		programPerVersion: true,
 	},
 	UpgradeTypeTestSenderV2: {
-		contractType: datastore.ContractType(testsender.ContractType),
-		version:      testsender.Version,
-		qualifier:    "default",
-		programName:  testsender.ProgramName,
-		upgrade:      testsender.Upgrade,
+		contractType:      datastore.ContractType(testsender.ContractType),
+		version:           testsender.Version,
+		qualifier:         "default",
+		programName:       testsender.ProgramName,
+		upgrade:           testsender.Upgrade,
+		programPerVersion: true,
 	},
 	UpgradeTypeTestSenderLegacy: {
-		contractType: datastore.ContractType(testsender.ContractType),
-		version:      testsender.LegacyVersion,
-		qualifier:    "default",
-		programName:  testsender.LegacyProgramName,
-		upgrade:      testsender.UpgradeLegacy,
+		contractType:      datastore.ContractType(testsender.ContractType),
+		version:           testsender.LegacyVersion,
+		qualifier:         "default",
+		programName:       testsender.LegacyProgramName,
+		upgrade:           testsender.UpgradeLegacy,
+		programPerVersion: true,
 	},
 }
 
@@ -166,6 +216,8 @@ type UpgradeGenericInput struct {
 	// Qualifier overrides the registry qualifier when the target program was
 	// deployed under a custom one, for example a staging sender.
 	Qualifier string
+	// RefVersion is the datastore version of the program ref. Nil uses the registry version.
+	RefVersion *semver.Version
 }
 
 func resolveUpgrade(chains cldf_chain.BlockChains, input UpgradeGenericInput) (cldf_solana.Chain, programEntry, solana.PublicKey, error) {
@@ -181,8 +233,12 @@ func resolveUpgrade(chains cldf_chain.BlockChains, input UpgradeGenericInput) (c
 	if input.Qualifier != "" {
 		qualifier = input.Qualifier
 	}
+	refVersion := entry.version
+	if input.RefVersion != nil {
+		refVersion = input.RefVersion
+	}
 	programID, err := solcommon.PubkeyFromRefs(input.ExistingAddresses, datastore.NewAddressRefKey(
-		input.ChainSelector, entry.contractType, entry.version, qualifier,
+		input.ChainSelector, entry.contractType, refVersion, qualifier,
 	))
 	if err != nil {
 		return cldf_solana.Chain{}, programEntry{}, solana.PublicKey{}, fmt.Errorf("resolve %s: %w", input.ProgramType, err)
@@ -222,16 +278,8 @@ var UpgradeProgram = cldf_ops.NewSequence(
 		// An upgrade needs only the upgrade authority, never the program keypair.
 		// On real networks the artifacts being upgraded to come from the explicit
 		// artifact source; local validators run the local build.
-		if !solcommon.IsLocalValidator(chain.URL) {
-			release, local, srcErr := solcommon.ResolveArtifactSource(input.Version)
-			if srcErr != nil {
-				return seq_core.OnChainOutput{}, srcErr
-			}
-			if !local {
-				if stageErr := stageReleaseArtifacts(b.GetContext(), chain.ProgramsPath, release); stageErr != nil {
-					return seq_core.OnChainOutput{}, stageErr
-				}
-			}
+		if err = stageUpgradeArtifacts(b.GetContext(), chain, entry.programName, input.Version); err != nil {
+			return seq_core.OnChainOutput{}, err
 		}
 		if err = verifyArtifact(chain, entry.programName, programID); err != nil {
 			return seq_core.OnChainOutput{}, err
@@ -338,16 +386,8 @@ var VerifyBuild = cldf_ops.NewSequence(
 
 		// The hash check and the build record both read the local artifact set, so
 		// real networks stage the same source the upgrade used.
-		if !solcommon.IsLocalValidator(chain.URL) {
-			release, local, srcErr := solcommon.ResolveArtifactSource(input.Version)
-			if srcErr != nil {
-				return seq_core.OnChainOutput{}, srcErr
-			}
-			if !local {
-				if stageErr := stageReleaseArtifacts(b.GetContext(), chain.ProgramsPath, release); stageErr != nil {
-					return seq_core.OnChainOutput{}, stageErr
-				}
-			}
+		if err = stageUpgradeArtifacts(b.GetContext(), chain, entry.programName, input.Version); err != nil {
+			return seq_core.OnChainOutput{}, err
 		}
 
 		if chain.DeployerKey == nil {
@@ -419,4 +459,27 @@ func chainHasTimelock(refs []datastore.AddressRef, chainSelector uint64) bool {
 		}
 	}
 	return false
+}
+
+// stageUpgradeArtifacts stages the release artifacts of a real-network upgrade. The pipeline version
+// must equal the version the program's IDL declares.
+func stageUpgradeArtifacts(ctx context.Context, chain cldf_solana.Chain, programName, pipelineVersion string) error {
+	if solcommon.IsLocalValidator(chain.URL) {
+		return nil
+	}
+	release, local, err := solcommon.ResolveArtifactSource(pipelineVersion)
+	if err != nil {
+		return err
+	}
+	if local {
+		return nil
+	}
+	if err = stageReleaseArtifacts(ctx, chain.ProgramsPath, release); err != nil {
+		return err
+	}
+	version, err := solcommon.ReleaseVersion(release)
+	if err != nil {
+		return err
+	}
+	return solcommon.RequireIDLVersionEqual(chain.ProgramsPath, programName, version)
 }

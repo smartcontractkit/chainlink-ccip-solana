@@ -142,9 +142,14 @@ var ConfigureLombardChainForLanes = cldf_ops.NewSequence(
 			if err != nil {
 				return seq_core.OnChainOutput{}, fmt.Errorf("left-pad remote token address on chain %d: %w", remoteSel, err)
 			}
-			remoteTokenPoolAddress, err = solcommon.LeftPadTo32Bytes(remoteTokenPoolAddress)
+			// The pool address stays in the width the OffRamp passes to the pool (20 bytes on EVM).
+			remoteAddrLen, err := remoteAddressBytesLength(remoteSel)
 			if err != nil {
-				return seq_core.OnChainOutput{}, fmt.Errorf("left-pad remote token pool address on chain %d: %w", remoteSel, err)
+				return seq_core.OnChainOutput{}, err
+			}
+			remoteTokenPoolAddress, err = solcommon.NormalizeAddressSliceLength(remoteTokenPoolAddress, remoteAddrLen)
+			if err != nil {
+				return seq_core.OnChainOutput{}, fmt.Errorf("normalize remote token pool address on chain %d: %w", remoteSel, err)
 			}
 
 			lChainID := paddedLombardChainID(remoteCfg.LombardChainId)

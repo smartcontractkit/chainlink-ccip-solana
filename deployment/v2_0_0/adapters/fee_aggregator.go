@@ -72,7 +72,7 @@ func (a *FeeAggregatorAdapter) resolveRouterPubkey(e cldf.Environment, input fee
 		if string(ref.Type) != routerops.ContractType.String() {
 			return solana.PublicKey{}, fmt.Errorf("solana 2.0 adapter only supports contract type %q, got %q", routerops.ContractType, ref.Type)
 		}
-		resolved, err := datastore_utils.FindAndFormatRef(e.DataStore, ref, input.ChainSelector, datastore_utils.FullRef)
+		resolved, err := solcommon.FindAndFormatCompatibleRef(e.DataStore, ref, input.ChainSelector, datastore_utils.FullRef)
 		if err != nil {
 			return solana.PublicKey{}, fmt.Errorf("failed to resolve Router ref on chain %d: %w", input.ChainSelector, err)
 		}

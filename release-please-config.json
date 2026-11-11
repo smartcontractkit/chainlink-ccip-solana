@@ -23,10 +23,6 @@
       "release-type": "go",
       "package-name": "deployment"
     },
-    "contracts/gobindings": {
-      "release-type": "go",
-      "package-name": "contracts/gobindings"
-    },
     "contracts": {
       "release-type": "simple",
       "package-name": "contracts",

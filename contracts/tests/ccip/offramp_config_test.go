@@ -271,10 +271,11 @@ func TestOfframpConfig(t *testing.T) {
 			ccip_offramp.AddSourceChainParams{
 				NewChainSelector: config.SvmChainSelector,
 				SourceChainConfig: ccip_offramp.SourceChainConfig{
-					OnRamps:          []ccip_offramp.OnRampAddress{onRampConfig},
-					IsEnabled:        true,
-					DefaultCcvs:      []solana.PublicKey{config.CommitteeVerifierProgram},
-					LaneMandatedCcvs: []solana.PublicKey{},
+					OnRamps:             []ccip_offramp.OnRampAddress{onRampConfig},
+					IsEnabled:           true,
+					DefaultCcvs:         []solana.PublicKey{config.CommitteeVerifierProgram},
+					LaneMandatedCcvs:    []solana.PublicKey{},
+					LegacyAddressLength: 32, // svm
 				},
 			},
 			config.OfframpSvmSourceChainPDA,
@@ -385,6 +386,77 @@ func TestOfframpConfig(t *testing.T) {
 		require.Equal(t, updated, final.Config)
 	})
 
+	// ---- Delete Source Chain ---- //
+	t.Run("Delete source chain", func(t *testing.T) {
+		t.Run("when an unauthorized user tries to delete it, it fails", func(t *testing.T) {
+			ix, err := ccip_offramp.NewDeleteSourceChainInstruction(
+				config.EvmChainSelector,
+				config.OfframpEvmSourceChainPDA,
+				config.OfframpConfigPDA,
+				user.PublicKey(), // non-admin authority
+				config.OfframpEventAuthorityPDA,
+				config.CcipOfframpProgram,
+			)
+			require.NoError(t, err)
+			testutils.SendAndFailWith(ctx, t, client, []solana.Instruction{ix}, user, config.DefaultCommitment, []string{"Error Code: " + ccip.Unauthorized_CcipRouterError.String()})
+		})
+
+		t.Run("when an admin tries to delete a non-existent source chain, it fails", func(t *testing.T) {
+			chainSelector := uint64(999) // some non-existent chain selector
+			pda, _, err := state.FindOfframpSourceChainPDA(chainSelector, config.CcipOfframpProgram)
+			require.NoError(t, err)
+			ix, err := ccip_offramp.NewDeleteSourceChainInstruction(
+				chainSelector,
+				pda,
+				config.OfframpConfigPDA,
+				admin.PublicKey(), // admin authority
+				config.OfframpEventAuthorityPDA,
+				config.CcipOfframpProgram,
+			)
+			require.NoError(t, err)
+			testutils.SendAndFailWith(ctx, t, client, []solana.Instruction{ix}, admin, config.DefaultCommitment, []string{common.ConstraintOwner_AnchorError.String()})
+		})
+
+		t.Run("when an admin tries to delete an inconsistent source chain account, it fails", func(t *testing.T) {
+			chainSelector := uint64(999) // some non-existent chain selector
+			ix, err := ccip_offramp.NewDeleteSourceChainInstruction(
+				chainSelector,
+				config.OfframpEvmSourceChainPDA, // but evm pda
+				config.OfframpConfigPDA,
+				admin.PublicKey(),
+				config.OfframpEventAuthorityPDA,
+				config.CcipOfframpProgram,
+			)
+			require.NoError(t, err)
+			testutils.SendAndFailWith(ctx, t, client, []solana.Instruction{ix}, admin, config.DefaultCommitment, []string{common.ConstraintSeeds_AnchorError.String()})
+		})
+
+		t.Run("when an admin deletes it, it succeeds", func(t *testing.T) {
+			require.False(t, common.IsClosedAccount(ctx, client, config.OfframpEvmSourceChainPDA, config.DefaultCommitment))
+
+			ix, err := ccip_offramp.NewDeleteSourceChainInstruction(
+				config.EvmChainSelector,
+				config.OfframpEvmSourceChainPDA,
+				config.OfframpConfigPDA,
+				admin.PublicKey(), // admin authority
+				config.OfframpEventAuthorityPDA,
+				config.CcipOfframpProgram,
+			)
+			require.NoError(t, err)
+			result := testutils.SendAndConfirm(ctx, t, client, []solana.Instruction{ix}, admin, config.DefaultCommitment)
+
+			require.True(t, common.IsClosedAccount(ctx, client, config.OfframpEvmSourceChainPDA, config.DefaultCommitment))
+
+			tx, err := result.Transaction.GetTransaction()
+			require.NoError(t, err)
+			event, err := common.ExtractCPIEvent(tx, result.Meta, config.CcipOfframpProgram, ccip_offramp.ParseEvent_SourceChainDeleted)
+			require.NoError(t, err)
+			require.Equal(t, config.EvmChainSelector, event.SourceChainSelector)
+		})
+	})
+
+	// ---- Source Chain CCV Config Validation ---- //
+
 	t.Run("Source chain CCV config validation", func(t *testing.T) {
 		valid := env.ValidSourceChainConfig
 
@@ -430,6 +502,20 @@ func TestOfframpConfig(t *testing.T) {
 					cfg.LaneMandatedCcvs = []solana.PublicKey{config.CommitteeVerifierProgram}
 				},
 				expectedError: ccip.DuplicateCCVNotAllowed_CcipOfframpError.String(),
+			},
+			{
+				name: "rejects zero legacy address length",
+				mutate: func(cfg *ccip_offramp.SourceChainConfig) {
+					cfg.LegacyAddressLength = 0
+				},
+				expectedError: ccip.InvalidLegacyAddressLength_CcipOfframpError.String(),
+			},
+			{
+				name: "rejects legacy address length above the OnRamp address capacity",
+				mutate: func(cfg *ccip_offramp.SourceChainConfig) {
+					cfg.LegacyAddressLength = 65
+				},
+				expectedError: ccip.InvalidLegacyAddressLength_CcipOfframpError.String(),
 			},
 		}
 

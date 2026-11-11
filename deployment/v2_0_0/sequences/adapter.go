@@ -12,7 +12,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
 	tokensapi "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
 	mcmsreaderapi "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
-	datastore_utils "github.com/smartcontractkit/chainlink-ccip/deployment/utils/datastore"
 	seq_core "github.com/smartcontractkit/chainlink-ccip/deployment/utils/sequences"
 	ccvadapters "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
 	cldf_chain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
@@ -50,7 +49,7 @@ func (a *SolanaAdapter) GetOnRampAddress(ds datastore.DataStore, chainSelector u
 }
 
 func (a *SolanaAdapter) GetOffRampAddress(ds datastore.DataStore, chainSelector uint64) ([]byte, error) {
-	addr, err := datastore_utils.FindAndFormatRef(ds, datastore.AddressRef{
+	addr, err := solcommon.FindAndFormatCompatibleRef(ds, datastore.AddressRef{
 		ChainSelector: chainSelector,
 		Type:          datastore.ContractType(offramp.ContractType),
 		Version:       offramp.Version,
@@ -62,7 +61,7 @@ func (a *SolanaAdapter) GetOffRampAddress(ds datastore.DataStore, chainSelector 
 }
 
 func (a *SolanaAdapter) GetFQAddress(ds datastore.DataStore, chainSelector uint64) ([]byte, error) {
-	addr, err := datastore_utils.FindAndFormatRef(ds, datastore.AddressRef{
+	addr, err := solcommon.FindAndFormatCompatibleRef(ds, datastore.AddressRef{
 		ChainSelector: chainSelector,
 		Type:          datastore.ContractType(feequoter.ContractType),
 		Version:       feequoter.Version,
@@ -74,7 +73,7 @@ func (a *SolanaAdapter) GetFQAddress(ds datastore.DataStore, chainSelector uint6
 }
 
 func (a *SolanaAdapter) GetRouterAddress(ds datastore.DataStore, chainSelector uint64) ([]byte, error) {
-	addr, err := datastore_utils.FindAndFormatRef(ds, datastore.AddressRef{
+	addr, err := solcommon.FindAndFormatCompatibleRef(ds, datastore.AddressRef{
 		ChainSelector: chainSelector,
 		Type:          datastore.ContractType(router.ContractType),
 		Version:       router.Version,
@@ -86,7 +85,7 @@ func (a *SolanaAdapter) GetRouterAddress(ds datastore.DataStore, chainSelector u
 }
 
 func (a *SolanaAdapter) GetRMNRemoteAddress(ds datastore.DataStore, chainSelector uint64) ([]byte, error) {
-	addr, err := datastore_utils.FindAndFormatRef(ds, datastore.AddressRef{
+	addr, err := solcommon.FindAndFormatCompatibleRef(ds, datastore.AddressRef{
 		ChainSelector: chainSelector,
 		Type:          datastore.ContractType(rmnremoteops.ContractType),
 		Version:       rmnremoteops.Version,
@@ -103,7 +102,7 @@ func (a *SolanaAdapter) GetTestRouter(ds datastore.DataStore, chainSelector uint
 
 func (a *SolanaAdapter) ResolveExecutor(ds datastore.DataStore, chainSelector uint64, qualifier string) (string, error) {
 	toAddress := func(ref datastore.AddressRef) (string, error) { return ref.Address, nil }
-	addr, err := datastore_utils.FindAndFormatRef(ds, datastore.AddressRef{
+	addr, err := solcommon.FindAndFormatCompatibleRef(ds, datastore.AddressRef{
 		Type:      datastore.ContractType(executor.ContractType),
 		Qualifier: qualifier,
 		Version:   executor.Version,

@@ -37,7 +37,7 @@ func upgradedProgramRefs(refs []datastore.AddressRef, chainSelector uint64) ([]d
 	find := func(contractType datastore.ContractType, version *semver.Version) (datastore.AddressRef, bool) {
 		for _, ref := range refs {
 			if ref.ChainSelector == chainSelector && ref.Type == contractType && ref.Qualifier == "" &&
-				ref.Version != nil && ref.Version.Equal(version) {
+				solcommon.RefVersionMatches(ref.Version, version) {
 				return ref, true
 			}
 		}
@@ -83,7 +83,7 @@ func upgradedProgramRefs(refs []datastore.AddressRef, chainSelector uint64) ([]d
 		var currentCctp []datastore.AddressRef
 		for _, ref := range refs {
 			if ref.ChainSelector == chainSelector && ref.Type == datastore.ContractType(common_utils.CCTPTokenPool) &&
-				ref.Version != nil && ref.Version.Equal(solcommon.Version2_0_0) && ref.Qualifier == solcommon.PoolProgramQualifier {
+				solcommon.RefVersionMatches(ref.Version, solcommon.Version2_0_0) && ref.Qualifier == solcommon.PoolProgramQualifier {
 				currentCctp = append(currentCctp, ref)
 			}
 		}

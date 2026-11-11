@@ -8,7 +8,7 @@ export type ArbitraryCpiProxy = {
   "address": "4tiRp7mqGJwihhW7W32U9jx2h24grdgj67WwutyF2Yg6",
   "metadata": {
     "name": "arbitraryCpiProxy",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "spec": "0.1.0",
     "description": "Generic CPI proxy for testing. Executes arbitrary CPIs signed with a PDA, enabling tests of programs that authenticate callers via PDA (pools, executor, verifier, etc.)."
   },

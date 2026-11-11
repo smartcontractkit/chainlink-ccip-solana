@@ -215,6 +215,58 @@ func NewCloseExecutionInputsBufferInstruction(
 	), nil
 }
 
+// Builds a "delete_source_chain" instruction.
+// Deletes the source chain PDA. //  // The Admin is the only one able to delete the chain as source. //  // # Arguments //  // * `ctx` - The context containing the accounts required for deleting the chain. // * `source_chain_selector` - The source chain selector to be deleted.
+func NewDeleteSourceChainInstruction(
+	// Params:
+	sourceChainSelectorParam uint64,
+
+	// Accounts:
+	sourceChainAccount solanago.PublicKey,
+	configAccount solanago.PublicKey,
+	authorityAccount solanago.PublicKey,
+	eventAuthorityAccount solanago.PublicKey,
+	programAccount solanago.PublicKey,
+) (solanago.Instruction, error) {
+	buf__ := new(bytes.Buffer)
+	enc__ := binary.NewBorshEncoder(buf__)
+
+	// Encode the instruction discriminator.
+	err := enc__.WriteBytes(Instruction_DeleteSourceChain[:], false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to write instruction discriminator: %w", err)
+	}
+	{
+		// Serialize `sourceChainSelectorParam`:
+		err = enc__.Encode(sourceChainSelectorParam)
+		if err != nil {
+			return nil, errors.NewField("sourceChainSelectorParam", err)
+		}
+	}
+	accounts__ := solanago.AccountMetaSlice{}
+
+	// Add the accounts to the instruction.
+	{
+		// Account 0 "source_chain": Writable, Non-signer, Required
+		accounts__.Append(solanago.NewAccountMeta(sourceChainAccount, true, false))
+		// Account 1 "config": Read-only, Non-signer, Required
+		accounts__.Append(solanago.NewAccountMeta(configAccount, false, false))
+		// Account 2 "authority": Writable, Signer, Required
+		accounts__.Append(solanago.NewAccountMeta(authorityAccount, true, true))
+		// Account 3 "event_authority": Read-only, Non-signer, Required
+		accounts__.Append(solanago.NewAccountMeta(eventAuthorityAccount, false, false))
+		// Account 4 "program": Read-only, Non-signer, Required
+		accounts__.Append(solanago.NewAccountMeta(programAccount, false, false))
+	}
+
+	// Create the instruction.
+	return solanago.NewInstruction(
+		ProgramID,
+		accounts__,
+		buf__.Bytes(),
+	), nil
+}
+
 // Builds a "disable_source_chain_selector" instruction.
 // Disables the source chain selector. //  // The Admin is the only one able to disable the chain selector as source. This method is thought of as an emergency kill-switch. //  // # Arguments //  // * `ctx` - The context containing the accounts required for disabling the chain selector. // * `source_chain_selector` - The source chain selector to be disabled.
 func NewDisableSourceChainSelectorInstruction(
@@ -683,6 +735,7 @@ func NewResolveAccountsExecuteNestedTokenStageInstruction(
 
 	// Accounts:
 	configAccount solanago.PublicKey,
+	sourceChainAccount solanago.PublicKey,
 	poolProgramAccount solanago.PublicKey,
 	poolSignerAccount solanago.PublicKey,
 ) (solanago.Instruction, error) {
@@ -707,9 +760,11 @@ func NewResolveAccountsExecuteNestedTokenStageInstruction(
 	{
 		// Account 0 "config": Read-only, Non-signer, Required
 		accounts__.Append(solanago.NewAccountMeta(configAccount, false, false))
-		// Account 1 "pool_program": Read-only, Non-signer, Required
+		// Account 1 "source_chain": Read-only, Non-signer, Required
+		accounts__.Append(solanago.NewAccountMeta(sourceChainAccount, false, false))
+		// Account 2 "pool_program": Read-only, Non-signer, Required
 		accounts__.Append(solanago.NewAccountMeta(poolProgramAccount, false, false))
-		// Account 2 "pool_signer": Read-only, Non-signer, Required
+		// Account 3 "pool_signer": Read-only, Non-signer, Required
 		accounts__.Append(solanago.NewAccountMeta(poolSignerAccount, false, false))
 	}
 
@@ -1758,6 +1813,157 @@ func (obj *CloseExecutionInputsBufferInstruction) Unmarshal(buf []byte) error {
 // UnmarshalCloseExecutionInputsBufferInstruction unmarshals the instruction from Borsh-encoded bytes prefixed with the discriminator.
 func UnmarshalCloseExecutionInputsBufferInstruction(buf []byte) (*CloseExecutionInputsBufferInstruction, error) {
 	obj := new(CloseExecutionInputsBufferInstruction)
+	var err error
+	err = obj.Unmarshal(buf)
+	if err != nil {
+		return nil, err
+	}
+	return obj, nil
+}
+
+type DeleteSourceChainInstruction struct {
+	SourceChainSelector uint64 `json:"source_chain_selector"`
+
+	// Accounts:
+	SourceChain         solanago.PublicKey `json:"source_chain"`
+	SourceChainWritable bool               `json:"source_chain_writable"`
+	Config              solanago.PublicKey `json:"config"`
+	Authority           solanago.PublicKey `json:"authority"`
+	AuthorityWritable   bool               `json:"authority_writable"`
+	AuthoritySigner     bool               `json:"authority_signer"`
+	EventAuthority      solanago.PublicKey `json:"event_authority"`
+	Program             solanago.PublicKey `json:"program"`
+}
+
+func (obj *DeleteSourceChainInstruction) GetDiscriminator() []byte {
+	return Instruction_DeleteSourceChain[:]
+}
+
+// UnmarshalWithDecoder unmarshals the DeleteSourceChainInstruction from Borsh-encoded bytes prefixed with its discriminator.
+func (obj *DeleteSourceChainInstruction) UnmarshalWithDecoder(decoder *binary.Decoder) error {
+	var err error
+	// Read the discriminator and check it against the expected value:
+	discriminator, err := decoder.ReadDiscriminator()
+	if err != nil {
+		return fmt.Errorf("failed to read instruction discriminator for %s: %w", "DeleteSourceChainInstruction", err)
+	}
+	if discriminator != Instruction_DeleteSourceChain {
+		return fmt.Errorf("instruction discriminator mismatch for %s: expected %s, got %s", "DeleteSourceChainInstruction", Instruction_DeleteSourceChain, discriminator)
+	}
+	// Deserialize `SourceChainSelector`:
+	err = decoder.Decode(&obj.SourceChainSelector)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (obj *DeleteSourceChainInstruction) UnmarshalAccountIndices(buf []byte) ([]uint8, error) {
+	// UnmarshalAccountIndices decodes account indices from Borsh-encoded bytes
+	decoder := binary.NewBorshDecoder(buf)
+	indices := make([]uint8, 0)
+	index := uint8(0)
+	var err error
+	// Decode from source_chain account index
+	index = uint8(0)
+	err = decoder.Decode(&index)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode %s account index: %w", "source_chain", err)
+	}
+	indices = append(indices, index)
+	// Decode from config account index
+	index = uint8(0)
+	err = decoder.Decode(&index)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode %s account index: %w", "config", err)
+	}
+	indices = append(indices, index)
+	// Decode from authority account index
+	index = uint8(0)
+	err = decoder.Decode(&index)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode %s account index: %w", "authority", err)
+	}
+	indices = append(indices, index)
+	// Decode from event_authority account index
+	index = uint8(0)
+	err = decoder.Decode(&index)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode %s account index: %w", "event_authority", err)
+	}
+	indices = append(indices, index)
+	// Decode from program account index
+	index = uint8(0)
+	err = decoder.Decode(&index)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode %s account index: %w", "program", err)
+	}
+	indices = append(indices, index)
+	return indices, nil
+}
+
+func (obj *DeleteSourceChainInstruction) PopulateFromAccountIndices(indices []uint8, accountKeys []solanago.PublicKey) error {
+	// PopulateFromAccountIndices sets account public keys from indices and account keys array
+	if len(indices) != 5 {
+		return fmt.Errorf("mismatch between expected accounts (%d) and provided indices (%d)", 5, len(indices))
+	}
+	indexOffset := 0
+	// Set source_chain account from index
+	if indices[indexOffset] >= uint8(len(accountKeys)) {
+		return fmt.Errorf("account index %d for %s is out of bounds (max: %d)", indices[indexOffset], "source_chain", len(accountKeys)-1)
+	}
+	obj.SourceChain = accountKeys[indices[indexOffset]]
+	indexOffset++
+	// Set config account from index
+	if indices[indexOffset] >= uint8(len(accountKeys)) {
+		return fmt.Errorf("account index %d for %s is out of bounds (max: %d)", indices[indexOffset], "config", len(accountKeys)-1)
+	}
+	obj.Config = accountKeys[indices[indexOffset]]
+	indexOffset++
+	// Set authority account from index
+	if indices[indexOffset] >= uint8(len(accountKeys)) {
+		return fmt.Errorf("account index %d for %s is out of bounds (max: %d)", indices[indexOffset], "authority", len(accountKeys)-1)
+	}
+	obj.Authority = accountKeys[indices[indexOffset]]
+	indexOffset++
+	// Set event_authority account from index
+	if indices[indexOffset] >= uint8(len(accountKeys)) {
+		return fmt.Errorf("account index %d for %s is out of bounds (max: %d)", indices[indexOffset], "event_authority", len(accountKeys)-1)
+	}
+	obj.EventAuthority = accountKeys[indices[indexOffset]]
+	indexOffset++
+	// Set program account from index
+	if indices[indexOffset] >= uint8(len(accountKeys)) {
+		return fmt.Errorf("account index %d for %s is out of bounds (max: %d)", indices[indexOffset], "program", len(accountKeys)-1)
+	}
+	obj.Program = accountKeys[indices[indexOffset]]
+	indexOffset++
+	return nil
+}
+
+func (obj *DeleteSourceChainInstruction) GetAccountKeys() []solanago.PublicKey {
+	keys := make([]solanago.PublicKey, 0)
+	keys = append(keys, obj.SourceChain)
+	keys = append(keys, obj.Config)
+	keys = append(keys, obj.Authority)
+	keys = append(keys, obj.EventAuthority)
+	keys = append(keys, obj.Program)
+	return keys
+}
+
+// Unmarshal unmarshals the DeleteSourceChainInstruction from Borsh-encoded bytes prefixed with the discriminator.
+func (obj *DeleteSourceChainInstruction) Unmarshal(buf []byte) error {
+	var err error
+	err = obj.UnmarshalWithDecoder(binary.NewBorshDecoder(buf))
+	if err != nil {
+		return fmt.Errorf("error while unmarshaling DeleteSourceChainInstruction: %w", err)
+	}
+	return nil
+}
+
+// UnmarshalDeleteSourceChainInstruction unmarshals the instruction from Borsh-encoded bytes prefixed with the discriminator.
+func UnmarshalDeleteSourceChainInstruction(buf []byte) (*DeleteSourceChainInstruction, error) {
+	obj := new(DeleteSourceChainInstruction)
 	var err error
 	err = obj.Unmarshal(buf)
 	if err != nil {
@@ -3131,6 +3337,7 @@ type ResolveAccountsExecuteNestedTokenStageInstruction struct {
 
 	// Accounts:
 	Config      solanago.PublicKey `json:"config"`
+	SourceChain solanago.PublicKey `json:"source_chain"`
 	PoolProgram solanago.PublicKey `json:"pool_program"`
 	PoolSigner  solanago.PublicKey `json:"pool_signer"`
 }
@@ -3171,6 +3378,13 @@ func (obj *ResolveAccountsExecuteNestedTokenStageInstruction) UnmarshalAccountIn
 		return nil, fmt.Errorf("failed to decode %s account index: %w", "config", err)
 	}
 	indices = append(indices, index)
+	// Decode from source_chain account index
+	index = uint8(0)
+	err = decoder.Decode(&index)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode %s account index: %w", "source_chain", err)
+	}
+	indices = append(indices, index)
 	// Decode from pool_program account index
 	index = uint8(0)
 	err = decoder.Decode(&index)
@@ -3190,8 +3404,8 @@ func (obj *ResolveAccountsExecuteNestedTokenStageInstruction) UnmarshalAccountIn
 
 func (obj *ResolveAccountsExecuteNestedTokenStageInstruction) PopulateFromAccountIndices(indices []uint8, accountKeys []solanago.PublicKey) error {
 	// PopulateFromAccountIndices sets account public keys from indices and account keys array
-	if len(indices) != 3 {
-		return fmt.Errorf("mismatch between expected accounts (%d) and provided indices (%d)", 3, len(indices))
+	if len(indices) != 4 {
+		return fmt.Errorf("mismatch between expected accounts (%d) and provided indices (%d)", 4, len(indices))
 	}
 	indexOffset := 0
 	// Set config account from index
@@ -3199,6 +3413,12 @@ func (obj *ResolveAccountsExecuteNestedTokenStageInstruction) PopulateFromAccoun
 		return fmt.Errorf("account index %d for %s is out of bounds (max: %d)", indices[indexOffset], "config", len(accountKeys)-1)
 	}
 	obj.Config = accountKeys[indices[indexOffset]]
+	indexOffset++
+	// Set source_chain account from index
+	if indices[indexOffset] >= uint8(len(accountKeys)) {
+		return fmt.Errorf("account index %d for %s is out of bounds (max: %d)", indices[indexOffset], "source_chain", len(accountKeys)-1)
+	}
+	obj.SourceChain = accountKeys[indices[indexOffset]]
 	indexOffset++
 	// Set pool_program account from index
 	if indices[indexOffset] >= uint8(len(accountKeys)) {
@@ -3218,6 +3438,7 @@ func (obj *ResolveAccountsExecuteNestedTokenStageInstruction) PopulateFromAccoun
 func (obj *ResolveAccountsExecuteNestedTokenStageInstruction) GetAccountKeys() []solanago.PublicKey {
 	keys := make([]solanago.PublicKey, 0)
 	keys = append(keys, obj.Config)
+	keys = append(keys, obj.SourceChain)
 	keys = append(keys, obj.PoolProgram)
 	keys = append(keys, obj.PoolSigner)
 	return keys
@@ -4412,6 +4633,24 @@ func ParseInstruction(instructionData []byte, accountIndicesData []byte, account
 		err := instruction.UnmarshalWithDecoder(decoder)
 		if err != nil {
 			return nil, fmt.Errorf("failed to unmarshal instruction as CloseExecutionInputsBufferInstruction: %w", err)
+		}
+		if accountIndicesData != nil && len(accountIndicesData) > 0 {
+			indices, err := instruction.UnmarshalAccountIndices(accountIndicesData)
+			if err != nil {
+				return nil, fmt.Errorf("failed to unmarshal account indices: %w", err)
+			}
+			err = instruction.PopulateFromAccountIndices(indices, accountKeys)
+			if err != nil {
+				return nil, fmt.Errorf("failed to populate accounts: %w", err)
+			}
+		}
+		return instruction, nil
+	case Instruction_DeleteSourceChain:
+		instruction := new(DeleteSourceChainInstruction)
+		decoder := binary.NewBorshDecoder(instructionData)
+		err := instruction.UnmarshalWithDecoder(decoder)
+		if err != nil {
+			return nil, fmt.Errorf("failed to unmarshal instruction as DeleteSourceChainInstruction: %w", err)
 		}
 		if accountIndicesData != nil && len(accountIndicesData) > 0 {
 			indices, err := instruction.UnmarshalAccountIndices(accountIndicesData)

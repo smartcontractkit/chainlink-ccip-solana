@@ -85,6 +85,13 @@ func ParseAnyEvent(eventData []byte) (any, error) {
 			return nil, fmt.Errorf("failed to unmarshal event as SourceChainConfigUpdated: %w", err)
 		}
 		return value, nil
+	case Event_SourceChainDeleted:
+		value := new(SourceChainDeleted)
+		err := value.UnmarshalWithDecoder(decoder)
+		if err != nil {
+			return nil, fmt.Errorf("failed to unmarshal event as SourceChainDeleted: %w", err)
+		}
+		return value, nil
 	default:
 		return nil, fmt.Errorf("unknown discriminator: %s", binary.FormatDiscriminator(discriminator))
 	}
@@ -256,6 +263,23 @@ func ParseEvent_SourceChainConfigUpdated(eventData []byte) (*SourceChainConfigUp
 	err = event.UnmarshalWithDecoder(decoder)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal event of type SourceChainConfigUpdated: %w", err)
+	}
+	return event, nil
+}
+
+func ParseEvent_SourceChainDeleted(eventData []byte) (*SourceChainDeleted, error) {
+	decoder := binary.NewBorshDecoder(eventData)
+	discriminator, err := decoder.ReadDiscriminator()
+	if err != nil {
+		return nil, fmt.Errorf("failed to peek discriminator: %w", err)
+	}
+	if discriminator != Event_SourceChainDeleted {
+		return nil, fmt.Errorf("expected discriminator %v, got %s", Event_SourceChainDeleted, binary.FormatDiscriminator(discriminator))
+	}
+	event := new(SourceChainDeleted)
+	err = event.UnmarshalWithDecoder(decoder)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal event of type SourceChainDeleted: %w", err)
 	}
 	return event, nil
 }

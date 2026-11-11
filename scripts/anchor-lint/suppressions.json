@@ -296,26 +296,26 @@
       "file": "programs/ccip-common/src/v1.rs",
       "check": "INV-LINT-ASSERT",
       "lines": [
-        303,
-        310,
-        429
+        309,
+        316,
+        440
       ]
     },
     {
       "file": "programs/ccip-common/src/v2.rs",
       "check": "INV-LINT-ASSERT",
       "lines": [
-        417,
-        428,
-        432,
-        440
+        419,
+        430,
+        434,
+        442
       ]
     },
     {
       "file": "programs/ccip-offramp/src/instructions/admin/source_chain.rs",
       "check": "INV-LINT-REALLOC",
       "lines": [
-        118
+        161
       ]
     },
     {
@@ -362,7 +362,7 @@
       "file": "programs/ccip-offramp/src/instructions/execute/resolve_accounts/nested_token.rs",
       "check": "INV-LINT-HEAP",
       "lines": [
-        57
+        66
       ]
     },
     {
@@ -386,14 +386,14 @@
       "lines": [
         131,
         219,
-        337
+        340
       ]
     },
     {
       "file": "programs/ccip-offramp/src/instructions/execute/token_transfer.rs",
       "check": "INV-LINT-HEAP",
       "lines": [
-        304
+        319
       ]
     },
     {
@@ -468,29 +468,22 @@
       "file": "programs/ccip-router/src/instructions/ccip_send/processor/mod.rs",
       "check": "INV-LINT-BUMP",
       "lines": [
-        725
-      ]
-    },
-    {
-      "file": "programs/ccip-router/src/instructions/ccip_send/processor/mod.rs",
-      "check": "INV-LINT-HEAP",
-      "lines": [
-        570
+        701
       ]
     },
     {
       "file": "programs/ccip-router/src/instructions/ccip_send/resolve_accounts/ccv.rs",
       "check": "INV-LINT-BUMP",
       "lines": [
-        77
+        78
       ]
     },
     {
       "file": "programs/ccip-router/src/instructions/ccip_send/resolve_accounts/ccv.rs",
       "check": "INV-LINT-HEAP",
       "lines": [
-        51,
-        400
+        52,
+        401
       ]
     },
     {
@@ -620,13 +613,6 @@
       ]
     },
     {
-      "file": "programs/ccip-router/src/instructions/set_pool_interface_implementation.rs",
-      "check": "INV-LINT-SET-INNER",
-      "lines": [
-        42
-      ]
-    },
-    {
       "file": "programs/ccip-router/src/instructions_v1/v1/admin.rs",
       "check": "INV-LINT-EVENT",
       "lines": [
@@ -665,9 +651,9 @@
       "lines": [
         144,
         164,
-        255,
-        374,
-        408
+        243,
+        366,
+        402
       ]
     },
     {

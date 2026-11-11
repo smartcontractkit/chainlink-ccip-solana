@@ -3,9 +3,6 @@ package adapters
 import (
 	"fmt"
 
-	"github.com/Masterminds/semver/v3"
-
-	dsutil "github.com/smartcontractkit/chainlink-ccip/deployment/utils/datastore"
 	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -16,12 +13,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/operations/offramp"
 )
 
-const (
-	rmnRemoteContractType = "RMNRemote"
-	rmnRemoteVersion      = "2.0.0"
-)
+const rmnRemoteContractType = "RMNRemote"
 
-var rmnRemoteSemver = semver.MustParse(rmnRemoteVersion)
+var rmnRemoteSemver = solcommon.Version2_0_0
 
 type SolanaExecutorConfigAdapter struct{}
 
@@ -39,7 +33,7 @@ func (a *SolanaExecutorConfigAdapter) GetDeployedChains(ds datastore.DataStore, 
 }
 
 func (a *SolanaExecutorConfigAdapter) ResolveExecutorAddress(ds datastore.DataStore, chainSelector uint64, qualifier string) (string, error) {
-	executorAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
+	executorAddr, err := solcommon.FindAndFormatCompatibleRef(ds, datastore.AddressRef{
 		Type:      datastore.ContractType(executorops.ContractType),
 		Qualifier: qualifier,
 		Version:   executorops.Version,
@@ -51,7 +45,7 @@ func (a *SolanaExecutorConfigAdapter) ResolveExecutorAddress(ds datastore.DataSt
 }
 
 func (a *SolanaExecutorConfigAdapter) BuildChainConfig(ds datastore.DataStore, chainSelector uint64, qualifier string) (executor.ChainConfiguration, error) {
-	offRampAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
+	offRampAddr, err := solcommon.FindAndFormatCompatibleRef(ds, datastore.AddressRef{
 		Type:    datastore.ContractType(offramp.ContractType),
 		Version: offramp.Version,
 	}, chainSelector, solcommon.RefTo0xHex)
@@ -59,7 +53,7 @@ func (a *SolanaExecutorConfigAdapter) BuildChainConfig(ds datastore.DataStore, c
 		return executor.ChainConfiguration{}, fmt.Errorf("off ramp address for chain %d: %w", chainSelector, err)
 	}
 
-	rmnRemoteAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
+	rmnRemoteAddr, err := solcommon.FindAndFormatCompatibleRef(ds, datastore.AddressRef{
 		Type:    rmnRemoteContractType,
 		Version: rmnRemoteSemver,
 	}, chainSelector, solcommon.RefTo0xHex)

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/gagliardetto/solana-go"
-	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/google/uuid"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
@@ -388,10 +387,6 @@ func (b *bufferedExecution) executeAndWait(
 		return fmt.Errorf("exec tx still oversized after buffering: %d > %d: %w", size, solcommon.MaxSolanaTxSize, executor.ErrMessageRejectedByTransmitter)
 	}
 
-	if err := b.simulateExec(ctx, tx); err != nil {
-		return err
-	}
-
 	txID := uuid.NewString()
 	if err := b.enqueue(ctx, tx, txID, txmutils.SetComputeUnitLimit(b.computeUnits)); err != nil {
 		return fmt.Errorf("enqueue exec tx: %w", err)
@@ -401,36 +396,6 @@ func (b *bufferedExecution) executeAndWait(
 
 	if err := b.t.waitForFinalized(ctx, txID); err != nil {
 		return fmt.Errorf("exec tx %s: %w", txID, err)
-	}
-	return nil
-}
-
-// simulateExec dry-runs the exec tx with the compute budget instructions the txm adds, and returns
-// an error if it fails, so a failing tx is not sent. A failed buffered attempt never stops the executor's
-// retries, so each failure that lands would cost the exec fee again. If the simulation cannot run,
-// it returns nil and the tx is sent, because a retry pays for all chunk writes again.
-func (b *bufferedExecution) simulateExec(ctx context.Context, tx *solana.Transaction) error {
-	simTx := utils.DeepCopyTx(*tx)
-	err := fees.SetComputeUnitLimit(&simTx, fees.ComputeUnitLimit(b.computeUnits))
-	if err == nil {
-		err = fees.SetComputeUnitPrice(&simTx, 0)
-	}
-	if err != nil {
-		b.lggr().Warnw("buffered flow: build exec simulation", "error", err)
-		return nil
-	}
-	simTx.Signatures = []solana.Signature{{}}
-	res, err := b.t.rpcClient.SimulateTransactionWithOpts(ctx, &simTx, &rpc.SimulateTransactionOpts{
-		ReplaceRecentBlockhash: true,
-		SigVerify:              false,
-		Commitment:             rpc.CommitmentFinalized,
-	})
-	if err != nil || res == nil || res.Value == nil {
-		b.lggr().Warnw("buffered flow: exec simulation did not run", "error", err)
-		return nil
-	}
-	if res.Value.Err != nil {
-		return fmt.Errorf("exec simulation failed: %v, logs: %q", res.Value.Err, res.Value.Logs)
 	}
 	return nil
 }

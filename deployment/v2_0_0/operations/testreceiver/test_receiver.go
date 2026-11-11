@@ -178,6 +178,9 @@ type ApproveSenderParams struct {
 	// execution report shows the address rather than base64-encoded bytes; it is padded to 32
 	// bytes here, the form the receiver stores it under.
 	RemoteSender string
+	// Unpadded keeps RemoteSender at its own length instead of padding it to 32 bytes. It must match
+	// the sender bytes in the message: raw 20 bytes on 1.6 lanes, already 32 on 2.0 lanes.
+	Unpadded bool
 	// ReceiverVersion selects the interface to call. See Params.ReceiverVersion.
 	ReceiverVersion *semver.Version
 }
@@ -207,7 +210,11 @@ var ApproveSender = operations.NewOperation(
 		if legacyErr != nil {
 			return sequences.OnChainOutput{}, legacyErr
 		}
-		remoteSender, legacyErr := solcommon.DecodeRemoteSender(input.RemoteSender)
+		decode := solcommon.DecodeRemoteSender
+		if input.Unpadded {
+			decode = solcommon.DecodeRemoteSenderUnpadded
+		}
+		remoteSender, legacyErr := decode(input.RemoteSender)
 		if legacyErr != nil {
 			return sequences.OnChainOutput{}, legacyErr
 		}

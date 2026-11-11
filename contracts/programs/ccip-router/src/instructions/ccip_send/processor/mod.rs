@@ -13,7 +13,9 @@ use ccip_common::v1::CcipV1OnrampTokenAccounts;
 use ccip_common::v2::{CcipV2OnrampTokenAccounts, ProtocolAmount};
 use committee_verifier as verifier;
 
-use ccip_common::messages::{MessageV1, NormalizeWsol, SVMTokenAmount, TokenTransferV1};
+use ccip_common::messages::{
+    normalized_address, MessageV1, NormalizeWsol, SVMTokenAmount, TokenTransferV1,
+};
 use ccip_common::seed;
 use ethnum::U256;
 use fee_quoter::messages::TokenTransferAdditionalData;
@@ -561,32 +563,6 @@ pub(crate) fn build_message(
     })
 }
 
-pub(crate) fn normalized_address(
-    address: &[u8],
-    address_bytes_length: usize,
-    err: CcipRouterError,
-) -> Result<Vec<u8>> {
-    if address.len() == address_bytes_length {
-        return Ok(address.to_vec());
-    }
-
-    require_gt!(address.len(), address_bytes_length, err);
-
-    // this is >=1, as per the previous checks
-    let leading_zeros_count: usize = address.len() - address_bytes_length;
-
-    // using a `require_eq!` with `true` instead of plain `require!` because Anchor struggles with the plain
-    // `require!` receiving an `err` via arguments, as it tries to match the error code by looking at the variable name
-    // in the macro invocation, which does not match when the variable name is not the same as the error code name.
-    require_eq!(
-        address[..leading_zeros_count].iter().all(|&b| b == 0),
-        true,
-        err
-    );
-
-    Ok(address[leading_zeros_count..].to_vec())
-}
-
 pub fn token_receiver(
     extra_args: &GenericExtraArgsV3,
     message: &SVM2AnyMessage,
@@ -890,47 +866,5 @@ mod tests {
             hash,
             solana_keccak_hasher::hashv(&[&[32], &addr_bytes, &addr_bytes]).to_bytes()
         );
-    }
-
-    const TEST_ERROR: CcipRouterError = CcipRouterError::InvalidReceiverAddress;
-
-    #[test]
-    fn normalized_address_exact() {
-        let address = vec![1, 2, 3];
-        let address_bytes_length = 3;
-        let result = normalized_address(&address, address_bytes_length, TEST_ERROR).unwrap();
-        assert_eq!(result, address);
-    }
-
-    #[test]
-    fn normalized_address_exact_with_zeros() {
-        let address = vec![0, 0, 1, 2, 3];
-        let address_bytes_length = 5;
-        let result = normalized_address(&address, address_bytes_length, TEST_ERROR).unwrap();
-        assert_eq!(result, address);
-    }
-
-    #[test]
-    fn normalized_address_too_short() {
-        let address = vec![1, 2, 3];
-        let address_bytes_length = 5;
-        let result = normalized_address(&address, address_bytes_length, TEST_ERROR);
-        assert_eq!(result, Err(TEST_ERROR.into()));
-    }
-
-    #[test]
-    fn normalized_address_extra_zeros() {
-        let address = vec![0, 0, 1, 2, 3];
-        let address_bytes_length = 3;
-        let result = normalized_address(&address, address_bytes_length, TEST_ERROR).unwrap();
-        assert_eq!(result, vec![1, 2, 3]);
-    }
-
-    #[test]
-    fn normalized_address_leading_non_zero() {
-        let address = vec![7, 0, 1, 2, 3];
-        let address_bytes_length = 3;
-        let result = normalized_address(&address, address_bytes_length, TEST_ERROR);
-        assert!(result.is_err());
     }
 }

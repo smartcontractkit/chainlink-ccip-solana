@@ -4,6 +4,7 @@
 package contracts
 
 import (
+	"fmt"
 	"math/big"
 	"strings"
 	"testing"
@@ -26,6 +27,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/example_ccip_receiver_v2"
 	lockrelease_tokenpool "github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/lockrelease_token_pool"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/lombard_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/test_ccip_receiver"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/tests/cctp"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/tests/config"
@@ -851,6 +853,25 @@ func TestOffRamp(t *testing.T) {
 		impostorLut, err := common.SetupLookupTable(ctx, solanaGoClient, legacyAdmin, impostorEntries)
 		require.NoError(t, err)
 
+		// The nested stage takes `source_chain` without a seeds constraint and reads the lane's
+		// legacy address length off it, so only the selector check ties it to the message. Hand it
+		// the SVM lane for an EVM message: it must be rejected before the pool is ever invoked.
+		t.Run("nested token stage with a source chain account for a different lane", func(t *testing.T) {
+			// Borsh encoding of an ExecuteNestedTokenStageMetadata: five zero list lengths, an empty
+			// ccvs vector and empty inner resolution inputs (i.e. the first round).
+			nestedStageMetadata := make([]byte, 5+4+4)
+			ix, err := ccip_offramp.NewResolveAccountsExecuteNestedTokenStageInstruction(
+				resolveParams(t, token0Msg, nestedStageMetadata),
+				config.OfframpConfigPDA,
+				config.OfframpSvmSourceChainPDA,
+				env.Token0.PoolProgram,
+				unused,
+			)
+			require.NoError(t, err)
+			testutils.SendAndFailWith(ctx, t, solanaGoClient, []solana.Instruction{ix}, user, config.DefaultCommitment,
+				[]string{"Error Code: " + ccip.InvalidMessageSourceChainSelector_CcipOfframpError.String()})
+		})
+
 		for _, tc := range []struct {
 			name     string
 			tokenLut solana.PublicKey
@@ -1198,7 +1219,8 @@ func TestOffRamp(t *testing.T) {
 	// accepts transfers from v1SourcePoolAddress. With multisigMintAuthority the pool mints through a
 	// multisig carried as a lookup table extra (see useMultisigMintAuthority); otherwise the pool
 	// signer is the mint authority.
-	v1SourcePoolAddress := protocol.ByteSlice{0x01, 0x02, 0x03}
+	v1SourcePoolAddressTrim := protocol.ByteSlice(config.EVMRemotePoolAddressBytesTrim)
+	v1SourcePoolAddressFull := protocol.ByteSlice(config.EVMRemotePoolAddressBytes)
 	setupV1BurnmintPool := func(t *testing.T, multisigMintAuthority bool) tokens.TokenPool {
 		v1TokenMint := solana.NewWallet().PrivateKey
 		v1Token, err := tokens.NewTokenPool(config.SPLTokenProgram, config.CcipBurnMintTokenPoolProgram, v1TokenMint.PublicKey())
@@ -1276,7 +1298,7 @@ func TestOffRamp(t *testing.T) {
 		ixAppendRemoteV1, err := burnmint_tokenpool.NewAppendRemotePoolAddressesInstruction(
 			config.EvmChainSelector,
 			v1Token.Mint,
-			[]burnmint_tokenpool.RemoteAddress{{Address: v1SourcePoolAddress}},
+			[]burnmint_tokenpool.RemoteAddress{{Address: v1SourcePoolAddressTrim}},
 			v1Token.PoolConfig,
 			v1Token.Chain[config.EvmChainSelector],
 			testutils.Token0Admin.PublicKey(),
@@ -1310,7 +1332,7 @@ func TestOffRamp(t *testing.T) {
 		v1Token.User[config.ReceiverExternalExecutionConfigPDA] = addrReceiverV1
 		testutils.SendAndConfirm(ctx, t, solanaGoClient, []solana.Instruction{ixAtaReceiverV1}, testutils.Token0Admin, config.DefaultCommitment)
 
-		encodedMessage, messageID := buildTokenTransferMsg(t, v1Token.Mint, v1SourcePoolAddress, config.ReceiverExternalExecutionConfigPDA, ccip_common.SvmTokenReceiverUsage_DeriveAtaDontCreate)
+		encodedMessage, messageID := buildTokenTransferMsg(t, v1Token.Mint, v1SourcePoolAddressFull, config.ReceiverExternalExecutionConfigPDA, ccip_common.SvmTokenReceiverUsage_DeriveAtaDontCreate)
 		verifierResults, err := testutils.SignCommitteeVerifierMessage(messageID, signers, 1)
 		require.NoError(t, err)
 
@@ -1338,6 +1360,50 @@ func TestOffRamp(t *testing.T) {
 		// committee verifier as the required CCV for a v1 token transfer.
 		viewReturn := getRequiredCcvsView(t, encodedMessage)
 		require.Equal(t, []solana.PublicKey{config.CommitteeVerifierProgram}, viewReturn.RequiredCcvs)
+
+		// The OffRamp narrows the source pool address to the lane's legacy width (20 bytes for EVM)
+		// before CPI'ing into the pool, which stores the 20-byte form. These run through the legacy
+		// (v1 interface) path, where the narrowing happens at execution time.
+		execV1Transfer := func(t *testing.T, sourcePool protocol.ByteSlice, wantErr string) *rpc.GetTransactionResult {
+			t.Helper()
+			encodedMessage, messageID := buildTokenTransferMsg(t, v1Token.Mint, sourcePool, config.ReceiverExternalExecutionConfigPDA, ccip_common.SvmTokenReceiverUsage_DeriveAtaDontCreate)
+			verifierResults, err := testutils.SignCommitteeVerifierMessage(messageID, signers, 1)
+			require.NoError(t, err)
+			execInputs := ccip_offramp.ExecutionInputsV2{
+				EncodedMessage:  encodedMessage,
+				Ccvs:            []solana.PublicKey{config.CommitteeVerifierProgram},
+				VerifierResults: [][]byte{verifierResults},
+			}
+			resolved, err := ccip.ResolveExecAccounts(ctx, solanaGoClient, config.CcipOfframpProgram, execInputs, user.PublicKey(), logger.Test(t))
+			require.NoError(t, err)
+			ixs := []solana.Instruction{resolved.Ix}
+			lutMap := resolveLutMap(t, resolved.LookupTables)
+			if wantErr == "" {
+				return testutils.SendAndConfirmWithLookupTables(ctx, t, solanaGoClient, ixs, user, config.DefaultCommitment, lutMap, common.AddComputeUnitLimit(400_000))
+			}
+			return testutils.SendAndFailWithLookupTables(ctx, t, solanaGoClient, ixs, user, config.DefaultCommitment, lutMap, []string{wantErr}, common.AddComputeUnitLimit(400_000))
+		}
+
+		t.Run("a padded source pool address with a non-zero prefix is rejected by the OffRamp", func(t *testing.T) {
+			// Same 20 trailing bytes as the registered pool, so only the padding check can reject it.
+			dirty := append(protocol.ByteSlice{}, v1SourcePoolAddressFull...)
+			dirty[0] = 0x01
+			// The pool has an error with the same name, so match the OffRamp's error number too:
+			// Anchor's 6000 base plus the OffRamp's 3000 offset (see ccip-offramp/src/error.rs).
+			const offrampErrorCodeOffset = 9000
+			offrampErr := fmt.Sprintf("Error Code: %s. Error Number: %d",
+				ccip.InvalidSourcePoolAddress_CcipOfframpError.String(),
+				offrampErrorCodeOffset+int(ccip.InvalidSourcePoolAddress_CcipOfframpError))
+			execV1Transfer(t, dirty, offrampErr)
+		})
+
+		t.Run("a source pool address already at the legacy width passes through unchanged", func(t *testing.T) {
+			require.Len(t, v1SourcePoolAddressTrim, 20)
+			result := execV1Transfer(t, v1SourcePoolAddressTrim, "")
+			mintEvent, err := common.ParseEventFromLogs(result.Meta.LogMessages, base_token_pool.ParseEvent_Minted)
+			require.NoError(t, err)
+			require.Equal(t, v1Token.Mint, mintEvent.Mint)
+		})
 	})
 
 	t.Run("token v1 lnr", func(t *testing.T) {
@@ -1440,7 +1506,7 @@ func TestOffRamp(t *testing.T) {
 		// Legacy v1 pool: register with interface version 1 (no account resolution).
 		registerPoolWithRouter(t, v1Lnr, 1, ccip_router.ResolutionType_NoResolution)
 
-		happyPathSourcePoolAddress := protocol.ByteSlice{0x01, 0x02, 0x03}
+		happyPathSourcePoolAddress := protocol.ByteSlice(config.EVMRemotePoolAddressBytesTrim) // this has to match the length configured in the offramp's source chain
 		ixRemoteConfig, err := lockrelease_tokenpool.NewInitChainRemoteConfigInstruction(
 			config.EvmChainSelector,
 			v1Lnr.Mint,
@@ -1559,6 +1625,8 @@ func TestOffRamp(t *testing.T) {
 	// setupV2BurnmintPoolWith sets up a v2 burn/mint pool with Standard resolution. With
 	// multisigMintAuthority the pool mints through a multisig carried as a lookup table extra (see
 	// useMultisigMintAuthority); otherwise the pool signer is the mint authority.
+	v2SourcePoolAddressFull := protocol.ByteSlice(config.EVMRemotePoolAddressBytes)
+	v2SourcePoolAddressTrim := protocol.ByteSlice(config.EVMRemotePoolAddressBytesTrim)
 	setupV2BurnmintPoolWith := func(t *testing.T, multisigMintAuthority bool) tokens.TokenPool {
 		v2TokenMint := solana.NewWallet().PrivateKey
 		v2Token, err := tokens.NewTokenPool(config.SPLTokenProgram, config.CcipBurnMintTokenPoolProgram, v2TokenMint.PublicKey())
@@ -1629,7 +1697,7 @@ func TestOffRamp(t *testing.T) {
 		ensureCommitteeVerifierLane(t, 1)
 		registerPoolWithRouter(t, v2Token, 2, ccip_router.ResolutionType_Standard)
 
-		poolAddresses := []burnmint_tokenpool.RemoteAddress{{Address: []byte{4, 5, 6}}}
+		poolAddresses := []burnmint_tokenpool.RemoteAddress{{Address: v2SourcePoolAddressTrim}}
 		ixRemoteConfigV2, err := burnmint_tokenpool.NewInitChainRemoteConfigInstruction(
 			config.EvmChainSelector,
 			v2Token.Mint,
@@ -1671,8 +1739,6 @@ func TestOffRamp(t *testing.T) {
 	setupV2BurnmintPool := func(t *testing.T) tokens.TokenPool {
 		return setupV2BurnmintPoolWith(t, false)
 	}
-
-	v2SourcePoolAddress := protocol.ByteSlice{0x04, 0x05, 0x06}
 
 	t.Run("token v2 bnm (all ATA options)", func(t *testing.T) {
 		v2Token := setupV2BurnmintPool(t)
@@ -1767,7 +1833,7 @@ func TestOffRamp(t *testing.T) {
 						require.NoError(t, err)
 					}
 
-					encodedMessage, messageID := buildTokenTransferMsg(t, v2Token.Mint, v2SourcePoolAddress, tc.tokenReceiverWallet, tc.usage)
+					encodedMessage, messageID := buildTokenTransferMsg(t, v2Token.Mint, v2SourcePoolAddressFull, tc.tokenReceiverWallet, tc.usage)
 					verifierResults, err := testutils.SignCommitteeVerifierMessage(messageID, signers, 1)
 					require.NoError(t, err)
 
@@ -1856,7 +1922,7 @@ func TestOffRamp(t *testing.T) {
 
 			for _, tc := range testcases {
 				t.Run("Token transfer with "+tc.name, func(t *testing.T) {
-					encodedMessage, messageID := buildTokenTransferMsg(t, v2Token.Mint, v2SourcePoolAddress, tc.tokenReceiverWallet, tc.usage)
+					encodedMessage, messageID := buildTokenTransferMsg(t, v2Token.Mint, v2SourcePoolAddressFull, tc.tokenReceiverWallet, tc.usage)
 					verifierResults, err := testutils.SignCommitteeVerifierMessage(messageID, signers, 1)
 					require.NoError(t, err)
 
@@ -1929,13 +1995,13 @@ func TestOffRamp(t *testing.T) {
 		t.Run("v1 pool", func(t *testing.T) {
 			// The prefix, the required entries and the ATA pair leave room for the extra in the first
 			// resolution round.
-			transferCreatingAta(t, setupV1BurnmintPool(t, true), v1SourcePoolAddress)
+			transferCreatingAta(t, setupV1BurnmintPool(t, true), v1SourcePoolAddressFull)
 		})
 
 		t.Run("v2 pool", func(t *testing.T) {
 			// The prefix, the required entries and the ATA pair fill the first resolution round
 			// exactly, so the extras are emitted in a second one.
-			transferCreatingAta(t, setupV2BurnmintPoolWith(t, true), v2SourcePoolAddress)
+			transferCreatingAta(t, setupV2BurnmintPoolWith(t, true), v2SourcePoolAddressFull)
 		})
 	})
 
@@ -2009,14 +2075,14 @@ func TestOffRamp(t *testing.T) {
 		// RLRateLimitReached.
 		t.Run("the inbound rate limit rejects a transfer larger than the bucket capacity", func(t *testing.T) {
 			setInboundRateLimit(t, 10)
-			execTokenTransfer(t, v2SourcePoolAddress, 11, "max capacity exceeded")
+			execTokenTransfer(t, v2SourcePoolAddressFull, 11, "max capacity exceeded")
 		})
 
 		t.Run("the inbound rate limit rejects a second transfer that drains the bucket", func(t *testing.T) {
 			setInboundRateLimit(t, 10)
 			// The bucket is frozen at 10 tokens, so 6 lands and the next 6 cannot.
-			execTokenTransfer(t, v2SourcePoolAddress, 6, "")
-			execTokenTransfer(t, v2SourcePoolAddress, 6, "rate limit reached")
+			execTokenTransfer(t, v2SourcePoolAddressFull, 6, "")
+			execTokenTransfer(t, v2SourcePoolAddressFull, 6, "rate limit reached")
 		})
 
 		// The source pool address travels in the message, so an execution claiming to come from a
@@ -2024,8 +2090,96 @@ func TestOffRamp(t *testing.T) {
 		// own check (`InvalidSourcePoolAddress`), reached here through a real execution.
 		t.Run("a transfer from an unregistered source pool is rejected", func(t *testing.T) {
 			setInboundRateLimit(t, 1000)
-			execTokenTransfer(t, protocol.ByteSlice{0x09, 0x09, 0x09}, 1, "InvalidSourcePoolAddress")
+			// It has to be long enough to match the expected length of a full source pool address.
+			// The test uses the tokenV2, which has a different remote pool
+			execTokenTransfer(t, protocol.ByteSlice(config.EVMUsdcPoolAddressBytes), 1, "InvalidSourcePoolAddress")
 		})
+	})
+
+	// Lombard is registered with WithoutExtendedLookupTable in deployment (deploy_lombard_chain.go):
+	// it resolves its own accounts, so the OffRamp must leave the lookup table's additional entries
+	// out of a 2.0 execution while still running the pool's nested resolution. Resolution reads only
+	// the registry, the table and the pool's State, so this sets up nothing the pool would need to
+	// actually release tokens.
+	t.Run("token v2 lombard resolves without the lookup table extras", func(t *testing.T) {
+		mintKey := solana.NewWallet().PrivateKey
+		lombardPool, err := tokens.NewTokenPool(config.SPLTokenProgram, config.LombardTokenPoolProgram, mintKey.PublicKey())
+		require.NoError(t, err)
+		ixToken, err := tokens.CreateTokenFrom(ctx, lombardPool, testutils.Token0Admin.PublicKey(), 9, solanaGoClient, config.DefaultCommitment)
+		require.NoError(t, err)
+		testutils.SendAndConfirm(ctx, t, solanaGoClient, ixToken, testutils.Token0Admin, config.DefaultCommitment, common.AddSigners(mintKey))
+
+		programDataAddress := testutils.GetProgramDataAddress(ctx, t, solanaGoClient, config.LombardTokenPoolProgram)
+		ixInitGlobal, err := lombard_token_pool.NewInitGlobalConfigInstruction(
+			config.LombardConfigPDA, testutils.Admin.PublicKey(), solana.SystemProgramID, config.LombardTokenPoolProgram, programDataAddress,
+		)
+		require.NoError(t, err)
+		ixInitPool, err := lombard_token_pool.NewInitializeInstruction(
+			config.CcipRouterProgram, config.RMNRemoteProgram, config.MockLombardBridgeProgram,
+			lombardPool.PoolConfig, lombardPool.Mint, testutils.Admin.PublicKey(), config.LombardTokenPoolProgram,
+			programDataAddress, config.LombardConfigPDA, solana.SystemProgramID,
+		)
+		require.NoError(t, err)
+		testutils.SendAndConfirm(ctx, t, solanaGoClient, []solana.Instruction{ixInitGlobal, ixInitPool}, testutils.Admin, config.DefaultCommitment)
+
+		// SetPool checks the table's pool token account entry against the pool signer's ATA.
+		ixPoolAta, poolAta, err := tokens.CreateAssociatedTokenAccount(lombardPool.Program, lombardPool.Mint, lombardPool.PoolSigner, testutils.Token0Admin.PublicKey())
+		require.NoError(t, err)
+		testutils.SendAndConfirm(ctx, t, solanaGoClient, []solana.Instruction{ixPoolAta}, testutils.Token0Admin, config.DefaultCommitment)
+		lombardPool.PoolTokenAccount = poolAta
+
+		// An extra the table carries past its required entries, which only Standard resolution forwards.
+		extra := solana.NewWallet().PublicKey()
+		lombardPool.AdditionalAccounts = append(lombardPool.AdditionalAccounts, extra)
+		require.NoError(t, lombardPool.SetupLookupTable(ctx, solanaGoClient, testutils.Token0Admin))
+		registerPoolWithRouter(t, lombardPool, 2, ccip_router.ResolutionType_WithoutExtendedLookupTable)
+
+		encodedMessage, _ := buildTokenTransferMsg(t, lombardPool.Mint, v2SourcePoolAddressFull, solana.NewWallet().PublicKey(), ccip_common.SvmTokenReceiverUsage_DeriveAtaDontCreate)
+		// No CCVs, so resolution ends right after the token stages.
+		execInputs := ccip_offramp.ExecutionInputsV2{
+			EncodedMessage:  encodedMessage,
+			Ccvs:            []solana.PublicKey{},
+			VerifierResults: [][]byte{},
+		}
+		lombardEventAuthority, _, err := state.FindEventAuthorityPDA(config.LombardTokenPoolProgram)
+		require.NoError(t, err)
+
+		resolvedKeys := func(t *testing.T) []solana.PublicKey {
+			resolved := resolveExecAccountsWithAutoBuffering(t, execInputs, user)
+			closeExecInputsBuffer(t, execInputs, user)
+			keys := make([]solana.PublicKey, 0, len(resolved.AccountsToSave))
+			for _, acc := range resolved.AccountsToSave {
+				keys = append(keys, acc.PublicKey)
+			}
+			return keys
+		}
+
+		keys := resolvedKeys(t)
+		require.NotContains(t, keys, extra, "WithoutExtendedLookupTable must skip the table's additional entries")
+		// The pool's nested resolution still ran: these come from its release_or_mint_start.
+		require.Contains(t, keys, lombardEventAuthority)
+		require.Contains(t, keys, config.LombardTokenPoolProgram)
+
+		// Flipping the same registry to Standard brings the extra back, so the absence above is down
+		// to the resolution mode rather than to how the table was built.
+		ixStandard, err := ccip_router.NewSetPoolInterfaceImplementationInstruction(
+			ccip_router.SetPoolInterfaceImplementationParams{
+				Mint:              lombardPool.Mint,
+				InterfaceVersion:  2,
+				AccountResolution: ccip_router.ResolutionType_Standard,
+			},
+			config.RouterConfigPDA,
+			lombardPool.AdminRegistryPDA,
+			testutils.Token0Admin.PublicKey(),
+			config.RouterEventAuthorityPDA,
+			config.CcipRouterProgram,
+		)
+		require.NoError(t, err)
+		testutils.SendAndConfirm(ctx, t, solanaGoClient, []solana.Instruction{ixStandard}, testutils.Token0Admin, config.DefaultCommitment)
+
+		keys = resolvedKeys(t)
+		require.Contains(t, keys, extra)
+		require.Contains(t, keys, lombardEventAuthority)
 	})
 
 	t.Run("token v2 cctp", func(t *testing.T) {
@@ -2076,7 +2230,7 @@ func TestOffRamp(t *testing.T) {
 			amount := ccip_offramp.ProtocolAmount{BeBytes: tokens.ToBigEndianU256(transferAmount)}
 			tokenTransfer := protocol.TokenTransfer{
 				Amount:                   new(big.Int).SetBytes(amount.BeBytes[:]),
-				SourcePoolAddress:        config.EVMUsdcPoolAddressBytes,
+				SourcePoolAddress:        config.EVMUsdcPoolAddressBytes, // 32-bytes here - the offramp normalizes to 20 for EVM chains later
 				SourceTokenAddress:       sourceTokenAddress,
 				DestTokenAddress:         destTokenAddress,
 				TokenReceiver:            protocol.ByteSlice(receiver[:]),
@@ -2207,7 +2361,7 @@ func TestOffRamp(t *testing.T) {
 		updateEvmSourceChainConfig(t, laneCfg)
 		defer updateEvmSourceChainConfig(t, validSourceChainConfig)
 
-		encodedMessage, _ := buildTokenTransferMsg(t, v2Token.Mint, v2SourcePoolAddress, user.PublicKey(), ccip_common.SvmTokenReceiverUsage_DeriveAtaDontCreate)
+		encodedMessage, _ := buildTokenTransferMsg(t, v2Token.Mint, v2SourcePoolAddressFull, user.PublicKey(), ccip_common.SvmTokenReceiverUsage_DeriveAtaDontCreate)
 		viewReturn := getRequiredCcvsView(t, encodedMessage)
 		require.ElementsMatch(t, []solana.PublicKey{config.CommitteeVerifierProgram, laneMandatedCCV}, viewReturn.RequiredCcvs)
 	})
@@ -2261,7 +2415,7 @@ func TestOffRamp(t *testing.T) {
 		require.NoError(t, err)
 		testutils.SendAndConfirm(ctx, t, solanaGoClient, []solana.Instruction{ixSetCcv}, testutils.Token0Admin, config.DefaultCommitment)
 
-		encodedMessage, _ := buildTokenTransferMsg(t, v2Token.Mint, v2SourcePoolAddress, user.PublicKey(), ccip_common.SvmTokenReceiverUsage_DeriveAtaDontCreate)
+		encodedMessage, _ := buildTokenTransferMsg(t, v2Token.Mint, v2SourcePoolAddressFull, user.PublicKey(), ccip_common.SvmTokenReceiverUsage_DeriveAtaDontCreate)
 		viewReturn := getRequiredCcvsView(t, encodedMessage)
 		require.ElementsMatch(t, []solana.PublicKey{config.CommitteeVerifierProgram, laneMandatedCCV}, viewReturn.RequiredCcvs)
 		require.NotContains(t, viewReturn.RequiredCcvs, dummyDefault)
@@ -2356,7 +2510,7 @@ func TestOffRamp(t *testing.T) {
 		registerPoolWithRouter(t, lnrToken, 2, ccip_router.ResolutionType_Standard)
 
 		// Remote config + allowed source pool address + rate limit.
-		poolAddresses := []lockrelease_tokenpool.RemoteAddress{{Address: []byte{4, 5, 6}}}
+		poolAddresses := []lockrelease_tokenpool.RemoteAddress{{Address: config.EVMRemotePoolAddressBytesTrim}}
 		ixRemoteConfig, err := lockrelease_tokenpool.NewInitChainRemoteConfigInstruction(config.EvmChainSelector, lnrToken.Mint, lockrelease_tokenpool.RemoteConfig{TokenAddress: lockrelease_tokenpool.RemoteAddress{Address: config.EVMToken0AddressBytes}, Decimals: remoteTokenDecimals}, lnrToken.PoolConfig, lnrToken.Chain[config.EvmChainSelector], testutils.Token0Admin.PublicKey(), solana.SystemProgramID)
 		require.NoError(t, err)
 		ixAppendRemote, err := lockrelease_tokenpool.NewAppendRemotePoolAddressesInstruction(config.EvmChainSelector, lnrToken.Mint, poolAddresses, lnrToken.PoolConfig, lnrToken.Chain[config.EvmChainSelector], testutils.Token0Admin.PublicKey(), solana.SystemProgramID)
@@ -2381,7 +2535,7 @@ func TestOffRamp(t *testing.T) {
 		updateEvmSourceChainConfig(t, laneCfg)
 		defer updateEvmSourceChainConfig(t, validSourceChainConfig)
 
-		encodedMessage, _ := buildTokenTransferMsg(t, lnrToken.Mint, v2SourcePoolAddress, user.PublicKey(), ccip_common.SvmTokenReceiverUsage_DeriveAtaDontCreate)
+		encodedMessage, _ := buildTokenTransferMsg(t, lnrToken.Mint, v2SourcePoolAddressFull, user.PublicKey(), ccip_common.SvmTokenReceiverUsage_DeriveAtaDontCreate)
 		viewReturn := getRequiredCcvsView(t, encodedMessage)
 		require.ElementsMatch(t, []solana.PublicKey{config.CommitteeVerifierProgram, laneMandatedCCV}, viewReturn.RequiredCcvs)
 	})
@@ -2425,7 +2579,7 @@ func TestOffRamp(t *testing.T) {
 		require.NoError(t, err)
 		testutils.SendAndConfirm(ctx, t, solanaGoClient, []solana.Instruction{ixSetCcv}, testutils.Token0Admin, config.DefaultCommitment)
 
-		encodedMessage, _ := buildTokenTransferMsg(t, lnrToken.Mint, v2SourcePoolAddress, user.PublicKey(), ccip_common.SvmTokenReceiverUsage_DeriveAtaDontCreate)
+		encodedMessage, _ := buildTokenTransferMsg(t, lnrToken.Mint, v2SourcePoolAddressFull, user.PublicKey(), ccip_common.SvmTokenReceiverUsage_DeriveAtaDontCreate)
 		viewReturn := getRequiredCcvsView(t, encodedMessage)
 		require.ElementsMatch(t, []solana.PublicKey{config.CommitteeVerifierProgram, laneMandatedCCV}, viewReturn.RequiredCcvs)
 		require.NotContains(t, viewReturn.RequiredCcvs, dummyDefault)
@@ -2434,7 +2588,7 @@ func TestOffRamp(t *testing.T) {
 	t.Run("token v2 lnr (pool ATA as token receiver)", func(t *testing.T) {
 		lnrToken := setupV2LockReleasePool(t)
 
-		encodedMessage, messageID := buildTokenTransferMsg(t, lnrToken.Mint, v2SourcePoolAddress, lnrToken.PoolTokenAccount, ccip_common.SvmTokenReceiverUsage_UseAsIs)
+		encodedMessage, messageID := buildTokenTransferMsg(t, lnrToken.Mint, v2SourcePoolAddressFull, lnrToken.PoolTokenAccount, ccip_common.SvmTokenReceiverUsage_UseAsIs)
 		verifierResults, err := testutils.SignCommitteeVerifierMessage(messageID, signers, 1)
 		require.NoError(t, err)
 		execInputs := ccip_offramp.ExecutionInputsV2{
@@ -2527,7 +2681,7 @@ func TestOffRamp(t *testing.T) {
 			tokenReceiver := solana.NewWallet().PublicKey()
 
 			encodedMessage, messageID := buildTokenTransferMsgCore(
-				t, v2Token.Mint, v2SourcePoolAddress, tokenReceiver,
+				t, v2Token.Mint, v2SourcePoolAddressFull, tokenReceiver,
 				ccip_common.SvmTokenReceiverUsage_DeriveAtaAndCreate,
 				config.CcipLogicReceiver, receiverCPIMessagingAccounts, receiverCPIMessagingBitmap, 1000000000,
 			)

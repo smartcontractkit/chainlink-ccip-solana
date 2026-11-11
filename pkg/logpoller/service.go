@@ -49,12 +49,19 @@ type LogCollector interface {
 
 var _ LogCollector = (*sollogpoller.EncodedLogCollector)(nil)
 
+// slotRecorder is the subset of chainlink-solana's logpoller metrics the service records.
+// NewSolLpMetrics returns an unexported type, so the handle is kept via this interface.
+type slotRecorder interface {
+	SetLatestProcessedSlot(ctx context.Context, slot int64)
+}
+
 type service struct {
 	LogCollector    // Start, Close, Ready, HealthReport, Name promoted from LogCollector
 	programID       solana.PublicKey
 	addr            lptypes.PublicKey
 	lggr            logger.SugaredLogger
 	includeReverted bool
+	metrics         slotRecorder
 }
 
 // RPCClient is the Solana JSON-RPC subset the encoded log collector reads through,
@@ -100,7 +107,8 @@ func NewService(
 		cfg.SlotsBatchSize,
 	)
 
-	return NewServiceWithLogCollector(collector, programID, lggr, WithIncludeReverted(cfg.IncludeReverted))
+	return NewServiceWithLogCollector(collector, programID, lggr,
+		WithIncludeReverted(cfg.IncludeReverted), withSlotRecorder(metrics))
 }
 
 // ServiceOption configures optional Service behavior.
@@ -109,6 +117,12 @@ type ServiceOption func(*service)
 // WithIncludeReverted makes FetchEvents return events from reverted transactions.
 func WithIncludeReverted(v bool) ServiceOption {
 	return func(s *service) { s.includeReverted = v }
+}
+
+// withSlotRecorder shares the metrics handle NewService created for the collector;
+// the service records the slot watermark after each completed fetch.
+func withSlotRecorder(r slotRecorder) ServiceOption {
+	return func(s *service) { s.metrics = r }
 }
 
 // NewServiceWithLogCollector returns a Service that uses the given log collector
@@ -201,6 +215,10 @@ collect:
 	}
 	if len(events) > 0 {
 		s.lggr.Infow("FetchEvents: found events", "count", len(events), "fromSlot", fromSlot, "toSlot", toSlot)
+	}
+	if s.metrics != nil {
+		//nolint:gosec // G115: toSlot is a Solana slot, far below MaxInt64.
+		s.metrics.SetLatestProcessedSlot(ctx, int64(toSlot))
 	}
 	return events, nil
 }

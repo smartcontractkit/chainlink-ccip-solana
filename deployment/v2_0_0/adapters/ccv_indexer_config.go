@@ -77,7 +77,7 @@ func resolveLombardVerifierAddresses(ds datastore.DataStore, chainSelector uint6
 // messages. On Solana the verifier is not its own program: it is a second set of instructions
 // inside cctp_token_pool, registered in the datastore under its own contract type.
 func resolveCCTPVerifierAddresses(ds datastore.DataStore, chainSelector uint64, qualifier string) ([]string, error) {
-	ref, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
+	ref, err := solcommon.FindAndFormatCompatibleRef(ds, datastore.AddressRef{
 		Type:      datastore.ContractType(cctpverifierops.ContractType),
 		Version:   cctpverifierops.Version,
 		Qualifier: qualifier,

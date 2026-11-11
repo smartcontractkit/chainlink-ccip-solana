@@ -167,7 +167,7 @@ pub fn retrieve_token_static_accounts_stage<'info>(
         .saturating_sub(lut_entries_emitted);
 
     let (take, is_final_page) = if token_admin_registry
-        .account_resolution
+        .account_resolution()
         .use_lookup_table_additional_entries()
     {
         plan_account_page(pending, accounts_to_save.len(), 0)?
@@ -221,7 +221,7 @@ pub fn retrieve_token_static_accounts_stage<'info>(
     }
 
     if token_admin_registry.interface_version > 1
-        && token_admin_registry.account_resolution.is_enabled()
+        && token_admin_registry.account_resolution().is_enabled()
     {
         begin_nested_token_stages(
             accounts_to_save,
@@ -231,7 +231,7 @@ pub fn retrieve_token_static_accounts_stage<'info>(
             send_params.dest_chain_selector,
         )
     } else if token_admin_registry.interface_version == 1
-        && token_admin_registry.account_resolution.is_enabled()
+        && token_admin_registry.account_resolution().is_enabled()
     {
         // CCTP/Lombard are the only v1 pools that implement account resolution,
         // and we don't support invoking them through the v2 lane.
@@ -382,5 +382,28 @@ mod tests {
             "expected a bounded page count, got {} pages: {pages:?}",
             pages.len()
         );
+    }
+
+    #[test]
+    fn first_nested_handoff_fits_the_ask_again_with_budget() {
+        // `MAX_ACCOUNTS_PER_RESPONSE` is budgeted against `MAX_ASK_AGAIN_WITH`, and this handoff
+        // goes out on the static stage's final page, which can be full.
+        let response = begin_nested_token_stages(
+            vec![Pubkey::new_unique().readonly(); MAX_ACCOUNTS_PER_RESPONSE],
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            OnrampRemainingAccountListLengths {
+                token_transfer: u8::MAX,
+                executor: u8::MAX,
+                ccv_vault_atas: u8::MAX,
+                ccvs: vec![],
+            },
+            1,
+        )
+        .unwrap();
+
+        assert_eq!(response.ask_again_with.len(), 5);
+        assert!(response.ask_again_with.len() <= MAX_ASK_AGAIN_WITH);
+        require_response_fits(&response).unwrap();
     }
 }

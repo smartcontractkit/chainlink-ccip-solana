@@ -20,6 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/fee_quoter"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/common"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/state"
+	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/solcommon"
 	fqops "github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/operations/feequoter"
 	solseq "github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/sequences"
 )
@@ -48,7 +49,7 @@ func (a *FeesAdapter) GetFeeContractRef(_ operations.Bundle, _ cldf_chain.BlockC
 		ChainSelector: src,
 	}
 
-	feeContractRef, err := datastore_utils.FindAndFormatRef(
+	feeContractRef, err := solcommon.FindAndFormatCompatibleRef(
 		ds,
 		filter,
 		src,
