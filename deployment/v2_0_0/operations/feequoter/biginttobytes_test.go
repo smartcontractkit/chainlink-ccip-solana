@@ -16,8 +16,8 @@ func TestBigIntTo28Bytes(t *testing.T) {
 	})
 
 	t.Run("accepts the maximum 224-bit value", func(t *testing.T) {
-		max := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 224), big.NewInt(1))
-		_, err := bigIntTo28Bytes(max)
+		maxVal := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 224), big.NewInt(1))
+		_, err := bigIntTo28Bytes(maxVal)
 		require.NoError(t, err)
 	})
 
