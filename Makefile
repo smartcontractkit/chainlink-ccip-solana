@@ -20,6 +20,9 @@ clippy:
 
 .PHONY: gomodtidy
 gomodtidy:
+	@# Cargo's target/ dir lives inside the root Go module and holds transient rustc
+	@# temp dirs that make `go mod tidy` fail. A nested go.mod makes Go skip it.
+	@mkdir -p ./contracts/target && printf 'module ignore\n' > ./contracts/target/go.mod
 	@for dir in ./contracts/gobindings/v2 ./deployment . ./integration-tests; do \
 		echo "=== go mod tidy $$dir ==="; \
 		(cd $$dir && go mod tidy) || exit 1; \
