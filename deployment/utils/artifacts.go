@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -43,11 +44,15 @@ type DownloadArtifactsOpts struct {
 	Release      string
 	Asset        string
 	PkgsDir      string // base directory for the local package cache; empty = use default
+	// Verify, when set, must accept the extracted package before it is cached or
+	// returned. It runs on freshly downloaded packages and on cache hits; a cached
+	// package it rejects is discarded and downloaded again.
+	Verify func(dir string) error
 }
 
 // DownloadArtifacts fetches a release tar.gz from GitHub and extracts it to a local directory.
 // The destination is derived deterministically from the input fields under PkgsDir.
-// If the destination directory already exists, the download is skipped (disk cache).
+// If the destination directory already exists and passes verification, the download is skipped (disk cache).
 // Returns local path where the package was extracted into after download.
 
 func DownloadArtifacts(ctx context.Context, in DownloadArtifactsOpts) (string, error) {
@@ -60,9 +65,15 @@ func DownloadArtifacts(ctx context.Context, in DownloadArtifactsOpts) (string, e
 		return "", err
 	}
 
-	// Cache check: if directory already exists, skip the download.
-	if _, err = os.Stat(destDir); err == nil {
-		return destDir, nil
+	// Cache check: a package is only reused if it passes verification. Anything else
+	// (empty, partial, corrupt or from an older broken version) is discarded.
+	if _, statErr := os.Stat(destDir); statErr == nil {
+		if verifyErr := verifyPackage(in, destDir); verifyErr == nil {
+			return destDir, nil
+		}
+		if err = os.RemoveAll(destDir); err != nil {
+			return "", fmt.Errorf("failed to remove invalid cached package %s: %w", destDir, err)
+		}
 	}
 
 	downloadURL := artifactDownloadURL(in)
@@ -72,16 +83,51 @@ func DownloadArtifacts(ctx context.Context, in DownloadArtifactsOpts) (string, e
 		return "", fmt.Errorf("failed to download artifacts from %s: %w", downloadURL, err)
 	}
 
-	if err = os.MkdirAll(destDir, 0o755); err != nil {
-		return "", fmt.Errorf("failed to create destination directory %s: %w", destDir, err)
+	parent := filepath.Dir(destDir)
+	if err = os.MkdirAll(parent, 0o755); err != nil {
+		return "", fmt.Errorf("failed to create cache directory %s: %w", parent, err)
 	}
 
-	if err = extractFilesToDir(rawTarGz, destDir); err != nil {
-		_ = os.RemoveAll(destDir) // clean up partial extraction
+	// Extract into a private temp directory and publish it with one rename, so the
+	// destination either does not exist or is complete and verified, even if this
+	// process dies mid-way or another one is populating the same cache entry.
+	tmpDir, err := os.MkdirTemp(parent, filepath.Base(destDir)+".tmp-")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temporary directory in %s: %w", parent, err)
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }() // no-op once renamed
+
+	if err = extractFilesToDir(rawTarGz, tmpDir); err != nil {
 		return "", fmt.Errorf("failed to extract artifacts from %s: %w", downloadURL, err)
+	}
+	if err = verifyPackage(in, tmpDir); err != nil {
+		return "", fmt.Errorf("artifacts from %s failed verification: %w", downloadURL, err)
+	}
+
+	if err = os.Rename(tmpDir, destDir); err != nil {
+		// Another process may have published the same package first.
+		if verifyErr := verifyPackage(in, destDir); verifyErr == nil {
+			return destDir, nil
+		}
+		return "", fmt.Errorf("failed to publish artifacts to %s: %w", destDir, err)
 	}
 
 	return destDir, nil
+}
+
+// verifyPackage requires a non-empty package that passes the caller's Verify hook.
+func verifyPackage(in DownloadArtifactsOpts, dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	if len(entries) == 0 {
+		return errors.New("package is empty")
+	}
+	if in.Verify != nil {
+		return in.Verify(dir)
+	}
+	return nil
 }
 
 func artifactDownloadURL(in DownloadArtifactsOpts) string {
@@ -121,7 +167,8 @@ func AssetNameFromReleaseTag(tag string) string {
 	return tag + ".tar.gz"
 }
 
-// extractFilesToDir extracts all root-level files from rawTarGz into destDir.
+// extractFilesToDir extracts all regular files from rawTarGz into destDir,
+// preserving their relative paths (e.g. target/deploy/x.so).
 func extractFilesToDir(rawTarGz []byte, destDir string) error {
 	gzipReader, err := gzip.NewReader(bytes.NewReader(rawTarGz))
 	if err != nil {
@@ -144,7 +191,7 @@ func extractFilesToDir(rawTarGz []byte, destDir string) error {
 			continue
 		}
 
-		if !isValidRootFile(header.Name) {
+		if !isSafeRelPath(header.Name) {
 			continue
 		}
 
@@ -156,6 +203,10 @@ func extractFilesToDir(rawTarGz []byte, destDir string) error {
 			return err
 		}
 
+		if err = os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+			return fmt.Errorf("failed to create directory for %s: %w", destPath, err)
+		}
+
 		if err = os.WriteFile(destPath, data, 0o600); err != nil {
 			return fmt.Errorf("failed to write %s: %w", destPath, err)
 		}
@@ -164,18 +215,16 @@ func extractFilesToDir(rawTarGz []byte, destDir string) error {
 	return nil
 }
 
-// isValidRootFile returns true if name is a safe, root-level file (no path separators or
-// ".." components). It does not filter by content type — callers are responsible for that.
-func isValidRootFile(name string) bool {
+// isSafeRelPath returns true if name is a relative path that stays inside the extraction
+// directory (not absolute, no ".." components). It does not filter by content type.
+func isSafeRelPath(name string) bool {
 	clean := filepath.Clean(name)
-
-	if strings.ContainsAny(clean, `/\`) || strings.Contains(clean, "..") {
+	if clean == "" || clean == "." || filepath.IsAbs(clean) || strings.HasPrefix(name, "/") || strings.HasPrefix(name, `\`) {
 		return false
 	}
-	if clean == "" || clean == "." {
+	if slices.Contains(strings.Split(filepath.ToSlash(clean), "/"), "..") {
 		return false
 	}
-
 	return true
 }
 

@@ -206,6 +206,7 @@ func stageReleaseArtifacts(ctx context.Context, programsPath, release string) er
 		Repository:   "chainlink-ccip-solana",
 		Release:      release,
 		Asset:        "artifacts.tar.gz",
+		Verify:       verifyReleaseArtifacts(release),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to download artifacts: %w", err)
@@ -215,6 +216,14 @@ func stageReleaseArtifacts(ctx context.Context, programsPath, release string) er
 	matches, err := filepath.Glob(filepath.Join(destDir, "target/deploy/*.so"))
 	if err != nil {
 		return fmt.Errorf("failed to find programs: %w", err)
+	}
+	if len(matches) == 0 {
+		return fmt.Errorf("release %s contains no programs under %s; the cached package at %s may be corrupt, delete it and retry",
+			release, filepath.Join("target", "deploy"), destDir)
+	}
+	// Drop what an earlier release left behind so only this release's files remain.
+	if err = removeStaleReleaseArtifacts(programsPath); err != nil {
+		return err
 	}
 	for _, program := range matches {
 		name := filepath.Base(program)
@@ -243,6 +252,35 @@ func stageReleaseArtifacts(ctx context.Context, programsPath, release string) er
 		name := filepath.Base(idlFile)
 		if copyErr := copyFile(idlFile, filepath.Join(programsPath, name)); copyErr != nil {
 			return fmt.Errorf("failed to copy idl %s: %w", name, copyErr)
+		}
+	}
+	return nil
+}
+
+// removeStaleReleaseArtifacts deletes the files a release stages into programsPath
+// (programs, IDLs and the provenance manifest) so a program or IDL that exists only
+// in an older release cannot be picked up next to the new one. Deploy keypairs
+// (<program>-keypair.json) and anything else are left alone.
+func removeStaleReleaseArtifacts(programsPath string) error {
+	entries, err := os.ReadDir(programsPath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to list %s: %w", programsPath, err)
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if !e.Type().IsRegular() {
+			continue
+		}
+		isProgram := strings.HasSuffix(name, ".so")
+		isIDL := strings.HasSuffix(name, ".json") && !strings.HasSuffix(name, "-keypair.json")
+		if !isProgram && !isIDL {
+			continue
+		}
+		if rmErr := os.Remove(filepath.Join(programsPath, name)); rmErr != nil {
+			return fmt.Errorf("failed to remove stale artifact %s: %w", name, rmErr)
 		}
 	}
 	return nil
