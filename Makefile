@@ -347,7 +347,7 @@ test-load:
 
 
 # Go - linting and formatting
-GOLANGCI_LINT_VERSION := v2.12.2
+GOLANGCI_LINT_VERSION := v2.14.0
 
 .PHONY: print-golangci-version
 print-golangci-version:
