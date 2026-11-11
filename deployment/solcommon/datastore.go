@@ -87,6 +87,31 @@ func LeftPadTo32Bytes(b []byte) ([]byte, error) {
 	return out, nil
 }
 
+// NormalizeAddressSliceLength returns a slice (representing an address) in the desired width.
+// A longer address is trimmed back provided the dropped leading bytes are zero; a shorter one is left-padded.
+func NormalizeAddressSliceLength(addr []byte, width uint8) ([]byte, error) {
+	w := int(width)
+	// 64 is just an arbitrary upper limit for address width - so far the longest we know is TON's 36 bytes
+	if w == 0 || w > 64 {
+		return nil, fmt.Errorf("invalid address width: %d", w)
+	}
+	switch {
+	case len(addr) == w:
+		return addr, nil
+	case len(addr) < w:
+		out := make([]byte, w)
+		copy(out[w-len(addr):], addr)
+		return out, nil
+	}
+	trim := len(addr) - w
+	for _, b := range addr[:trim] {
+		if b != 0 {
+			return nil, fmt.Errorf("remote pool address %x does not fit in %d bytes", addr, w)
+		}
+	}
+	return addr[trim:], nil
+}
+
 // DecodeRemoteSender parses a hex address, with or without the 0x prefix, and left-pads it to the
 // 32 bytes a receiver stores remote senders under.
 func DecodeRemoteSender(sender string) ([]byte, error) {
@@ -101,6 +126,20 @@ func DecodeRemoteSender(sender string) ([]byte, error) {
 	return padded, nil
 }
 
+// DecodeRemoteSenderUnpadded parses a hex address, with or without the 0x prefix, and returns the
+// bytes without padding. Use it where the sender must keep the length the message carries, such as
+// the raw 20-byte EVM sender on 1.6 lanes.
+func DecodeRemoteSenderUnpadded(sender string) ([]byte, error) {
+	raw, err := hex.DecodeString(strings.TrimPrefix(sender, "0x"))
+	if err != nil {
+		return nil, fmt.Errorf("decode remote sender %q: %w", sender, err)
+	}
+	if len(raw) == 0 || len(raw) > 32 {
+		return nil, fmt.Errorf("remote sender %q must be between 1 and 32 bytes, got %d", sender, len(raw))
+	}
+	return raw, nil
+}
+
 // BytesToPubkey parses raw bytes to Solana address
 func BytesToPubkey(b []byte) (solana.PublicKey, error) {
 	if len(b) != 32 {
@@ -113,7 +152,11 @@ func BytesToPubkey(b []byte) (solana.PublicKey, error) {
 func GetDataStoreAddress(ds datastore.DataStore, key datastore.AddressRefKey) (solana.PublicKey, error) {
 	ref, err := ds.Addresses().Get(key)
 	if err != nil {
-		return solana.PublicKey{}, fmt.Errorf("address not found: %w", err)
+		// A 2.0.1 ref satisfies a 2.0.0 key: fall back to the same major.
+		ref, err = FindCompatibleRef(ds, datastore.AddressRef{Type: key.Type(), Version: key.Version(), Qualifier: key.Qualifier()}, key.ChainSelector())
+		if err != nil {
+			return solana.PublicKey{}, fmt.Errorf("address not found: %w", err)
+		}
 	}
 	return ToAddress(ref)
 }
@@ -121,19 +164,27 @@ func GetDataStoreAddress(ds datastore.DataStore, key datastore.AddressRefKey) (s
 // PubkeyFromRefs looks up a Solana pubkey in a ref slice (e.g. ExistingAddresses
 // passed to a sequence). key selects chain, contract type, and version.
 func PubkeyFromRefs(refs []datastore.AddressRef, key datastore.AddressRefKey) (solana.PublicKey, error) {
-	for _, ref := range refs {
+	// The greatest version on the key's major wins.
+	var best *datastore.AddressRef
+	for i := range refs {
+		ref := &refs[i]
 		if ref.ChainSelector != key.ChainSelector() || ref.Type != key.Type() {
 			continue
 		}
-		if key.Version() != nil && !ref.Version.Equal(key.Version()) {
+		if key.Version() != nil && !RefVersionMatches(ref.Version, key.Version()) {
 			continue
 		}
 		if q := key.Qualifier(); q != "" && ref.Qualifier != q {
 			continue
 		}
-		pubkey, err := solana.PublicKeyFromBase58(ref.Address)
+		if best == nil || (ref.Version != nil && (best.Version == nil || ref.Version.GreaterThan(best.Version))) {
+			best = ref
+		}
+	}
+	if best != nil {
+		pubkey, err := solana.PublicKeyFromBase58(best.Address)
 		if err != nil {
-			return solana.PublicKey{}, fmt.Errorf("parse address %q for type %s: %w", ref.Address, key.Type(), err)
+			return solana.PublicKey{}, fmt.Errorf("parse address %q for type %s: %w", best.Address, key.Type(), err)
 		}
 		return pubkey, nil
 	}
@@ -217,11 +268,23 @@ func PoolRefByQualifier(ds datastore.DataStore, chainSelector uint64, poolType, 
 	if len(refs) == 0 {
 		return datastore.AddressRef{}, fmt.Errorf("%w: chain %d type %s qualifier %q", ErrAddressRefNotFound, chainSelector, poolType, qualifier)
 	}
-	if len(refs) > 1 {
-		return datastore.AddressRef{}, fmt.Errorf("ambiguous pool refs for chain %d type %s qualifier %q: %d matches", chainSelector, poolType, qualifier, len(refs))
+	for _, r := range refs {
+		if r.Version == nil {
+			return datastore.AddressRef{}, fmt.Errorf("pool ref for chain %d type %s qualifier %q has no version", chainSelector, poolType, qualifier)
+		}
 	}
-	if refs[0].Version == nil {
-		return datastore.AddressRef{}, fmt.Errorf("pool ref for chain %d type %s qualifier %q has no version", chainSelector, poolType, qualifier)
+	if len(refs) > 1 {
+		// Versions of one program at the same address are one pool; different addresses are ambiguous.
+		latest := refs[0]
+		for _, r := range refs[1:] {
+			if r.Address != latest.Address {
+				return datastore.AddressRef{}, fmt.Errorf("ambiguous pool refs for chain %d type %s qualifier %q: %d matches", chainSelector, poolType, qualifier, len(refs))
+			}
+			if r.Version.GreaterThan(latest.Version) {
+				latest = r
+			}
+		}
+		return latest, nil
 	}
 	return refs[0], nil
 }
@@ -286,4 +349,60 @@ func latestRef(matches []datastore.AddressRef, criteria datastore.AddressRef) (d
 		}
 	}
 	return latest, nil
+}
+
+// RefVersionMatches reports whether a stored ref version is on the wanted version's major.
+// A nil stored version never matches; a nil wanted version matches any stored version.
+func RefVersionMatches(have, want *semver.Version) bool {
+	if want == nil {
+		return have != nil
+	}
+	if have == nil {
+		return false
+	}
+	return have.Major() == want.Major()
+}
+
+// FindCompatibleRef returns the highest-version ref on chainSelector that matches ref's type and
+// qualifier and is on ref.Version's major. Several matches at that version must share an address.
+func FindCompatibleRef(ds datastore.DataStore, ref datastore.AddressRef, chainSelector uint64) (datastore.AddressRef, error) {
+	return FindCompatibleRefInRefs(ds.Addresses().Filter(), chainSelector, ref)
+}
+
+// FindCompatibleRefInRefs is FindCompatibleRef over a slice of refs. An empty qualifier matches any.
+func FindCompatibleRefInRefs(refs []datastore.AddressRef, chainSelector uint64, ref datastore.AddressRef) (datastore.AddressRef, error) {
+	var matches []datastore.AddressRef
+	for _, r := range refs {
+		if r.ChainSelector != chainSelector || r.Type != ref.Type {
+			continue
+		}
+		if ref.Qualifier != "" && r.Qualifier != ref.Qualifier {
+			continue
+		}
+		if !RefVersionMatches(r.Version, ref.Version) {
+			continue
+		}
+		matches = append(matches, r)
+	}
+	ref.ChainSelector = chainSelector
+	return latestRef(matches, ref)
+}
+
+// FindAndFormatCompatibleRef is FindCompatibleRef followed by format.
+func FindAndFormatCompatibleRef[T any](
+	ds datastore.DataStore,
+	ref datastore.AddressRef,
+	chainSelector uint64,
+	format datastore_utils.FormatFn[T],
+) (T, error) {
+	var empty T
+	found, err := FindCompatibleRef(ds, ref, chainSelector)
+	if err != nil {
+		return empty, err
+	}
+	out, err := format(found)
+	if err != nil {
+		return empty, fmt.Errorf("failed to format ref %s: %w", datastore_utils.SprintRef(found), err)
+	}
+	return out, nil
 }

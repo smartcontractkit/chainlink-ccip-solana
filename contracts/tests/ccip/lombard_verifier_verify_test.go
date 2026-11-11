@@ -20,10 +20,10 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/arbitrary_cpi_proxy"
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/lombard_token_pool"
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/mock_lombard_bridge"
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/mock_lombard_mailbox"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/arbitrary_cpi_proxy"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/lombard_token_pool"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/mock_lombard_bridge"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/mock_lombard_mailbox"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/tests/config"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/tests/testutils"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/common"

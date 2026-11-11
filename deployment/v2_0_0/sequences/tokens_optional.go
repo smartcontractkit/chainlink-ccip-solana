@@ -23,7 +23,7 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/burnmint_token_pool"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/burnmint_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/common"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/tokens"
 	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/solcommon"
@@ -348,7 +348,7 @@ func (a *SolanaAdapter) GetOnchainRateLimits(
 	if err != nil {
 		return tokenapi.OnchainRateLimits{}, err
 	}
-	fullPoolRef, err := datastore_utils.FindAndFormatRef(ds, poolRef, chainSelector, datastore_utils.FullRef)
+	fullPoolRef, err := solcommon.FindAndFormatCompatibleRef(ds, poolRef, chainSelector, datastore_utils.FullRef)
 	if err != nil {
 		return tokenapi.OnchainRateLimits{}, fmt.Errorf("failed to resolve pool ref (%s): %w", datastore_utils.SprintRef(poolRef), err)
 	}

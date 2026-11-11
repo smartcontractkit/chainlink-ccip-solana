@@ -22,7 +22,7 @@ import (
 	cldf_ops "github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	mcms_types "github.com/smartcontractkit/mcms/types"
 
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/cctp_token_pool"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/cctp_token_pool"
 	utilscctp "github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/cctp"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/common"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/state"
@@ -132,6 +132,32 @@ var ConfigureCCTPChainForLanes = cldf_ops.NewSequence(
 			batchOps = append(batchOps, out.BatchOps...)
 		}
 
+		// Optional verifier-wide settings; each operation only writes when the on-chain value differs.
+		if input.FastFinalityBps != nil {
+			rep, err := cldf_ops.ExecuteOperation(b, cctpverifierops.SetFastFinalityBps, solChain, cctpverifierops.SetFastFinalityBpsParams{
+				CctpVerifier:    poolAddr,
+				FastFinalityBps: *input.FastFinalityBps,
+			})
+			if err != nil {
+				return seq_core.OnChainOutput{}, fmt.Errorf("set cctp verifier fast finality bps: %w", err)
+			}
+			collect(rep.Output)
+		}
+		if input.AllowlistAdmin != "" {
+			allowlistAdmin, err := solana.PublicKeyFromBase58(input.AllowlistAdmin)
+			if err != nil {
+				return seq_core.OnChainOutput{}, fmt.Errorf("parse allowlist admin %q: %w", input.AllowlistAdmin, err)
+			}
+			rep, err := cldf_ops.ExecuteOperation(b, cctpverifierops.SetAllowlistAdmin, solChain, cctpverifierops.SetAllowlistAdminParams{
+				CctpVerifier:   poolAddr,
+				AllowlistAdmin: allowlistAdmin,
+			})
+			if err != nil {
+				return seq_core.OnChainOutput{}, fmt.Errorf("set cctp verifier allowlist admin: %w", err)
+			}
+			collect(rep.Output)
+		}
+
 		for _, remoteSelector := range sortedSelectors(input.RemoteChains) {
 			remoteCfg := input.RemoteChains[remoteSelector]
 			remoteAdapter, found := deps.RemoteChains[remoteSelector]
@@ -175,14 +201,10 @@ var ConfigureCCTPChainForLanes = cldf_ops.NewSequence(
 
 			// The pool stores remote addresses left-padded to 32 bytes: an EVM onramp abi-encodes
 			// them that way, and an unpadded value fails the source-pool check on every inbound
-			// transfer.
+			// transfer. The exception is the remote pool address, which doesn't get padded.
 			remoteToken32, err := solcommon.LeftPadTo32Bytes(remoteToken)
 			if err != nil {
 				return seq_core.OnChainOutput{}, fmt.Errorf("pad remote token address for chain %d: %w", remoteSelector, err)
-			}
-			remotePool32, err := solcommon.LeftPadTo32Bytes(remotePool)
-			if err != nil {
-				return seq_core.OnChainOutput{}, fmt.Errorf("pad remote pool address for chain %d: %w", remoteSelector, err)
 			}
 			allowedCallerReceiveKey, err := solcommon.BytesToPubkey(mustPad(allowedCallerReceive))
 			if err != nil {
@@ -195,6 +217,21 @@ var ConfigureCCTPChainForLanes = cldf_ops.NewSequence(
 			destinationCallerKey, err := solcommon.BytesToPubkey(mustPad(destinationCaller))
 			if err != nil {
 				return seq_core.OnChainOutput{}, fmt.Errorf("parse CCTP v2 allowed caller for chain %d: %w", remoteSelector, err)
+			}
+			// The pool-side caller serves the v1 (1.6) lane, so it must be the remote's v1 caller or the remote
+			// rejects v1 messages. Without a v1 caller it keeps the v2 one.
+			poolDestinationCallerKey := destinationCallerKey
+			if v1Caller, v1Err := remoteAdapter.CCTPV1AllowedCallerOnDest(deps.DataStore, deps.BlockChains, remoteSelector); v1Err == nil && len(v1Caller) > 0 {
+				v1Key, perr := solcommon.BytesToPubkey(mustPad(v1Caller))
+				if perr != nil {
+					return seq_core.OnChainOutput{}, fmt.Errorf("parse CCTP v1 allowed caller for chain %d: %w", remoteSelector, perr)
+				}
+				if !v1Key.IsZero() {
+					poolDestinationCallerKey = v1Key
+				}
+			} else {
+				b.Logger.Infow("No CCTP v1 allowed caller on the remote chain, using the v2 one for the pool-side destination caller",
+					"remoteChainSelector", remoteSelector)
 			}
 			// The pool and verifier reject zero callers: anyone could consume the CCTP message.
 			if allowedCallerReceiveKey.IsZero() || allowedCallerDepositKey.IsZero() || destinationCallerKey.IsZero() {
@@ -275,13 +312,13 @@ var ConfigureCCTPChainForLanes = cldf_ops.NewSequence(
 					TokenProgramID:            solana.TokenProgramID,
 					RemoteSelector:            remoteSelector,
 					RemoteTokenAddress:        remoteToken32,
-					RemotePoolAddress:         remotePool32,
+					RemotePoolAddress:         remotePool,
 					RemoteDecimals:            usdcDecimals,
 					InboundRateLimiterConfig:  scaleRateLimit(remoteCfg.InboundRateLimiterConfig),
 					OutboundRateLimiterConfig: scaleRateLimit(remoteCfg.OutboundRateLimiterConfig),
 				},
 				DomainIdentifier:  remoteCfg.DomainIdentifier,
-				DestinationCaller: destinationCallerKey,
+				DestinationCaller: poolDestinationCallerKey,
 			}
 			upsertRep, err := cldf_ops.ExecuteOperation(b, tokenpoolops.UpsertRemoteChainConfigCctp, solChain, poolRemoteCfg)
 			if err != nil {

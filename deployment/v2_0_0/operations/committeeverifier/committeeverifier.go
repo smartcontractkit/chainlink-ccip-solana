@@ -17,7 +17,7 @@ import (
 	cldf_deployment "github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/ccip"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/common"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/state"

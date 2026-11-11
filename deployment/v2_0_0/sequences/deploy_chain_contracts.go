@@ -26,25 +26,26 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	mcms_types "github.com/smartcontractkit/mcms/types"
 
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/arbitrary_cpi_proxy"
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/burnmint_token_pool"
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/ccip_offramp"
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/ccip_router"
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/cctp_token_pool"
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/committee_verifier"
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/example_ccip_receiver"
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/example_ccip_sender"
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/executor"
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/fee_quoter"
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/lockrelease_token_pool"
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/rmn_remote"
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/test_ccip_invalid_receiver"
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/test_ccip_receiver"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/arbitrary_cpi_proxy"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/burnmint_token_pool"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/ccip_offramp"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/ccip_router"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/cctp_token_pool"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/example_ccip_receiver"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/example_ccip_sender"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/executor"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/fee_quoter"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/lockrelease_token_pool"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/rmn_remote"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/test_ccip_invalid_receiver"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/test_ccip_receiver"
 	solcommonutils "github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/common"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/state"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/tokens"
 	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/solcommon"
 	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/utils"
+	cvops "github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/operations/committeeverifier"
 	executorops "github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/operations/executor"
 	fqops "github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/operations/feequoter"
 	offrampops "github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/operations/offramp"
@@ -273,6 +274,11 @@ var DeployChainContracts = operations.NewSequence(
 					return ccvadapters.DeployChainContractsOutput{}, stageErr
 				}
 			}
+		}
+
+		// Fail before any program is deployed.
+		if verErr := requireIDLVersions(chain.ProgramsPath, input.ExistingAddresses, input.ChainSelector, input.ContractParams); verErr != nil {
+			return ccvadapters.DeployChainContractsOutput{}, verErr
 		}
 
 		// LINK is a shared token, not a CCIP program, so this flow does not deploy it:
@@ -839,4 +845,40 @@ func GetHighLowBits(n *big.Int) (low, high uint64) {
 	high = highBig.Uint64()
 
 	return low, high
+}
+
+// requireIDLVersions checks that each program about to be deployed declares, in its IDL, the version
+// the deploy parameters ask for. Programs with an existing ref on the same major are reused, not deployed.
+func requireIDLVersions(programsPath string, existing []datastore.AddressRef, chainSelector uint64, params ccvadapters.DeployContractParams) error {
+	requested := params.OffRamp.Version
+	if requested == nil {
+		return nil
+	}
+	programs := []struct {
+		contractType datastore.ContractType
+		program      string
+	}{
+		{datastore.ContractType(routerops.ContractType), routerops.ProgramName},
+		{datastore.ContractType(offrampops.ContractType), offrampops.ProgramName},
+		{datastore.ContractType(fqops.ContractType), fqops.ProgramName},
+		{datastore.ContractType(executorops.ContractType), executorops.ProgramName},
+		{datastore.ContractType(cvops.ContractType), cvops.ProgramName},
+	}
+	for _, p := range programs {
+		if _, err := solcommon.FindCompatibleRefInRefs(existing, chainSelector, datastore.AddressRef{Type: p.contractType, Version: requested}); err == nil {
+			continue
+		}
+		info, err := solcommon.InspectArtifact(programsPath, p.program)
+		if err != nil || info.IDLPath == "" {
+			continue // a missing artifact or IDL is reported by the deploy itself
+		}
+		idlVersion, err := solcommon.IDLVersion(info.IDLPath)
+		if err != nil {
+			return err
+		}
+		if !idlVersion.Equal(requested) {
+			return fmt.Errorf("refusing to deploy %s: its IDL declares version %s but %s was requested", p.program, idlVersion, requested)
+		}
+	}
+	return nil
 }

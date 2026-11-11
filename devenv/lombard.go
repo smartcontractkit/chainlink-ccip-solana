@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/Masterminds/semver/v3"
 	"github.com/gagliardetto/solana-go"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
@@ -19,8 +18,8 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/mock_lombard_bridge"
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/mock_lombard_mailbox"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/mock_lombard_bridge"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/mock_lombard_mailbox"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/tokens"
 	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/solcommon"
 	solanaadapters "github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/adapters"
@@ -77,9 +76,7 @@ func configureLombardForTransfer(env *deployment.Environment, selector uint64, r
 		remoteChainAdapters[rs] = remoteAdapter
 
 		var remoteBridgeRef datastore.AddressRef
-		remoteBridgeRef, err = env.DataStore.Addresses().Get(datastore.NewAddressRefKey(
-			rs, datastore.ContractType(MockLombardBridgeContractType), semver.MustParse("2.0.0"), devenvcommon.LombardContractsQualifier,
-		))
+		remoteBridgeRef, err = solcommon.FindCompatibleRef(env.DataStore, datastore.AddressRef{Type: datastore.ContractType(MockLombardBridgeContractType), Version: solcommon.Version2_0_0, Qualifier: devenvcommon.LombardContractsQualifier}, rs)
 		if err != nil {
 			return fmt.Errorf("resolve lombard bridge on remote chain %d: %w", rs, err)
 		}
@@ -163,9 +160,7 @@ func configureLombardMockBridgeForRemote(env *deployment.Environment, selector u
 		return fmt.Errorf("no Lombard adapter for remote chain family %q (selector %d)", family, remoteSelector)
 	}
 
-	remoteBridgeRef, err := env.DataStore.Addresses().Get(datastore.NewAddressRefKey(
-		remoteSelector, datastore.ContractType(MockLombardBridgeContractType), semver.MustParse("2.0.0"), devenvcommon.LombardContractsQualifier,
-	))
+	remoteBridgeRef, err := solcommon.FindCompatibleRef(env.DataStore, datastore.AddressRef{Type: datastore.ContractType(MockLombardBridgeContractType), Version: solcommon.Version2_0_0, Qualifier: devenvcommon.LombardContractsQualifier}, remoteSelector)
 	if err != nil {
 		return fmt.Errorf("resolve lombard bridge on remote chain %d: %w", remoteSelector, err)
 	}
@@ -239,9 +234,7 @@ func configureLombardMockBridgeForRemote(env *deployment.Environment, selector u
 
 	// Addresses needed for extending this remote chain's own verifier lookup table below, once
 	// ConfigureLombardChainForLanes has created it.
-	poolRef, err := env.DataStore.Addresses().Get(datastore.NewAddressRefKey(
-		selector, datastore.ContractType(tokenpoolops.LombardTokenPool), solcommon.Version2_0_0, solcommon.PoolProgramQualifier,
-	))
+	poolRef, err := solcommon.FindCompatibleRef(env.DataStore, datastore.AddressRef{Type: datastore.ContractType(tokenpoolops.LombardTokenPool), Version: solcommon.Version2_0_0, Qualifier: solcommon.PoolProgramQualifier}, selector)
 	if err != nil {
 		return fmt.Errorf("resolve lombard token pool on chain %d: %w", selector, err)
 	}

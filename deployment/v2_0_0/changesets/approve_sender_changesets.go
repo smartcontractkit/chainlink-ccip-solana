@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/Masterminds/semver/v3"
-	"github.com/gagliardetto/solana-go/rpc"
 
 	"github.com/smartcontractkit/chainlink-ccip/deployment/utils/mcms"
 	cldf "github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -18,6 +17,10 @@ import (
 // ApproveTestReceiverSenderChangesetInput approves remote senders on a receiver that is already
 // deployed. The receiver is resolved from the datastore by qualifier, so nothing is redeployed and
 // no other receiver state is touched. MCMS builds the proposal when the timelock owns the receiver.
+// The receiver derives the approved-sender PDA from the exact sender bytes in the message, so the
+// v2 receiver approves the 32-byte padded sender (2.0 lanes) and the legacy (v1) receiver approves
+// both that and the raw 20-byte sender (1.6 lanes). Approvals that already exist are skipped, so
+// re-running the changeset only creates what is missing.
 type ApproveTestReceiverSenderChangesetInput struct {
 	ChainSelector         uint64     `json:"chainSelector"`
 	ReceiverQualifier     string     `json:"receiverQualifier"`
@@ -44,8 +47,7 @@ func approveSenderVerify(receiverVersion *semver.Version) func(cldf.Environment,
 		if !env.BlockChains.Exists(input.ChainSelector) {
 			return fmt.Errorf("chain with selector %d does not exist", input.ChainSelector)
 		}
-		solChain, ok := env.BlockChains.SolanaChains()[input.ChainSelector]
-		if !ok {
+		if _, ok := env.BlockChains.SolanaChains()[input.ChainSelector]; !ok {
 			return fmt.Errorf("chain with selector %d is not a Solana chain", input.ChainSelector)
 		}
 		if err := cldf.IsValidChainSelector(input.SourceChainSelector); err != nil {
@@ -61,9 +63,6 @@ func approveSenderVerify(receiverVersion *semver.Version) func(cldf.Environment,
 			return err
 		}
 
-		// The receiver must already exist, and no sender may already be approved. ApproveSender
-		// creates the approved-sender PDA, so re-approving fails mid-apply with an opaque
-		// account-already-in-use; catching it here keeps the run from sending any transaction.
 		addresses, err := env.DataStore.Addresses().Fetch()
 		if err != nil {
 			return fmt.Errorf("fetch existing addresses: %w", err)
@@ -72,25 +71,12 @@ func approveSenderVerify(receiverVersion *semver.Version) func(cldf.Environment,
 		if err != nil {
 			return fmt.Errorf("resolve receiver (qualifier %q, version %s): %w", input.ReceiverQualifier, receiverVersion, err)
 		}
-		for _, sender := range input.ApprovedRemoteSenders {
-			pda, pdaErr := sequences.ApprovedSenderPDA(receiver, input.SourceChainSelector, sender, receiverVersion)
-			if pdaErr != nil {
-				return fmt.Errorf("derive approved sender PDA for %q: %w", sender, pdaErr)
-			}
-			acc, accErr := solChain.Client.GetAccountInfoWithOpts(
-				env.GetContext(),
-				pda,
-				&rpc.GetAccountInfoOpts{Commitment: rpc.CommitmentConfirmed},
-			)
-			// Not found just means the approval does not exist yet, which is the expected case.
-			if accErr != nil && !errors.Is(accErr, rpc.ErrNotFound) {
-				return fmt.Errorf("read approved sender PDA %s for %q: %w", pda, sender, accErr)
-			}
-			if acc != nil && acc.Value != nil {
-				return fmt.Errorf("remote sender %s is already approved on receiver %s (PDA %s)", sender, receiver, pda)
-			}
-		}
-		return nil
+		return senderApprovals{
+			Receiver:            receiver,
+			SourceChainSelector: input.SourceChainSelector,
+			Senders:             input.ApprovedRemoteSenders,
+			ReceiverVersion:     receiverVersion,
+		}.validate()
 	}
 }
 
@@ -100,13 +86,33 @@ func approveSenderApply(receiverVersion *semver.Version) func(cldf.Environment, 
 		if err != nil {
 			return cldf.ChangesetOutput{}, fmt.Errorf("fetch existing addresses: %w", err)
 		}
+		receiver, err := sequences.ResolveTestReceiver(addresses, input.ChainSelector, input.ReceiverQualifier, receiverVersion)
+		if err != nil {
+			return cldf.ChangesetOutput{}, fmt.Errorf("resolve receiver (qualifier %q, version %s): %w", input.ReceiverQualifier, receiverVersion, err)
+		}
+		solChain, ok := e.BlockChains.SolanaChains()[input.ChainSelector]
+		if !ok {
+			return cldf.ChangesetOutput{}, fmt.Errorf("chain with selector %d is not a Solana chain", input.ChainSelector)
+		}
+		pending, err := senderApprovals{
+			Receiver:            receiver,
+			SourceChainSelector: input.SourceChainSelector,
+			Senders:             input.ApprovedRemoteSenders,
+			ReceiverVersion:     receiverVersion,
+		}.pending(e, solChain)
+		if err != nil {
+			return cldf.ChangesetOutput{}, err
+		}
+		if len(pending) == 0 {
+			return cldf.ChangesetOutput{}, nil
+		}
 		report, err := cldf_ops.ExecuteSequence(e.OperationsBundle, sequences.ApproveTestReceiverSender, e.BlockChains, sequences.ApproveTestReceiverSenderInput{
-			ChainSelector:         input.ChainSelector,
-			ExistingAddresses:     addresses,
-			ReceiverQualifier:     input.ReceiverQualifier,
-			SourceChainSelector:   input.SourceChainSelector,
-			ApprovedRemoteSenders: input.ApprovedRemoteSenders,
-			ReceiverVersion:       receiverVersion,
+			ChainSelector:       input.ChainSelector,
+			ExistingAddresses:   addresses,
+			ReceiverQualifier:   input.ReceiverQualifier,
+			SourceChainSelector: input.SourceChainSelector,
+			Approvals:           pending,
+			ReceiverVersion:     receiverVersion,
 		})
 		if err != nil {
 			return cldf.ChangesetOutput{}, fmt.Errorf("approve test receiver sender: %w", err)

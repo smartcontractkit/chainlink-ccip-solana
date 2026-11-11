@@ -2,9 +2,11 @@ use anchor_lang::prelude::*;
 use ccip_common::seed;
 use ccip_common::state::AccountSchemaVersion;
 
-use crate::event::admin::{SourceChainAdded, SourceChainConfigUpdated};
+use crate::event::admin::{SourceChainAdded, SourceChainConfigUpdated, SourceChainDeleted};
 use crate::instructions::ccv_resolution::validate_default_and_mandated_ccvs;
-use crate::state::{Config, SourceChain, SourceChainConfig, MAX_ON_RAMPS};
+use crate::state::{
+    Config, SourceChain, SourceChainConfig, MAX_LEGACY_ADDRESS_LENGTH, MAX_ON_RAMPS,
+};
 use crate::CcipOfframpError;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -101,6 +103,47 @@ pub fn disable_source_chain_selector(
 
 // ---
 
+#[event_cpi]
+#[derive(Accounts)]
+#[instruction(source_chain_selector: u64)]
+pub struct DeleteSourceChain<'info> {
+    #[account(
+        mut,
+        seeds = [seed::SOURCE_CHAIN, source_chain_selector.to_le_bytes().as_ref()],
+        bump,
+        owner = crate::ID,
+    )]
+    pub source_chain: UncheckedAccount<'info>,
+
+    #[account(
+        seeds = [seed::CONFIG],
+        bump = config.bump,
+        constraint = config.version == Config::MAX_V @ CcipOfframpError::InvalidVersion,
+    )]
+    pub config: Account<'info, Config>,
+
+    #[account(mut, address = config.owner @ CcipOfframpError::Unauthorized)]
+    pub authority: Signer<'info>,
+}
+
+pub fn delete_source_chain(
+    ctx: Context<DeleteSourceChain>,
+    source_chain_selector: u64,
+) -> Result<()> {
+    ccip_common::account_management::close(
+        &ctx.accounts.source_chain.to_account_info(),
+        &ctx.accounts.authority.to_account_info(),
+    )?;
+
+    emit_cpi!(SourceChainDeleted {
+        source_chain_selector,
+    });
+
+    Ok(())
+}
+
+// ---
+
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct UpdateSourceChainParams {
     pub source_chain_selector: u64,
@@ -172,6 +215,16 @@ fn validate_source_chain_config(
         config.on_ramps.len(),
         CcipOfframpError::TooManyOnRamps
     );
+    require_gt!(
+        config.legacy_address_length,
+        0,
+        CcipOfframpError::InvalidLegacyAddressLength
+    );
+    require_gte!(
+        MAX_LEGACY_ADDRESS_LENGTH,
+        config.legacy_address_length,
+        CcipOfframpError::InvalidLegacyAddressLength
+    );
 
     for (i, on_ramp) in config.on_ramps.iter().enumerate() {
         require!(!on_ramp.is_empty(), CcipOfframpError::InvalidOnrampAddress);
@@ -212,6 +265,7 @@ mod tests {
             on_ramps: vec![OnRampAddress::from([0xAB; 64])],
             default_ccvs: vec![pk(1)],
             lane_mandated_ccvs: vec![],
+            legacy_address_length: 20,
         };
 
         validate_source_chain_config(1, &valid_config).unwrap();
@@ -221,6 +275,7 @@ mod tests {
             on_ramps: vec![OnRampAddress::from([0x00; 64])],
             default_ccvs: vec![pk(1)],
             lane_mandated_ccvs: vec![],
+            legacy_address_length: 20,
         };
 
         assert_eq!(
@@ -233,6 +288,7 @@ mod tests {
             on_ramps: vec![OnRampAddress::EMPTY],
             default_ccvs: vec![pk(1)],
             lane_mandated_ccvs: vec![],
+            legacy_address_length: 20,
         };
 
         assert_eq!(
@@ -242,12 +298,36 @@ mod tests {
     }
 
     #[test]
+    fn source_chain_config_legacy_address_length_validation() {
+        let config_with = |legacy_address_length: u8| SourceChainConfig {
+            is_enabled: true,
+            on_ramps: vec![OnRampAddress::from([0xAB; 64])],
+            default_ccvs: vec![pk(1)],
+            lane_mandated_ccvs: vec![],
+            legacy_address_length,
+        };
+
+        for valid in [1, 20, 32, MAX_LEGACY_ADDRESS_LENGTH] {
+            validate_source_chain_config(1, &config_with(valid)).unwrap();
+        }
+
+        for invalid in [0, MAX_LEGACY_ADDRESS_LENGTH + 1, u8::MAX] {
+            assert_eq!(
+                validate_source_chain_config(1, &config_with(invalid)).unwrap_err(),
+                CcipOfframpError::InvalidLegacyAddressLength.into(),
+                "legacy_address_length {invalid} should be rejected"
+            );
+        }
+    }
+
+    #[test]
     fn source_chain_config_on_ramps_validation() {
         let config_with = |on_ramps: Vec<OnRampAddress>| SourceChainConfig {
             is_enabled: true,
             on_ramps,
             default_ccvs: vec![pk(1)],
             lane_mandated_ccvs: vec![],
+            legacy_address_length: 20,
         };
 
         // Several OnRamps at once is the configuration a source chain sits in while it upgrades its
@@ -294,6 +374,7 @@ mod tests {
             on_ramps: vec![OnRampAddress::from([0xAB; 64])],
             default_ccvs: vec![],
             lane_mandated_ccvs: vec![],
+            legacy_address_length: 20,
         };
 
         assert_eq!(
@@ -306,6 +387,7 @@ mod tests {
             on_ramps: vec![OnRampAddress::from([0xAB; 64])],
             default_ccvs: vec![Pubkey::default()],
             lane_mandated_ccvs: vec![],
+            legacy_address_length: 20,
         };
 
         assert_eq!(
@@ -318,6 +400,7 @@ mod tests {
             on_ramps: vec![OnRampAddress::from([0xAB; 64])],
             default_ccvs: vec![pk(1)],
             lane_mandated_ccvs: vec![pk(1)],
+            legacy_address_length: 20,
         };
 
         assert_eq!(
@@ -330,6 +413,7 @@ mod tests {
             on_ramps: vec![OnRampAddress::from([0xAB; 64])],
             default_ccvs: vec![],
             lane_mandated_ccvs: vec![pk(1)],
+            legacy_address_length: 20,
         };
 
         assert_eq!(

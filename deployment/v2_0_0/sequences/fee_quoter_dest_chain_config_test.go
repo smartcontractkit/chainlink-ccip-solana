@@ -8,7 +8,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
 
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/fee_quoter"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/fee_quoter"
 )
 
 func TestReverseTranslateFQV2(t *testing.T) {

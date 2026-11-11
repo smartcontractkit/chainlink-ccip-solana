@@ -4,14 +4,14 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/Masterminds/semver/v3"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/gagliardetto/solana-go"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	tokenapi "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
 	common_utils "github.com/smartcontractkit/chainlink-ccip/deployment/utils"
 	datastore_utils "github.com/smartcontractkit/chainlink-ccip/deployment/utils/datastore"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/utils/sequences"
+	ccvadapters "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
 	cldf_chain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
 	cldf_solana "github.com/smartcontractkit/chainlink-deployments-framework/chain/solana"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -120,7 +120,7 @@ func (a *SolanaAdapter) ConfigureTokenForTransfersSequence() *operations.Sequenc
 			if err != nil {
 				return sequences.OnChainOutput{}, fmt.Errorf("resolve pool ref for qualifier %q: %w", input.TokenRef.Qualifier, err)
 			}
-			if poolRef.Version.Compare(semver.MustParse("2.0.0")) >= 0 {
+			if poolRef.Version.Compare(solcommon.Version2_0_0) >= 0 {
 				spiOut, spiErr := operations.ExecuteOperation(b, routerops.SetPoolInterfaceImplementation, chain, routerops.SetPoolInterfaceImplParams{
 					Router:                      solana.PublicKeyFromBytes(routerAddr),
 					TokenMint:                   solana.MustPublicKeyFromBase58(tokenAddr.Address),
@@ -145,10 +145,16 @@ func (a *SolanaAdapter) ConfigureTokenForTransfersSequence() *operations.Sequenc
 				default:
 					return sequences.OnChainOutput{}, unsupportedTokenPoolTypeError(input.PoolType)
 				}
-				// Left-pad remote pool address to 32 bytes so it matches the encoding
-				// used in cross-chain messages (e.g. EVM abi.encode(address) produces
-				// a 32-byte left-padded value).
-				remotePool := common.LeftPadBytes(remoteChainConfig.RemotePool, 32)
+				// Store the remote pool address in the width the OffRamp passes to pools: it
+				// trims the 32-byte padded message value back to 20 bytes for EVM remotes.
+				remoteAddrLen, err := remoteAddressBytesLength(remoteChainSelector)
+				if err != nil {
+					return sequences.OnChainOutput{}, err
+				}
+				remotePool, err := solcommon.NormalizeAddressSliceLength(remoteChainConfig.RemotePool, remoteAddrLen)
+				if err != nil {
+					return sequences.OnChainOutput{}, fmt.Errorf("normalize remote pool address for chain %d: %w", remoteChainSelector, err)
+				}
 				upsertOut, err := operations.ExecuteOperation(b, op, chain,
 					tokenpoolops.RemoteChainConfig{
 						TokenPool:          tpAddr,
@@ -308,7 +314,7 @@ func (a *SolanaAdapter) ManualRegistration() *operations.Sequence[tokenapi.Manua
 			var tokenPoolRef datastore.AddressRef
 			var tokenPool solana.PublicKey
 			if !skipPoolInit || needTokenMultisig {
-				if tokenPoolRef, err = datastore_utils.FindAndFormatRef(input.ExistingDataStore, input.TokenPoolRef, chain.Selector, datastore_utils.FullRef); err != nil {
+				if tokenPoolRef, err = solcommon.FindAndFormatCompatibleRef(input.ExistingDataStore, input.TokenPoolRef, chain.Selector, datastore_utils.FullRef); err != nil {
 					return sequences.OnChainOutput{}, fmt.Errorf("failed to find token pool address using the specified reference (%+v): %w", input.TokenPoolRef, err)
 				}
 				if tokenPool, err = solana.PublicKeyFromBase58(tokenPoolRef.Address); err != nil {
@@ -319,8 +325,13 @@ func (a *SolanaAdapter) ManualRegistration() *operations.Sequence[tokenapi.Manua
 			// Check a requested mint authority transfer before any write, so an invalid request
 			// fails without leaving a partial registration behind.
 			if transferMintAuthority {
-				if err = checkMintAuthorityTransfer(chain, tokenPoolRef, tokenPool, tokenMint); err != nil {
+				var alreadyTransferred bool
+				if alreadyTransferred, err = checkMintAuthorityTransfer(chain, tokenPoolRef, tokenPool, tokenMint, input.ExistingDataStore.Addresses().Filter()); err != nil {
 					return sequences.OnChainOutput{}, err
+				}
+				if alreadyTransferred {
+					b.Logger.Infof("Mint authority of %s is already held by its token multisig, skipping the transfer", tokenMint)
+					transferMintAuthority = false
 				}
 			}
 
@@ -403,10 +414,11 @@ func (a *SolanaAdapter) ManualRegistration() *operations.Sequence[tokenapi.Manua
 					return sequences.OnChainOutput{}, fmt.Errorf("failed to derive token pool signer address: %w", err)
 				}
 				createTokenMultisigOutput, err := operations.ExecuteOperation(b, tokensops.CreateTokenMultisig, chain, tokensops.TokenMultisigParams{
-					TokenProgram: tokenProgram,
-					Signers:      multisigSigners(poolSigner, input.SVMExtraArgs.CustomerMintAuthorities),
-					TokenMint:    tokenMint,
-					TokenSymbol:  tokenSymbol,
+					TokenProgram:      tokenProgram,
+					Signers:           multisigSigners(poolSigner, input.SVMExtraArgs.CustomerMintAuthorities),
+					TokenMint:         tokenMint,
+					TokenSymbol:       tokenSymbol,
+					ExistingAddresses: input.ExistingDataStore.Addresses().Filter(),
 				})
 				if err != nil {
 					return sequences.OnChainOutput{}, fmt.Errorf("failed to create token multisig on-chain: %w", err)
@@ -505,29 +517,36 @@ func validateManualRegistrationInput(input tokenapi.ManualRegistrationSequenceIn
 
 // checkMintAuthorityTransfer verifies that the pool can hand the mint authority to a multisig:
 // it must be an upgradable BurnMint pool whose signer PDA currently holds the mint authority.
-func checkMintAuthorityTransfer(chain cldf_solana.Chain, poolRef datastore.AddressRef, pool, mint solana.PublicKey) error {
+// It reports true when a token multisig recorded for the mint already holds the authority.
+func checkMintAuthorityTransfer(chain cldf_solana.Chain, poolRef datastore.AddressRef, pool, mint solana.PublicKey, existing []datastore.AddressRef) (bool, error) {
 	if poolRef.Type.String() != common_utils.BurnMintTokenPool.String() {
-		return fmt.Errorf("transfer mint authority is only supported for BurnMint token pools, but got pool type '%s'", poolRef.Type)
+		return false, fmt.Errorf("transfer mint authority is only supported for BurnMint token pools, but got pool type '%s'", poolRef.Type)
 	}
 	authority, err := solcommon.GetUpgradeAuthority(chain.Client, pool)
 	if err != nil {
-		return fmt.Errorf("failed to get upgrade authority for token pool: %w", err)
+		return false, fmt.Errorf("failed to get upgrade authority for token pool: %w", err)
 	}
 	if authority.IsZero() {
-		return errors.New("transfer mint authority requires an upgradable BurnMint token pool, but it is immutable (no upgrade authority)")
+		return false, errors.New("transfer mint authority requires an upgradable BurnMint token pool, but it is immutable (no upgrade authority)")
 	}
 	poolSigner, err := tokens.TokenPoolSignerAddress(mint, pool)
 	if err != nil {
-		return fmt.Errorf("failed to derive token pool signer address: %w", err)
+		return false, fmt.Errorf("failed to derive token pool signer address: %w", err)
 	}
 	current, err := solcommon.GetTokenMintAuthority(chain, mint)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if current != poolSigner {
-		return fmt.Errorf("transfer mint authority requires the token mint authority to be the pool signer PDA %s, but got %s; refusing to create an orphan multisig", poolSigner, current)
+		for _, ref := range existing {
+			if ref.ChainSelector == chain.Selector && ref.Type == datastore.ContractType(tokensops.TokenMultisigType) &&
+				ref.Address == current.String() && ref.Labels.Contains(mint.String()) {
+				return true, nil
+			}
+		}
+		return false, fmt.Errorf("transfer mint authority requires the token mint authority to be the pool signer PDA %s, but got %s; refusing to create an orphan multisig", poolSigner, current)
 	}
-	return nil
+	return false, nil
 }
 
 // unsupportedTokenPoolTypeError rejects pool types a sequence does not handle. CCTP and Lombard
@@ -661,6 +680,9 @@ func (a *SolanaAdapter) DeployToken() *operations.Sequence[tokenapi.DeployTokenI
 				b.Logger.Info("Token already deployed at address:", tokenAddr.Address)
 				needsTokenDeploy = false
 				rawTokenAddr = tokenAddr.Address
+				// Return the existing ref so callers (e.g. token expansion) get the token ref on a
+				// re-run, making the sequence idempotent. Same as the EVM adapter's behavior.
+				result.Addresses = append(result.Addresses, tokenAddr)
 			}
 			if needsTokenDeploy {
 				var privateKey solana.PrivateKey
@@ -741,7 +763,7 @@ func (a *SolanaAdapter) DeployTokenPoolForToken() *operations.Sequence[tokenapi.
 			// On Solana, token pool programs are pre-deployed and loaded into the validator
 			// (via env.toml) and registered in the datastore during PostDeployContractsForSelector
 			// with the "program" qualifier. Look up the program address by pool type + version.
-			poolProgramRef, err := datastore_utils.FindAndFormatRef(input.ExistingDataStore, datastore.AddressRef{
+			poolProgramRef, err := solcommon.FindAndFormatCompatibleRef(input.ExistingDataStore, datastore.AddressRef{
 				ChainSelector: chain.Selector,
 				Type:          datastore.ContractType(input.PoolType),
 				Version:       input.TokenPoolVersion,
@@ -907,7 +929,7 @@ func (a *SolanaAdapter) UpdateAuthorities() *operations.Sequence[tokenapi.Update
 				return sequences.OnChainOutput{}, err
 			}
 
-			tokenPoolRef, err := datastore_utils.FindAndFormatRef(ds, input.TokenPoolRef, chain.Selector, datastore_utils.FullRef)
+			tokenPoolRef, err := solcommon.FindAndFormatCompatibleRef(ds, input.TokenPoolRef, chain.Selector, datastore_utils.FullRef)
 			if err != nil {
 				return sequences.OnChainOutput{}, fmt.Errorf("failed to find token pool address using the specified reference (%+v): %w", input.TokenPoolRef, err)
 			}
@@ -987,4 +1009,18 @@ func (a *SolanaAdapter) MigrateLockReleasePoolLiquiditySequence() *operations.Se
 func mergeOnChainOutput(dst *sequences.OnChainOutput, src sequences.OnChainOutput) {
 	dst.Addresses = append(dst.Addresses, src.Addresses...)
 	dst.BatchOps = append(dst.BatchOps, src.BatchOps...)
+}
+
+// remoteAddressBytesLength returns the address width of the remote chain's family, as reported by
+// its registered chain family adapter (the same source the lane config's AddressBytesLength uses).
+func remoteAddressBytesLength(remoteSelector uint64) (uint8, error) {
+	family, err := chainsel.GetSelectorFamily(remoteSelector)
+	if err != nil {
+		return 0, fmt.Errorf("get chain family for selector %d: %w", remoteSelector, err)
+	}
+	remoteAdapter, ok := ccvadapters.GetChainFamilyRegistry().GetChainFamily(family)
+	if !ok {
+		return 0, fmt.Errorf("no chain family adapter registered for %s (selector %d)", family, remoteSelector)
+	}
+	return remoteAdapter.GetAddressBytesLength(), nil
 }

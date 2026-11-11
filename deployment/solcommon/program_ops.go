@@ -67,15 +67,23 @@ func DeployContractIfNotInDatastore(
 	contractQualifier string,
 	programName string,
 ) (datastore.AddressRef, error) {
-	for _, ref := range input {
-		if ref.Type == datastore.ContractType(contractType) &&
-			ref.Version.Equal(contractVersion) {
-			if contractQualifier != "" && ref.Qualifier != contractQualifier {
-				continue
-			}
-			b.Logger.Infof("Using existing %s at %s", contractType, ref.Address)
-			return ref, nil
+	// Any ref on the same major counts, so a datastore holding only 2.0.1 does not deploy a second program.
+	var existing *datastore.AddressRef
+	for i := range input {
+		ref := input[i]
+		if ref.Type != datastore.ContractType(contractType) || !RefVersionMatches(ref.Version, contractVersion) {
+			continue
 		}
+		if contractQualifier != "" && ref.Qualifier != contractQualifier {
+			continue
+		}
+		if existing == nil || ref.Version.GreaterThan(existing.Version) {
+			existing = &input[i]
+		}
+	}
+	if existing != nil {
+		b.Logger.Infof("Using existing %s at %s (version %s)", contractType, existing.Address, existing.Version)
+		return *existing, nil
 	}
 	// Security.txt, IDL and a hashable artifact are preconditions for deploying,
 	// not optional follow-up steps. Enforced here so no path can skip them.
@@ -88,6 +96,18 @@ func DeployContractIfNotInDatastore(
 		"executableHash", artifact.ExecutableHash,
 		"securityTxt", artifact.HasSecurityTxt,
 		"idl", artifact.IDLPath)
+
+	// The IDL declares the deployed version; it must be on the requested major.
+	var idlVersion *semver.Version
+	if artifact.IDLPath != "" {
+		if idlVersion, err = IDLVersion(artifact.IDLPath); err != nil {
+			return datastore.AddressRef{}, err
+		}
+		if !RefVersionMatches(idlVersion, contractVersion) {
+			return datastore.AddressRef{}, fmt.Errorf("refusing to deploy %s: its IDL declares version %s but %s was requested",
+				programName, idlVersion, contractVersion)
+		}
+	}
 
 	// The deploy gets its address from the program keypair, so the keypair is
 	// mandatory here and the artifact must match the address it derives.
@@ -134,12 +154,17 @@ func DeployContractIfNotInDatastore(
 			programName, len(batches))
 	}
 
+	// Programs without an IDL are recorded at the requested version.
+	deployedVersion := contractVersion
+	if artifact.IDLPath != "" {
+		deployedVersion = idlVersion
+	}
 	ref := datastore.AddressRef{
 		Address:       programID,
 		ChainSelector: chain.Selector,
 		Qualifier:     contractQualifier,
 		Type:          datastore.ContractType(contractType),
-		Version:       contractVersion,
+		Version:       deployedVersion,
 	}
 	// Record the hash alongside the address. A Solana upgrade keeps the same
 	// program ID, so the address alone cannot tell you which binary is running.

@@ -14,7 +14,7 @@ import (
 	commontests "github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 	soltxm "github.com/smartcontractkit/chainlink-solana/pkg/solana/txm"
 
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/ccip_common"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/ccip_common"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/ccip"
 	"github.com/smartcontractkit/chainlink-ccip-solana/pkg/solanarpc"
 )

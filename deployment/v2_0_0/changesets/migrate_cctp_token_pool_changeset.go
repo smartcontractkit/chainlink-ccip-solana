@@ -25,8 +25,9 @@ type MigrateCctpTokenPoolToV2ChangesetInput struct {
 
 // MigrateCctpTokenPoolToV2Changeset makes an existing 1.6 CCTP token pool usable by 2.0 lanes:
 // it initializes the pool's embedded verifier, funds the pool signer, flips the Token Admin
-// Registry to interface version 2 without account derivation, and registers the pool program's
-// 2.0.0 ref at its existing address. See sequences.MigrateCctpTokenPoolToV2 for the steps.
+// Registry to interface version 2 with WithoutExtendedLookupTable resolution (account resolution
+// stays on; only the lookup table's additional entries are skipped), and registers the pool
+// program's 2.0.0 ref at its existing address. See sequences.MigrateCctpTokenPoolToV2 for the steps.
 //
 // Prerequisites, in order:
 //  1. Upgrade Router, FeeQuoter and RMNRemote to 2.0 with UpgradeProgramChangeset. Each successful
@@ -37,7 +38,8 @@ type MigrateCctpTokenPoolToV2ChangesetInput struct {
 //     2.0 lanes only after those steps; promotion checks the supplied CCTP mints on chain.
 //
 // The 1.6 lanes keep serving this token throughout: the legacy ccip_send path never reads the
-// registry's interface version, so the flip does not disturb them, and the pool picks the CCTP
+// registry's interface version, so the flip does not disturb them (TAR v4 keeps the resolution
+// byte the 1.6 OffRamp decodes at 0 or 1), and the pool picks the CCTP
 // version from the lane version of each message. The changeset therefore does not need to share
 // an MCMS batch with the lane promotion. It is idempotent and can be re-run.
 func MigrateCctpTokenPoolToV2Changeset() cldf.ChangeSetV2[MigrateCctpTokenPoolToV2ChangesetInput] {

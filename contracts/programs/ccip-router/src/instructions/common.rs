@@ -895,7 +895,7 @@ impl TokenTransferContext {
 
         let registry = load_token_admin_registry_checked(token_admin_registry, amount.token)?;
         let is_legacy = registry.interface_version == 1;
-        if is_legacy && registry.account_resolution.is_enabled() {
+        if is_legacy && registry.account_resolution().is_enabled() {
             return Err(CcipRouterError::UnsupportedPoolV1ResolutionOnLaneV2.into());
         }
 

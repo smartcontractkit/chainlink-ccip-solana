@@ -16,51 +16,193 @@ import (
 	cldf "github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	mcms_types "github.com/smartcontractkit/mcms/types"
 
+	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/solcommon"
 	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/sequences"
+)
+
+var (
+	v100 = semver.MustParse("1.0.0")
+	v160 = semver.MustParse("1.6.0")
+	v200 = semver.MustParse("2.0.0")
+	v201 = semver.MustParse("2.0.1")
 )
 
 func TestUpgradedProgramRefForInputIsIdempotent(t *testing.T) {
 	selector := chainsel.SOLANA_DEVNET.Selector
 	address := solana.NewWallet().PublicKey().String()
 	refs := []datastore.AddressRef{
-		{Address: address, ChainSelector: selector, Type: datastore.ContractType(sequences.UpgradeTypeRouter), Version: semver.MustParse("1.6.0")},
-		{Address: address, ChainSelector: selector, Type: datastore.ContractType(sequences.UpgradeTypeRouter), Version: semver.MustParse("2.0.0")},
+		{Address: address, ChainSelector: selector, Type: datastore.ContractType(sequences.UpgradeTypeRouter), Version: v160},
+		{Address: address, ChainSelector: selector, Type: datastore.ContractType(sequences.UpgradeTypeRouter), Version: v200},
 	}
-	got, add, err := upgradedProgramRefForInput(refs, UpgradeProgramChangesetInput{
+	change, err := upgradedProgramRefForInput(refs, UpgradeProgramChangesetInput{
 		ChainSelector: selector,
 		ProgramType:   sequences.UpgradeTypeRouter,
-	})
+	}, v200)
 	require.NoError(t, err)
-	require.False(t, add)
-	require.Equal(t, datastore.AddressRef{}, got)
+	require.Equal(t, refChange{}, change)
 	require.Len(t, refs, 2, "an existing 2.0.0 reference must not be duplicated")
 
 	refs[1].Address = solana.NewWallet().PublicKey().String()
-	_, _, err = upgradedProgramRefForInput(refs, UpgradeProgramChangesetInput{
+	_, err = upgradedProgramRefForInput(refs, UpgradeProgramChangesetInput{
 		ChainSelector: selector,
 		ProgramType:   sequences.UpgradeTypeRouter,
-	})
-	require.ErrorContains(t, err, "differs from legacy ref")
+	}, v200)
+	require.ErrorContains(t, err, "differs from the 1.6.0 ref")
 }
 
-func TestUpgradedProgramRefPreservesExplicitCCTPQualifier(t *testing.T) {
+func TestUpgradedProgramRefUpdatesTheVersionOfTheExistingRef(t *testing.T) {
 	selector := chainsel.SOLANA_DEVNET.Selector
 	address := solana.NewWallet().PublicKey().String()
-	refs := []datastore.AddressRef{{
+	old := datastore.AddressRef{
 		Address:       address,
 		ChainSelector: selector,
 		Type:          datastore.ContractType(sequences.UpgradeTypeCCTPTokenPool),
-		Version:       semver.MustParse("1.6.0"),
+		Version:       v160,
 		Qualifier:     "USDC",
-	}}
-	ref, add, err := upgradedProgramRefForInput(refs, UpgradeProgramChangesetInput{
-		ChainSelector: selector,
-		ProgramType:   sequences.UpgradeTypeCCTPTokenPool,
-		Qualifier:     "USDC",
-	})
+		Labels:        datastore.NewLabelSet("legacy"),
+	}
+	input := UpgradeProgramChangesetInput{ChainSelector: selector, ProgramType: sequences.UpgradeTypeCCTPTokenPool, Qualifier: "USDC"}
+
+	change, err := upgradedProgramRefForInput([]datastore.AddressRef{old}, input, v200)
 	require.NoError(t, err)
-	require.True(t, add)
-	require.Equal(t, "USDC", ref.Qualifier)
+	require.NotNil(t, change.add)
+	require.Equal(t, address, change.add.Address)
+	require.Equal(t, "USDC", change.add.Qualifier)
+	require.True(t, v200.Equal(change.add.Version))
+	require.Equal(t, old.Labels, change.add.Labels)
+	require.Empty(t, change.superseded, "the 1.x ref stays: other integrations still resolve it")
+
+	t.Run("to the version of the release being deployed", func(t *testing.T) {
+		change, err := upgradedProgramRefForInput([]datastore.AddressRef{old}, input, v201)
+		require.NoError(t, err)
+		require.NotNil(t, change.add)
+		require.True(t, v201.Equal(change.add.Version))
+		require.Empty(t, change.superseded)
+	})
+
+	t.Run("a deployed ref of the same major is replaced", func(t *testing.T) {
+		deployed := old
+		deployed.Version = v200
+		change, err := upgradedProgramRefForInput([]datastore.AddressRef{old, deployed}, input, v201)
+		require.NoError(t, err)
+		require.NotNil(t, change.add)
+		require.True(t, v201.Equal(change.add.Version))
+		require.Equal(t, []datastore.AddressRef{deployed}, change.superseded, "only 2.0.1 remains next to the 1.6.0 ref")
+	})
+
+	t.Run("a stale same-major ref is removed once the target version exists", func(t *testing.T) {
+		stale, target := old, old
+		stale.Version, target.Version = v200, v201
+		change, err := upgradedProgramRefForInput([]datastore.AddressRef{old, stale, target}, input, v201)
+		require.NoError(t, err)
+		require.Nil(t, change.add)
+		require.Equal(t, []datastore.AddressRef{stale}, change.superseded)
+	})
+
+	t.Run("the same-major ref moves to the new version for a program per version", func(t *testing.T) {
+		offramp := datastore.AddressRef{Address: address, ChainSelector: selector, Type: datastore.ContractType(sequences.UpgradeTypeOffRamp), Version: v200}
+		change, err := upgradedProgramRefForInput([]datastore.AddressRef{offramp}, UpgradeProgramChangesetInput{ChainSelector: selector, ProgramType: sequences.UpgradeTypeOffRamp}, v201)
+		require.NoError(t, err)
+		require.True(t, v201.Equal(change.add.Version))
+		require.Equal(t, []datastore.AddressRef{offramp}, change.superseded)
+	})
+
+	t.Run("refs of other qualifiers are not touched", func(t *testing.T) {
+		other := old
+		other.Qualifier = "OTHER"
+		_, err := upgradedProgramRefForInput([]datastore.AddressRef{other}, input, v200)
+		require.ErrorContains(t, err, "set programAddress")
+	})
+
+	t.Run("the requested address has to be the deployed one", func(t *testing.T) {
+		in := input
+		in.ProgramAddress = solana.NewWallet().PublicKey().String()
+		_, err := upgradedProgramRefForInput([]datastore.AddressRef{old}, in, v200)
+		require.ErrorContains(t, err, "differs from requested programAddress")
+	})
+
+	t.Run("two refs of other versions cannot be told apart", func(t *testing.T) {
+		second := old
+		second.Version = semver.MustParse("1.5.0")
+		second.Address = solana.NewWallet().PublicKey().String()
+		_, err := upgradedProgramRefForInput([]datastore.AddressRef{old, second}, input, v200)
+		require.ErrorContains(t, err, "cannot tell which one is deployed")
+	})
+}
+
+func TestUpgradedProgramRefRegistersAProgramWithoutARef(t *testing.T) {
+	selector := chainsel.SOLANA_DEVNET.Selector
+	address := solana.NewWallet().PublicKey().String()
+	input := UpgradeProgramChangesetInput{ChainSelector: selector, ProgramType: sequences.UpgradeTypeFeeQuoter}
+
+	_, err := upgradedProgramRefForInput(nil, input, v200)
+	require.ErrorContains(t, err, "set programAddress")
+
+	input.ProgramAddress = address
+	change, err := upgradedProgramRefForInput(nil, input, v200)
+	require.NoError(t, err)
+	require.Nil(t, change.superseded)
+	require.NotNil(t, change.add)
+	require.Equal(t, address, change.add.Address)
+	require.True(t, v200.Equal(change.add.Version))
+}
+
+func TestUpgradedProgramRefAddsARefPerVersionForTheOffRamp(t *testing.T) {
+	selector := chainsel.SOLANA_DEVNET.Selector
+	v16Address := solana.NewWallet().PublicKey().String()
+	v2Address := solana.NewWallet().PublicKey().String()
+	v16 := datastore.AddressRef{Address: v16Address, ChainSelector: selector, Type: datastore.ContractType(sequences.UpgradeTypeOffRamp), Version: v160}
+	input := UpgradeProgramChangesetInput{ChainSelector: selector, ProgramType: sequences.UpgradeTypeOffRamp}
+
+	_, err := upgradedProgramRefForInput([]datastore.AddressRef{v16}, input, v200)
+	require.ErrorContains(t, err, "set programAddress", "the new version is another program, whose address has to be given")
+
+	input.ProgramAddress = v2Address
+	change, err := upgradedProgramRefForInput([]datastore.AddressRef{v16}, input, v200)
+	require.NoError(t, err)
+	require.NotNil(t, change.add)
+	require.Nil(t, change.superseded, "the 1.6.0 OffRamp is still deployed")
+	require.Equal(t, v2Address, change.add.Address)
+
+	// A rerun finds the 2.0.0 ref; the 1.6.0 ref at another address is fine.
+	change, err = upgradedProgramRefForInput([]datastore.AddressRef{v16, *change.add}, input, v200)
+	require.NoError(t, err)
+	require.Nil(t, change.add)
+}
+
+func TestProgramRefVersion(t *testing.T) {
+	t.Setenv(solcommon.ContractsReleaseEnvVar, "")
+
+	for name, tc := range map[string]struct {
+		programType sequences.ProgramUpgradeType
+		version     string
+		want        *semver.Version
+	}{
+		"local build: 2.0.0":                         {sequences.UpgradeTypeRouter, "local", v200},
+		"local build: the v1 test sender is 1.0.0":   {sequences.UpgradeTypeTestSenderLegacy, "local", v100},
+		"local build: the v1 test receiver is 1.0.0": {sequences.UpgradeTypeTestReceiverLegacy, "local", v100},
+		"local build: the v2 test sender is 2.0.0":   {sequences.UpgradeTypeTestSenderV2, "local", v200},
+		"a release version":                          {sequences.UpgradeTypeCCTPTokenPool, "v2.0.1", v201},
+		"a contracts release tag":                    {sequences.UpgradeTypeOffRamp, "contracts/v2.0.1", v201},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := programRefVersion(tc.programType, tc.version, "")
+			require.NoError(t, err)
+			require.True(t, tc.want.Equal(got), "got %s, want %s", got, tc.want)
+		})
+	}
+
+	t.Run("the pinned release of the environment when the pipeline gives none", func(t *testing.T) {
+		t.Setenv(solcommon.ContractsReleaseEnvVar, "v2.0.1")
+		got, err := programRefVersion(sequences.UpgradeTypeRouter, "", "")
+		require.NoError(t, err)
+		require.True(t, v201.Equal(got))
+	})
+
+	t.Run("no version at all", func(t *testing.T) {
+		_, err := programRefVersion(sequences.UpgradeTypeRouter, "", "")
+		require.Error(t, err)
+	})
 }
 
 func TestUpgradedProgramRefForFirstDeploymentUsesExplicitAddress(t *testing.T) {
@@ -71,27 +213,38 @@ func TestUpgradedProgramRefForFirstDeploymentUsesExplicitAddress(t *testing.T) {
 		ProgramType:    sequences.UpgradeTypeTestSenderLegacy,
 		ProgramAddress: address,
 	}
-	ref, add, err := upgradedProgramRefForInput(nil, input)
+	change, err := upgradedProgramRefForInput(nil, input, v100)
 	require.NoError(t, err)
-	require.True(t, add)
+	require.NotNil(t, change.add)
+	ref := *change.add
 	require.Equal(t, address, ref.Address)
 	require.Equal(t, "TestSender", ref.Type.String())
 	require.Equal(t, "default", ref.Qualifier)
 	require.Equal(t, semver.MustParse("1.0.0"), ref.Version)
 
-	ref, add, err = upgradedProgramRefForInput([]datastore.AddressRef{ref}, input)
+	change, err = upgradedProgramRefForInput([]datastore.AddressRef{ref}, input, v100)
 	require.NoError(t, err)
-	require.False(t, add)
+	require.Nil(t, change.add)
 
 	input.ProgramAddress = solana.NewWallet().PublicKey().String()
-	_, _, err = upgradedProgramRefForInput([]datastore.AddressRef{{
+	_, err = upgradedProgramRefForInput([]datastore.AddressRef{{
 		Address:       address,
 		ChainSelector: selector,
 		Type:          "TestSender",
 		Version:       semver.MustParse("1.0.0"),
 		Qualifier:     "default",
-	}}, input)
+	}}, input, v100)
 	require.ErrorContains(t, err, "differs from requested programAddress")
+
+	// The v2 test sender is a separate program next to the v1 one.
+	v2Address := solana.NewWallet().PublicKey().String()
+	v2 := UpgradeProgramChangesetInput{ChainSelector: selector, ProgramType: sequences.UpgradeTypeTestSenderV2, ProgramAddress: v2Address}
+	v1Ref := datastore.AddressRef{Address: address, ChainSelector: selector, Type: "TestSender", Version: v100, Qualifier: "default"}
+	change, err = upgradedProgramRefForInput([]datastore.AddressRef{v1Ref}, v2, v200)
+	require.NoError(t, err)
+	require.Nil(t, change.superseded)
+	require.NotNil(t, change.add)
+	require.Equal(t, v2Address, change.add.Address)
 }
 
 func TestUpgradeProgramVerifyValidatesVersionProgramTypeAndMCMSDefaults(t *testing.T) {
@@ -113,9 +266,9 @@ func TestUpgradeProgramVerifyValidatesVersionProgramTypeAndMCMSDefaults(t *testi
 	badAddress.ProgramAddress = "not-a-public-key"
 	require.ErrorContains(t, upgradeProgramVerify(env, badAddress), "invalid programAddress")
 
-	inPlaceAddress := input
-	inPlaceAddress.ProgramAddress = solana.NewWallet().PublicKey().String()
-	require.ErrorContains(t, upgradeProgramVerify(env, inPlaceAddress), "must be omitted for in-place upgrades")
+	withAddress := input
+	withAddress.ProgramAddress = solana.NewWallet().PublicKey().String()
+	require.NoError(t, upgradeProgramVerify(env, withAddress))
 
 	badVersion := input
 	badVersion.Version = "2.0.0"
@@ -282,4 +435,32 @@ func TestUpgradedProgramRefs(t *testing.T) {
 
 	_, err = upgradedProgramRefs(legacy[1:], sel)
 	require.ErrorContains(t, err, "no Router 1.6.0 ref")
+}
+
+func TestSetPoolInterfaceImplementationVerify(t *testing.T) {
+	sel := chainsel.SOLANA_DEVNET.Selector
+	ds := datastore.NewMemoryDataStore()
+	require.NoError(t, ds.Addresses().Add(datastore.AddressRef{
+		ChainSelector: sel,
+		Type:          "Router",
+		Version:       semver.MustParse("2.0.0"),
+		Address:       solana.NewWallet().PublicKey().String(),
+	}))
+	env := cldf.Environment{
+		BlockChains: cldf_chain.NewBlockChains(map[uint64]cldf_chain.BlockChain{
+			sel: cldf_solana.Chain{Selector: sel},
+		}),
+		DataStore: ds.Seal(),
+	}
+	mint := solana.NewWallet().PublicKey().String()
+	input := func(token string, version uint8, resolution string) SetPoolInterfaceImplementationChangesetInput {
+		return SetPoolInterfaceImplementationChangesetInput{ChainSelector: sel, TokenMint: token, InterfaceVersion: version, AccountResolution: resolution}
+	}
+
+	require.NoError(t, setPoolInterfaceImplementationVerify(env, input(mint, 2, AccountResolutionStandard)))
+	require.ErrorContains(t, setPoolInterfaceImplementationVerify(env, input("not-a-key", 2, AccountResolutionStandard)), "invalid token mint")
+	require.ErrorContains(t, setPoolInterfaceImplementationVerify(env, input(mint, 3, AccountResolutionStandard)), "interfaceVersion")
+	require.ErrorContains(t, setPoolInterfaceImplementationVerify(env, input(mint, 2, "2")), "invalid accountResolution")
+	envNoRouter := cldf.Environment{BlockChains: env.BlockChains, DataStore: datastore.NewMemoryDataStore().Seal()}
+	require.ErrorContains(t, setPoolInterfaceImplementationVerify(envNoRouter, input(mint, 2, AccountResolutionStandard)), "find router")
 }

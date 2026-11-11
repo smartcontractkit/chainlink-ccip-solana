@@ -10,7 +10,7 @@ use crate::{
     context::{valid_version, MAX_CHAINSTATECCIPV2_V, MAX_CONFIG_V},
     instruction::{self as router_instruction},
     instructions::{
-        ccip_send::{normalized_address, token_receiver, CcipSendV2Params},
+        ccip_send::{token_receiver, CcipSendV2Params},
         common::OnrampResolutionMetadata,
     },
     state::{Config, DestChainCcipV2},
@@ -18,7 +18,8 @@ use crate::{
 };
 use ccip_common::{
     messages::{
-        MessageV1FieldsAtResolutionTime, NormalizeWsol, TokenTransferFieldsAtResolutionTime,
+        normalized_address, MessageV1FieldsAtResolutionTime, NormalizeWsol,
+        TokenTransferFieldsAtResolutionTime,
     },
     resolution::*,
     seed,

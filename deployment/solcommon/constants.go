@@ -29,6 +29,8 @@ const (
 )
 
 var (
+	// Version2_0_0 is the baseline of the 2.x line: the version operations declare. It is not a
+	// lookup key; refs resolve by major through RefVersionMatches and FindCompatibleRef.
 	Version2_0_0 = semver.MustParse("2.0.0")
 	// LegacyTokenPoolVersion is retained for datastore compatibility while token consumers
 	// migrate from the former pool identity to the Solana 2.0.0 programs.

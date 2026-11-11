@@ -6,13 +6,13 @@ import (
 	"github.com/Masterminds/semver/v3"
 
 	cciputils "github.com/smartcontractkit/chainlink-ccip/deployment/utils"
-	datastore_utils "github.com/smartcontractkit/chainlink-ccip/deployment/utils/datastore"
 	ccipadapters "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
 	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	cldf_chain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
+	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/solcommon"
 	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/operations/committeeverifier"
 	solseq "github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/sequences"
 )
@@ -174,7 +174,7 @@ func resolveCCVAddresses(ds datastore.DataStore, chainSelector uint64, qualifier
 	toAddress := func(ref datastore.AddressRef) (string, error) { return ref.Address, nil }
 	out := make([]string, 0, len(qualifiers))
 	for _, q := range qualifiers {
-		addr, err := datastore_utils.FindAndFormatRef(ds, datastore.AddressRef{
+		addr, err := solcommon.FindAndFormatCompatibleRef(ds, datastore.AddressRef{
 			Type:      datastore.ContractType(committeeverifier.ContractType),
 			Qualifier: q,
 			Version:   committeeverifier.Version,

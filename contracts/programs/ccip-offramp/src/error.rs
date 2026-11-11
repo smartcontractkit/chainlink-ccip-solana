@@ -122,4 +122,8 @@ pub enum CcipOfframpError {
     InvalidMessageSourceChainSelector,
     #[msg("Receiver registry account missing for arbitrary message")]
     ReceiverRegistryAccountMissing,
+    #[msg("Invalid source pool address")]
+    InvalidSourcePoolAddress,
+    #[msg("Invalid legacy address length")]
+    InvalidLegacyAddressLength,
 }

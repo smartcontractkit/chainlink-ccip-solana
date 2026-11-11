@@ -6,11 +6,12 @@ import (
 	"fmt"
 
 	"github.com/gagliardetto/solana-go"
+	"github.com/gagliardetto/solana-go/rpc"
 
 	cldf_solana "github.com/smartcontractkit/chainlink-deployments-framework/chain/solana"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/fee_quoter"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/fee_quoter"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/common"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/state"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/tokens"
@@ -59,6 +60,21 @@ func findLinkMint(addresses []datastore.AddressRef, chainSelector uint64) (solan
 
 // ensureFeeVaults creates the issuer's fee vault token account for each fee token, skipping
 // those that already exist. qualifier is nil for an unqualified vault.
+// accountExists reports whether an account exists. An RPC error other than not found is returned.
+func accountExists(ctx context.Context, chain cldf_solana.Chain, account solana.PublicKey) (bool, error) {
+	_, err := chain.Client.GetAccountInfoWithOpts(ctx, account, &rpc.GetAccountInfoOpts{
+		Commitment: cldf_solana.SolDefaultCommitment,
+	})
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, rpc.ErrNotFound):
+		return false, nil
+	default:
+		return false, err
+	}
+}
+
 func ensureFeeVaults(ctx context.Context, chain cldf_solana.Chain, issuer solana.PublicKey, qualifier []byte, fees []feeToken) error {
 	vault, _, err := state.FindFeeVaultPDA(issuer, qualifier)
 	if err != nil {
@@ -68,6 +84,13 @@ func ensureFeeVaults(ctx context.Context, chain cldf_solana.Chain, issuer solana
 		ata, _, err := tokens.FindAssociatedTokenAddress(ft.program, ft.mint, vault)
 		if err != nil {
 			return fmt.Errorf("failed to find fee vault account of %s for %s: %w", issuer, ft.mint, err)
+		}
+		exists, err := accountExists(ctx, chain, ata)
+		if err != nil {
+			return fmt.Errorf("failed to fetch fee vault account %s of %s for %s: %w", ata, issuer, ft.mint, err)
+		}
+		if exists {
+			continue
 		}
 		ixn, _, err := tokens.CreateAssociatedTokenAccount(ft.program, ft.mint, vault, chain.DeployerKey.PublicKey())
 		if err != nil {

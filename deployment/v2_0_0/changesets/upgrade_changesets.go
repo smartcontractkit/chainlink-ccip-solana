@@ -82,12 +82,6 @@ func upgradeProgramVerify(env cldf.Environment, input UpgradeProgramChangesetInp
 			return fmt.Errorf("invalid programAddress %q: %w", input.ProgramAddress, err)
 		}
 	}
-	if input.ProgramAddress != "" {
-		_, _, _, inPlace, _ := upgradeProgramRefDetails(input.ProgramType)
-		if inPlace {
-			return errors.New("programAddress must be omitted for in-place upgrades; the existing address is resolved from the legacy ref")
-		}
-	}
 	if input.Version != "" && input.Version != solcommon.LocalArtifactsValue {
 		if err := solcommon.ValidateReleaseTag(input.Version); err != nil {
 			return fmt.Errorf("invalid version: %w", err)
@@ -110,15 +104,24 @@ func upgradeProgramApply(e cldf.Environment, input UpgradeProgramChangesetInput)
 	if err != nil {
 		return cldf.ChangesetOutput{}, fmt.Errorf("fetch existing addresses: %w", err)
 	}
-	upgradedRef, addUpgradedRef, err := upgradedProgramRefForInput(addresses, input)
+	refVersion, err := programRefVersion(input.ProgramType, input.Version, programsPath(e, input.ChainSelector))
 	if err != nil {
 		return cldf.ChangesetOutput{}, err
 	}
-	if addUpgradedRef {
-		// UpgradeProgram resolves the target release by its 2.0.0 ref. Make the
-		// same-address ref available to the sequence, but only return it below
-		// after direct execution or successful MCMS proposal construction.
-		addresses = append(addresses, upgradedRef)
+	change, err := upgradedProgramRefForInput(addresses, input, refVersion)
+	if err != nil {
+		return cldf.ChangesetOutput{}, err
+	}
+	if change.add != nil {
+		// The sequence resolves the program by this ref; it is only returned after a successful upgrade.
+		addresses = append(addresses, *change.add)
+	}
+	additional := additionalRefsForUpgrade(addresses, input, refVersion)
+	if e.Logger != nil {
+		for _, existing := range additional.Conflicting {
+			e.Logger.Warnw("Not registering an additional ref of the upgraded program: it already points at another program",
+				"type", existing.Type, "qualifier", existing.Qualifier, "existingAddress", existing.Address)
+		}
 	}
 	report, err := cldf_ops.ExecuteSequence(e.OperationsBundle, sequences.UpgradeProgram, e.BlockChains, sequences.UpgradeGenericInput{
 		ChainSelector:     input.ChainSelector,
@@ -127,14 +130,28 @@ func upgradeProgramApply(e cldf.Environment, input UpgradeProgramChangesetInput)
 		MCMSQualifier:     input.MCMS.Qualifier,
 		Qualifier:         input.Qualifier,
 		Version:           input.Version,
+		RefVersion:        refVersion,
 	})
 	if err != nil {
 		return cldf.ChangesetOutput{}, fmt.Errorf("upgrade %s: %w", input.ProgramType, err)
 	}
 	ds := datastore.NewMemoryDataStore()
-	if addUpgradedRef {
-		if err := ds.Addresses().Add(upgradedRef); err != nil {
-			return cldf.ChangesetOutput{Reports: report.ExecutionReports}, fmt.Errorf("add upgraded address ref %s %s: %w", upgradedRef.Type, upgradedRef.Version, err)
+	if change.add != nil {
+		if err := ds.Addresses().Add(*change.add); err != nil {
+			return cldf.ChangesetOutput{Reports: report.ExecutionReports}, fmt.Errorf("add upgraded address ref %s %s: %w", change.add.Type, change.add.Version, err)
+		}
+	}
+	// The version is part of the ref key, so replacing a ref is an add plus a delete of the old key, which
+	// only exists in the environment's store (hence RemoteDelete).
+	for _, old := range append(append([]datastore.AddressRef{}, change.superseded...), additional.Superseded...) {
+		oldKey := datastore.NewAddressRefKey(old.ChainSelector, old.Type, old.Version, old.Qualifier)
+		if err := ds.Addresses().RemoteDelete(oldKey); err != nil {
+			return cldf.ChangesetOutput{Reports: report.ExecutionReports}, fmt.Errorf("delete superseded address ref %s %s: %w", old.Type, old.Version, err)
+		}
+	}
+	for _, ref := range additional.Add {
+		if err := ds.Addresses().Add(ref); err != nil {
+			return cldf.ChangesetOutput{Reports: report.ExecutionReports}, fmt.Errorf("add additional address ref %s %s: %w", ref.Type, ref.Qualifier, err)
 		}
 	}
 	for _, ref := range report.Output.Addresses {
@@ -158,6 +175,10 @@ func verifyBuildApply(e cldf.Environment, input VerifyBuildChangesetInput) (cldf
 	if err != nil {
 		return cldf.ChangesetOutput{}, fmt.Errorf("fetch existing addresses: %w", err)
 	}
+	refVersion, err := programRefVersion(input.ProgramType, input.Version, programsPath(e, input.ChainSelector))
+	if err != nil {
+		return cldf.ChangesetOutput{}, err
+	}
 	report, err := cldf_ops.ExecuteSequence(e.OperationsBundle, sequences.VerifyBuild, e.BlockChains, sequences.UpgradeGenericInput{
 		ChainSelector:      input.ChainSelector,
 		ExistingAddresses:  addresses,
@@ -166,6 +187,7 @@ func verifyBuildApply(e cldf.Environment, input VerifyBuildChangesetInput) (cldf
 		RemoteVerification: input.RemoteVerification,
 		Qualifier:          input.Qualifier,
 		Version:            input.Version,
+		RefVersion:         refVersion,
 	})
 	if err != nil {
 		return cldf.ChangesetOutput{}, fmt.Errorf("verify build for %s: %w", input.ProgramType, err)
@@ -180,144 +202,193 @@ func verifyBuildApply(e cldf.Environment, input VerifyBuildChangesetInput) (cldf
 		Build(input.MCMS)
 }
 
-// upgradedProgramRefForInput derives the target ref for an in-place upgrade or registers the
-// supplied public key for a first deployment. The ref is available to the sequence for address
-// resolution and returned after direct execution or successful MCMS proposal construction.
-func upgradedProgramRefForInput(refs []datastore.AddressRef, input UpgradeProgramChangesetInput) (datastore.AddressRef, bool, error) {
-	contractType, version, defaultQualifier, inPlace, supported := upgradeProgramRefDetails(input.ProgramType)
+// refChange is what an upgrade changes in the address book for the program's own ref.
+type refChange struct {
+	// add is the ref of the version being deployed; nil when it is already there.
+	add *datastore.AddressRef
+	// superseded are the same-major refs that add replaces. Refs of other majors are kept: a program
+	// upgraded in place from 1.x keeps its 1.x ref, which other integrations still resolve.
+	superseded []datastore.AddressRef
+}
+
+// upgradedProgramRefForInput plans the program's own ref for the version being deployed:
+//   - a ref of that version exists: no change, except that stale refs of the same major are removed.
+//   - a ref of the same major exists (2.0.0 when deploying 2.0.1): it is replaced, so only the new version remains.
+//   - one address across majors: the ref of the other major (1.6.0) stays and the target version is added at its address.
+//   - programPerVersion programs: refs of other majors are other programs and are left alone.
+//   - no ref: the program is registered at input.ProgramAddress.
+func upgradedProgramRefForInput(refs []datastore.AddressRef, input UpgradeProgramChangesetInput, version *semver.Version) (refChange, error) {
+	info, supported := sequences.ProgramRefInfoFor(input.ProgramType)
 	if !supported {
-		return datastore.AddressRef{}, false, nil
+		return refChange{}, nil
 	}
-	targetQualifier := defaultQualifier
+	contractType := info.ContractType
+	programPerVersion := info.ProgramPerVersion
+	targetQualifier := info.DefaultQualifier
 	if input.Qualifier != "" {
 		targetQualifier = input.Qualifier
 	}
 
-	var current *datastore.AddressRef
+	var (
+		current    *datastore.AddressRef
+		sameMajor  []datastore.AddressRef
+		otherMajor []datastore.AddressRef
+	)
 	for i := range refs {
 		ref := &refs[i]
-		if ref.ChainSelector == input.ChainSelector && ref.Type == contractType &&
-			ref.Qualifier == targetQualifier && ref.Version != nil && ref.Version.Equal(version) {
+		if ref.ChainSelector != input.ChainSelector || ref.Type != contractType ||
+			ref.Qualifier != targetQualifier || ref.Version == nil {
+			continue
+		}
+		switch {
+		case ref.Version.Equal(version):
 			current = ref
-			break
+		case ref.Version.Major() == version.Major():
+			sameMajor = append(sameMajor, *ref)
+		default:
+			otherMajor = append(otherMajor, *ref)
 		}
 	}
+
 	if current != nil {
 		if input.ProgramAddress != "" && current.Address != input.ProgramAddress {
-			return datastore.AddressRef{}, false, fmt.Errorf(
+			return refChange{}, fmt.Errorf(
 				"%s %s ref %s differs from requested programAddress %s",
 				contractType, version, current.Address, input.ProgramAddress)
 		}
-		if inPlace {
-			legacy, err := matchingLegacyProgramRefs(refs, input.ChainSelector, contractType, targetQualifier)
-			if err != nil {
-				return datastore.AddressRef{}, false, err
-			}
-			if len(legacy) == 1 && current.Address != legacy[0].Address {
-				return datastore.AddressRef{}, false, fmt.Errorf("%s %s ref %s differs from legacy ref %s",
-					contractType, version, current.Address, legacy[0].Address)
+		if !programPerVersion {
+			for _, other := range append(append([]datastore.AddressRef{}, sameMajor...), otherMajor...) {
+				if other.Address != current.Address {
+					return refChange{}, fmt.Errorf(
+						"%s %s ref %s differs from the %s ref %s of the same program",
+						contractType, version, current.Address, other.Version, other.Address)
+				}
 			}
 		}
-		return datastore.AddressRef{}, false, nil
+		return refChange{superseded: sameMajor}, nil
 	}
 
-	if inPlace {
-		legacy, err := matchingLegacyProgramRefs(refs, input.ChainSelector, contractType, targetQualifier)
-		if err != nil {
-			return datastore.AddressRef{}, false, err
+	if len(sameMajor) > 0 {
+		if len(sameMajor) > 1 {
+			return refChange{}, fmt.Errorf(
+				"multiple %s refs of major %d on chain %d for qualifier %q: cannot tell which one is deployed",
+				contractType, version.Major(), input.ChainSelector, targetQualifier)
 		}
-		if len(legacy) == 0 {
-			return datastore.AddressRef{}, false, fmt.Errorf(
-				"no legacy %s ref on chain %d for qualifier %q to upgrade in place",
-				contractType, input.ChainSelector, targetQualifier)
+		old := sameMajor[0]
+		if input.ProgramAddress != "" && old.Address != input.ProgramAddress {
+			return refChange{}, fmt.Errorf(
+				"%s %s ref %s differs from requested programAddress %s",
+				contractType, old.Version, old.Address, input.ProgramAddress)
 		}
-		if len(legacy) != 1 {
-			return datastore.AddressRef{}, false, fmt.Errorf(
-				"multiple legacy %s refs on chain %d for qualifier %q",
-				contractType, input.ChainSelector, targetQualifier)
+		return refChange{add: refAt(old, input.ChainSelector, contractType, targetQualifier, version), superseded: sameMajor}, nil
+	}
+
+	if !programPerVersion && len(otherMajor) > 0 {
+		source := otherMajor[0]
+		for _, other := range otherMajor[1:] {
+			if other.Address != source.Address {
+				return refChange{}, fmt.Errorf(
+					"multiple %s refs of other versions on chain %d for qualifier %q: cannot tell which one is deployed",
+					contractType, input.ChainSelector, targetQualifier)
+			}
+			if other.Version.GreaterThan(source.Version) {
+				source = other
+			}
 		}
-		return datastore.AddressRef{
-			Address:       legacy[0].Address,
-			ChainSelector: input.ChainSelector,
-			Labels:        legacy[0].Labels,
-			Qualifier:     targetQualifier,
-			Type:          contractType,
-			Version:       version,
-		}, true, nil
+		if input.ProgramAddress != "" && source.Address != input.ProgramAddress {
+			return refChange{}, fmt.Errorf(
+				"%s %s ref %s differs from requested programAddress %s",
+				contractType, source.Version, source.Address, input.ProgramAddress)
+		}
+		return refChange{add: refAt(source, input.ChainSelector, contractType, targetQualifier, version)}, nil
 	}
 
 	if input.ProgramAddress == "" {
-		// Existing-address upgrades still resolve from the datastore. A first deployment
-		// must provide its public address so it can be registered in the changeset output.
-		return datastore.AddressRef{}, false, nil
+		return refChange{}, fmt.Errorf(
+			"no %s %s ref on chain %d for qualifier %q: set programAddress to register the deployed program",
+			contractType, version, input.ChainSelector, targetQualifier)
 	}
 	programID, err := solana.PublicKeyFromBase58(input.ProgramAddress)
 	if err != nil {
-		return datastore.AddressRef{}, false, fmt.Errorf("invalid programAddress %q: %w", input.ProgramAddress, err)
+		return refChange{}, fmt.Errorf("invalid programAddress %q: %w", input.ProgramAddress, err)
 	}
-	return datastore.AddressRef{
+	return refChange{add: &datastore.AddressRef{
 		Address:       programID.String(),
 		ChainSelector: input.ChainSelector,
 		Type:          contractType,
 		Version:       version,
 		Qualifier:     targetQualifier,
-	}, true, nil
+	}}, nil
 }
 
-func matchingLegacyProgramRefs(
-	refs []datastore.AddressRef,
-	chainSelector uint64,
-	contractType datastore.ContractType,
-	qualifier string,
-) ([]datastore.AddressRef, error) {
-	var legacy []datastore.AddressRef
-	for _, ref := range refs {
-		if ref.ChainSelector == chainSelector && ref.Type == contractType &&
-			ref.Qualifier == qualifier && ref.Version != nil && ref.Version.Major() == 1 {
-			legacy = append(legacy, ref)
+// refAt is a ref of version at the address of from, keeping its labels.
+func refAt(from datastore.AddressRef, chainSelector uint64, contractType datastore.ContractType, qualifier string, version *semver.Version) *datastore.AddressRef {
+	return &datastore.AddressRef{
+		Address:       from.Address,
+		ChainSelector: chainSelector,
+		Labels:        from.Labels,
+		Qualifier:     qualifier,
+		Type:          contractType,
+		Version:       version,
+	}
+}
+
+// additionalRefsForUpgrade returns the refs saved besides the program's own. refs must hold the ref of
+// version, which is where the program address comes from.
+func additionalRefsForUpgrade(refs []datastore.AddressRef, input UpgradeProgramChangesetInput, version *semver.Version) sequences.AdditionalRefs {
+	info, supported := sequences.ProgramRefInfoFor(input.ProgramType)
+	if !supported {
+		return sequences.AdditionalRefs{}
+	}
+	instanceQualifier := info.DefaultQualifier
+	if input.Qualifier != "" {
+		instanceQualifier = input.Qualifier
+	}
+	var address string
+	for _, r := range refs {
+		if r.ChainSelector == input.ChainSelector && r.Type == info.ContractType &&
+			r.Qualifier == instanceQualifier && r.Version != nil && r.Version.Equal(version) {
+			address = r.Address
+			break
 		}
 	}
-	if len(legacy) > 1 {
-		return nil, fmt.Errorf("multiple legacy %s refs on chain %d for qualifier %q",
-			contractType, chainSelector, qualifier)
-	}
-	return legacy, nil
+	return sequences.UpgradeAdditionalRefs(input.ProgramType, refs, input.ChainSelector, version, address)
 }
 
-func upgradeProgramRefDetails(
-	programType sequences.ProgramUpgradeType,
-) (datastore.ContractType, *semver.Version, string, bool, bool) {
-	version := semver.MustParse("2.0.0")
-	switch programType {
-	case sequences.UpgradeTypeRouter:
-		return "Router", version, "", true, true
-	case sequences.UpgradeTypeFeeQuoter:
-		return "FeeQuoter", version, "", true, true
-	case sequences.UpgradeTypeRMNRemote:
-		return "RMNRemote", version, "", true, true
-	case sequences.UpgradeTypeBurnMintTokenPool:
-		return "BurnMintTokenPool", version, solcommon.PoolProgramQualifier, true, true
-	case sequences.UpgradeTypeLockReleaseTokenPool:
-		return "LockReleaseTokenPool", version, solcommon.PoolProgramQualifier, true, true
-	case sequences.UpgradeTypeCCTPTokenPool:
-		return "CCTPTokenPool", version, solcommon.PoolProgramQualifier, true, true
-	case sequences.UpgradeTypeLombardTokenPool:
-		return "LombardTokenPool", version, solcommon.PoolProgramQualifier, true, true
-	case sequences.UpgradeTypeOffRamp:
-		return "OffRamp", version, "", false, true
-	case sequences.UpgradeTypeExecutor:
-		return "Executor", version, "default", false, true
-	case sequences.UpgradeTypeCommitteeVerifier:
-		return "CommitteeVerifier", version, "default", false, true
-	case sequences.UpgradeTypeTestSenderLegacy:
-		return "TestSender", semver.MustParse("1.0.0"), "default", false, true
-	case sequences.UpgradeTypeTestSenderV2:
-		return "TestSender", version, "default", false, true
-	case sequences.UpgradeTypeTestReceiverLegacy:
-		return "TestReceiver", semver.MustParse("1.0.0"), "", false, true
-	case sequences.UpgradeTypeTestReceiverV2:
-		return "TestReceiver", version, "", false, true
-	default:
-		return "", nil, "", false, false
+// programsPath is where the chain's program artifacts sit, or "" when the chain is not a Solana chain.
+func programsPath(e cldf.Environment, chainSelector uint64) string {
+	if chain, ok := e.BlockChains.SolanaChains()[chainSelector]; ok {
+		return chain.ProgramsPath
 	}
+	return ""
+}
+
+// programRefVersion is the ref version after the upgrade: the release's version, or for a local build
+// the version its IDL declares (the registry default without an IDL).
+func programRefVersion(programType sequences.ProgramUpgradeType, pipelineVersion, programsPath string) (*semver.Version, error) {
+	info, supported := sequences.ProgramRefInfoFor(programType)
+	if !supported {
+		return nil, nil
+	}
+	release, local, err := solcommon.ResolveArtifactSource(pipelineVersion)
+	if err != nil {
+		return nil, err
+	}
+	if !local {
+		return solcommon.ReleaseVersion(release)
+	}
+	if programsPath != "" {
+		if artifact, inspectErr := solcommon.InspectArtifact(programsPath, info.ProgramName); inspectErr == nil && artifact.IDLPath != "" {
+			idlVersion, idlErr := solcommon.IDLVersion(artifact.IDLPath)
+			if idlErr != nil {
+				return nil, idlErr
+			}
+			if !solcommon.RefVersionMatches(idlVersion, info.Version) {
+				return nil, fmt.Errorf("refusing to upgrade %s: its IDL declares version %s, outside the %d.x line of this program",
+					programType, idlVersion, info.Version.Major())
+			}
+			return idlVersion, nil
+		}
+	}
+	return info.Version, nil
 }

@@ -15,11 +15,12 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/ccip_offramp"
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/rmn_remote"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/ccip_offramp"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/common"
 	"github.com/smartcontractkit/chainlink-ccip-solana/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccip-solana/pkg/logpoller"
@@ -398,6 +399,24 @@ func TestGetCCVSForMessage(t *testing.T) {
 		require.Error(t, gErr)
 		require.Contains(t, gErr.Error(), "does not match")
 	})
+}
+
+// TestSetExecutorMonitoring covers the optional chainaccess.ExecutorMonitoringSetter
+// capability: the reader is built with no-op monitoring and the executor attaches its
+// process-level monitoring before the coordinator starts.
+func TestSetExecutorMonitoring(t *testing.T) {
+	t.Parallel()
+
+	dr, err := NewDestinationReader(newDefaultParams(t))
+	require.NoError(t, err)
+	require.NotNil(t, dr.monitoring, "constructor must default to no-op monitoring")
+
+	replacement := monitoring.NewNoopExecutorMonitoring()
+	dr.SetExecutorMonitoring(replacement)
+	require.Same(t, replacement, dr.monitoring)
+
+	dr.SetExecutorMonitoring(nil)
+	require.Same(t, replacement, dr.monitoring, "nil must not clobber the attached monitoring")
 }
 
 // newAttemptFor wraps a protocol.Message + CCVData into an ExecutionAttempt

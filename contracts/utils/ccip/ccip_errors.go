@@ -367,6 +367,9 @@ const (
 	WrongBufferAuthority_CcipOfframpError
 	RedundantBuffer_CcipOfframpError
 	InvalidMessageSourceChainSelector_CcipOfframpError
+	ReceiverRegistryAccountMissing_CcipOfframpError
+	InvalidSourcePoolAddress_CcipOfframpError
+	InvalidLegacyAddressLength_CcipOfframpError
 )
 
 func (value CcipOfframpError) String() string {
@@ -487,6 +490,12 @@ func (value CcipOfframpError) String() string {
 		return "RedundantBuffer"
 	case InvalidMessageSourceChainSelector_CcipOfframpError:
 		return "InvalidMessageSourceChainSelector"
+	case ReceiverRegistryAccountMissing_CcipOfframpError:
+		return "ReceiverRegistryAccountMissing"
+	case InvalidSourcePoolAddress_CcipOfframpError:
+		return "InvalidSourcePoolAddress"
+	case InvalidLegacyAddressLength_CcipOfframpError:
+		return "InvalidLegacyAddressLength"
 	default:
 		return ""
 	}

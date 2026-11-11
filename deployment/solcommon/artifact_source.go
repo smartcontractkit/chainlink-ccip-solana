@@ -43,6 +43,16 @@ func ValidateReleaseTag(release string) error {
 	return nil
 }
 
+// ReleaseVersion returns the semantic version of a release resolved by ResolveArtifactSource
+// ("contracts/v2.0.1" gives 2.0.1).
+func ReleaseVersion(release string) (*semver.Version, error) {
+	version, err := semver.StrictNewVersion(strings.TrimPrefix(release, ContractsTagPrefix))
+	if err != nil {
+		return nil, fmt.Errorf("release %q is not a contracts release tag like %q: %w", release, ContractsTagPrefix+"2.0.0", err)
+	}
+	return version, nil
+}
+
 // ResolveArtifactSource uses an explicit pipeline version when supplied,
 // otherwise it reads ContractsReleaseEnvVar. A real network deploy or upgrade
 // must resolve to a pinned contracts release tag or the explicit local build

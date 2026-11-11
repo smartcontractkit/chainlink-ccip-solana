@@ -5,7 +5,7 @@ go 1.26.10
 replace (
 	github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlink-tron/relayer/gotron-sdk v0.0.4
 	github.com/smartcontractkit/chainlink-ccip-solana => ../
-	github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings => ../contracts/gobindings
+	github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2 => ../contracts/gobindings/v2
 	github.com/smartcontractkit/chainlink-ccip-solana/deployment => ../deployment
 )
 
@@ -13,11 +13,11 @@ require (
 	github.com/gagliardetto/binary v0.8.0
 	github.com/gagliardetto/solana-go v1.23.0
 	github.com/smartcontractkit/chainlink-ccip-solana v0.0.0-00010101000000-000000000000
-	github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings v0.0.0-00010101000000-000000000000
+	github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2 v2.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-ccip-solana/deployment v0.0.0-00010101000000-000000000000
-	github.com/smartcontractkit/chainlink-ccip/chains/solana v0.0.0-20261016104152-f8f0f105041f
-	github.com/smartcontractkit/chainlink-ccip/chains/solana/gobindings v0.0.0-20261016104152-f8f0f105041f
-	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20261016104152-f8f0f105041f
+	github.com/smartcontractkit/chainlink-ccip/chains/solana v0.0.0-20261105144145-1386a22b82fb
+	github.com/smartcontractkit/chainlink-ccip/chains/solana/gobindings v0.0.0-20261105144145-1386a22b82fb
+	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20261105144145-1386a22b82fb
 	github.com/smartcontractkit/chainlink-ccv v0.16.1-0.20261030192717-51125e91f2d0
 	github.com/smartcontractkit/chainlink-common v0.11.2-0.20260915214759-02f2214d5823
 	github.com/smartcontractkit/chainlink-common/keystore v1.3.1-0.20260903141829-ef07b52a737d

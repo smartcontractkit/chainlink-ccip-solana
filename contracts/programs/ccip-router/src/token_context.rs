@@ -259,9 +259,10 @@ pub struct UpgradeTokenAdminRegistry<'info> {
         seeds = [seed::TOKEN_ADMIN_REGISTRY, mint.key().as_ref()],
         bump,
         owner = crate::ID, // this checks it was initialized
-        // this checks that the size is consistent with the v1 version
+        // this checks that the size is consistent with one of the old (pre-latest) layouts
         constraint = token_admin_registry.data_len() == ccip_common::v1::V1_TOKEN_ADMIN_REGISTRY_SIZE
             || token_admin_registry.data_len() == ccip_common::v1::V2_TOKEN_ADMIN_REGISTRY_SIZE
+            || token_admin_registry.data_len() == ccip_common::v1::V3_TOKEN_ADMIN_REGISTRY_SIZE
             @ CcipRouterError::InvalidInputsTokenAdminRegistryAccounts
     )]
     pub token_admin_registry: UncheckedAccount<'info>, // unchecked, as the code will load it and realloc it
@@ -298,7 +299,6 @@ pub mod token_admin_registry_writable {
     mod tests {
         use super::*;
         use anchor_lang::solana_program::pubkey::Pubkey;
-        use ccip_common::router_accounts::ResolutionType;
 
         fn is(tar: &TokenAdminRegistry, index: u8) -> bool {
             match index < 128 {
@@ -316,7 +316,8 @@ pub mod token_admin_registry_writable {
                 lookup_table: Pubkey::default(),
                 writable_indexes: [0, 0],
                 mint: Pubkey::default(),
-                account_resolution: ResolutionType::NoResolution,
+                account_resolution_enabled: false,
+                skip_lookup_table_additional_entries: false,
                 interface_version: 0,
                 bump: 0,
             };
@@ -358,7 +359,8 @@ pub mod token_admin_registry_writable {
                     2u128.pow(127 - 8) + 2u128.pow(127 - 56) + 2u128.pow(127 - 100),
                 ],
                 mint: Pubkey::default(),
-                account_resolution: ResolutionType::NoResolution,
+                account_resolution_enabled: false,
+                skip_lookup_table_additional_entries: false,
                 interface_version: 0,
                 bump: 0,
             };

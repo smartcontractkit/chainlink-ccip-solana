@@ -16,8 +16,8 @@ import (
 	cldf_ops "github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	mcms_types "github.com/smartcontractkit/mcms/types"
 
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/ccip_common"
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/lombard_token_pool"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/ccip_router"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/lombard_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/state"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/tokens"
 	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/solcommon"
@@ -230,7 +230,7 @@ var DeployLombardChain = cldf_ops.NewSequence(
 			TokenMint:        token,
 			InterfaceVersion: 2,
 			// Lombard's own lock_or_burn_v2/release_or_mint_v2 CPI is bookkeeping-only
-			ImplementsAccountResolution: uint8(ccip_common.ResolutionType_WithoutExtendedLookupTable),
+			ImplementsAccountResolution: uint8(ccip_router.ResolutionType_WithoutExtendedLookupTable),
 		}, &batchOps); err != nil {
 			return seq_core.OnChainOutput{}, fmt.Errorf("set pool interface implementation: %w", err)
 		}

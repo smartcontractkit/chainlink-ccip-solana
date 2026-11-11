@@ -46,6 +46,11 @@ pub mod admin {
     }
 
     #[event]
+    pub struct SourceChainDeleted {
+        pub source_chain_selector: u64,
+    }
+
+    #[event]
     pub struct OwnershipTransferRequested {
         pub from: Pubkey,
         pub to: Pubkey,

@@ -222,9 +222,7 @@ func configureCCTPLaneForRemote(env *deployment.Environment, selector uint64, re
 		return fmt.Errorf("resolve USDC token on remote chain %d: %w", evmSelector, err)
 	}
 
-	solPoolRef, err := env.DataStore.Addresses().Get(datastore.NewAddressRefKey(
-		selector, datastore.ContractType(common_utils.CCTPTokenPool), solcommon.Version2_0_0, solcommon.PoolProgramQualifier,
-	))
+	solPoolRef, err := solcommon.FindCompatibleRef(env.DataStore, datastore.AddressRef{Type: datastore.ContractType(common_utils.CCTPTokenPool), Version: solcommon.Version2_0_0, Qualifier: solcommon.PoolProgramQualifier}, selector)
 	if err != nil {
 		return fmt.Errorf("resolve cctp token pool on chain %d: %w", selector, err)
 	}

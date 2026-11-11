@@ -140,6 +140,20 @@ func GetTokenMintAuthority(chain cldf_solana.Chain, tokenMint solana.PublicKey) 
 	return mintAuthority, nil
 }
 
+// GetTokenFreezeAuthority returns the freeze authority of a mint, which is zero once it is disabled.
+func GetTokenFreezeAuthority(chain cldf_solana.Chain, tokenMint solana.PublicKey) (solana.PublicKey, error) {
+	var mintData token.Mint
+	err := common.GetAccountDataBorshInto(context.Background(), chain.Client, tokenMint, cldf_solana.SolDefaultCommitment, &mintData)
+	if err != nil {
+		return solana.PublicKey{}, fmt.Errorf("failed to decode token mint %s: %w", tokenMint, err)
+	}
+	var freezeAuthority solana.PublicKey
+	if mintData.FreezeAuthority != nil {
+		freezeAuthority = *mintData.FreezeAuthority
+	}
+	return freezeAuthority, nil
+}
+
 func GetTokenDecimals(chain cldf_solana.Chain, tokenMint solana.PublicKey) (uint8, error) {
 	var mintData token.Mint
 	// Token accounts are not Anchor accounts, so we can use the regular CLDF helper here without worrying about the 8-byte discriminator.

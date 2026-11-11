@@ -18,7 +18,7 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	"github.com/smartcontractkit/mcms/types"
 
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/ccip_router"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/ccip_router"
 	cctputils "github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/cctp"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/common"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/state"
@@ -399,6 +399,23 @@ var UpdateReferenceAddresses = operations.NewOperation(
 	},
 )
 
+// OnrampLookupTable returns the zero key when the Router has no reference addresses account.
+func OnrampLookupTable(ctx context.Context, chain cldf_solana.Chain, router solana.PublicKey) (solana.PublicKey, error) {
+	referenceAddressesPDA, _, err := state.FindRouterReferenceAddressesPDA(router)
+	if err != nil {
+		return solana.PublicKey{}, fmt.Errorf("failed to derive router reference addresses PDA: %w", err)
+	}
+	var current ccip_router.ReferenceAddresses
+	err = common.GetAccountDataBorshIntoAnchor(ctx, chain.Client, referenceAddressesPDA, cldf_solana.SolDefaultCommitment, &current)
+	if errors.Is(err, rpc.ErrNotFound) {
+		return solana.PublicKey{}, nil
+	}
+	if err != nil {
+		return solana.PublicKey{}, fmt.Errorf("read router reference addresses: %w", err)
+	}
+	return current.OnrampLookupTable, nil
+}
+
 var TransferOwnership = operations.NewOperation(
 	"router:transfer-ownership",
 	Version,
@@ -480,7 +497,17 @@ var SetPool = operations.NewOperation(
 		if err == nil {
 			if !tokenAdminRegistryAccount.LookupTable.IsZero() {
 				b.Logger.Info("Token pool lookup table already set for this mint with the given admin:", tokenAdminRegistryAccount)
-				return sequences.OnChainOutput{}, nil
+				// Emitted so a datastore that lost the ref gets it back.
+				return sequences.OnChainOutput{
+					Addresses: []datastore.AddressRef{{
+						Address:       tokenAdminRegistryAccount.LookupTable.String(),
+						ChainSelector: chain.Selector,
+						Labels:        datastore.NewLabelSet(input.TokenPool.String(), input.TokenMint.String()),
+						Type:          datastore.ContractType(TokenPoolLookupTableType),
+						Version:       Version,
+						Qualifier:     input.TokenSymbol,
+					}},
+				}, nil
 			}
 			// If the admin is zero, it means we're performing a propose + accept + set sequence,
 			// so we should sign with the timelock (current authority)
@@ -654,7 +681,7 @@ var SetPoolInterfaceImplementation = operations.NewOperation(
 		}
 		if err == nil {
 			if tokenAdminRegistryAccount.InterfaceVersion == input.InterfaceVersion &&
-				tokenAdminRegistryAccount.AccountResolution == *resolutionType {
+				TokenAdminRegistryResolutionType(tokenAdminRegistryAccount) == *resolutionType {
 				b.Logger.Info("Pool interface implementation already set for this mint", "mint", input.TokenMint,
 					"interfaceVersion", input.InterfaceVersion, "implementsAccountResolution", input.ImplementsAccountResolution)
 				return sequences.OnChainOutput{}, nil

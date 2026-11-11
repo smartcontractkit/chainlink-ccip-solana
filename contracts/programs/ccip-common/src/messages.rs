@@ -655,9 +655,93 @@ impl NormalizeWsol for Pubkey {
     }
 }
 
+/// Returns `address` at exactly `address_bytes_length` bytes, or `err` if that is impossible.
+///
+/// An address already at that width passes through unchanged. A longer one is trimmed from the
+/// front, but only when every dropped byte is zero, so a padded address can never be normalized
+/// into a different one. A shorter one is rejected.
+///
+/// Used in both directions: the Router narrows outbound receiver and token addresses to the
+/// destination chain's width, and the OffRamp narrows inbound source pool addresses to the source
+/// chain's legacy width before handing them to pools.
+///
+/// `err` is taken as anything convertible into an Anchor error rather than through `require!`,
+/// because Anchor's error macros need the concrete `#[error_code]` enum of the calling program.
+pub fn normalized_address(
+    address: &[u8],
+    address_bytes_length: usize,
+    err: impl Into<anchor_lang::error::Error>,
+) -> Result<Vec<u8>> {
+    let Some(leading) = address.len().checked_sub(address_bytes_length) else {
+        return Err(err.into());
+    };
+    let (dropped, kept) = address.split_at(leading);
+    if dropped.iter().any(|&b| b != 0) {
+        return Err(err.into());
+    }
+    Ok(kept.to_vec())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const TEST_ERROR: crate::CommonCcipError = crate::CommonCcipError::InvalidInputsTokenAccounts;
+
+    #[test]
+    fn normalized_address_exact() {
+        let address = vec![1, 2, 3];
+        let result = normalized_address(&address, 3, TEST_ERROR).unwrap();
+        assert_eq!(result, address);
+    }
+
+    #[test]
+    fn normalized_address_exact_with_zeros() {
+        // At the expected width, leading zeros are part of the address and are kept.
+        let address = vec![0, 0, 1, 2, 3];
+        let result = normalized_address(&address, 5, TEST_ERROR).unwrap();
+        assert_eq!(result, address);
+    }
+
+    #[test]
+    fn normalized_address_too_short() {
+        let result = normalized_address(&[1, 2, 3], 5, TEST_ERROR);
+        assert_eq!(result, Err(TEST_ERROR.into()));
+    }
+
+    #[test]
+    fn normalized_address_extra_zeros() {
+        let result = normalized_address(&[0, 0, 1, 2, 3], 3, TEST_ERROR).unwrap();
+        assert_eq!(result, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn normalized_address_leading_non_zero() {
+        let result = normalized_address(&[7, 0, 1, 2, 3], 3, TEST_ERROR);
+        assert_eq!(result, Err(TEST_ERROR.into()));
+    }
+
+    #[test]
+    fn normalized_address_evm_padded_to_native_width() {
+        // The case the OffRamp handles for 1.6-configured pools: a 2.0 EVM onramp pads the 20-byte
+        // pool address to 32 bytes.
+        let native: Vec<u8> = (1..=20).collect();
+        let mut padded = vec![0u8; 12];
+        padded.extend_from_slice(&native);
+        assert_eq!(normalized_address(&padded, 20, TEST_ERROR).unwrap(), native);
+        assert_eq!(normalized_address(&native, 20, TEST_ERROR).unwrap(), native);
+
+        // A single non-zero byte anywhere in the padding is rejected.
+        for i in 0..12 {
+            let mut dirty = padded.clone();
+            dirty[i] = 1;
+            assert_eq!(
+                normalized_address(&dirty, 20, TEST_ERROR),
+                Err(TEST_ERROR.into()),
+                "non-zero padding byte at {i} must be rejected"
+            );
+        }
+    }
 
     fn mock() -> MessageV1 {
         let mut amount_bytes = [0u8; 32];

@@ -8,7 +8,7 @@ export type CcipCommon = {
   "address": "Ccip842gzYHhvdDkSyi2YVCoAWPbYJoApMFzSxQroE9C",
   "metadata": {
     "name": "ccipCommon",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "spec": "0.1.0"
   },
   "instructions": [
@@ -482,23 +482,6 @@ export type CcipCommon = {
       }
     },
     {
-      "name": "resolutionType",
-      "type": {
-        "kind": "enum",
-        "variants": [
-          {
-            "name": "noResolution"
-          },
-          {
-            "name": "standard"
-          },
-          {
-            "name": "withoutExtendedLookupTable"
-          }
-        ]
-      }
-    },
-    {
       "name": "resolveAccountsParams",
       "type": {
         "kind": "struct",
@@ -765,12 +748,8 @@ export type CcipCommon = {
             "type": "pubkey"
           },
           {
-            "name": "accountResolution",
-            "type": {
-              "defined": {
-                "name": "resolutionType"
-              }
-            }
+            "name": "accountResolutionEnabled",
+            "type": "bool"
           },
           {
             "name": "bump",
@@ -779,6 +758,10 @@ export type CcipCommon = {
           {
             "name": "interfaceVersion",
             "type": "u8"
+          },
+          {
+            "name": "skipLookupTableAdditionalEntries",
+            "type": "bool"
           }
         ]
       }

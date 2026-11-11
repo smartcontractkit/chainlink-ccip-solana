@@ -40,7 +40,7 @@ pub fn set_pool_interface_implementation(
     } = params;
 
     token_admin_registry.interface_version = interface_version;
-    token_admin_registry.account_resolution = account_resolution.clone();
+    token_admin_registry.set_account_resolution(&account_resolution);
     token_admin_registry.bump = ctx.bumps.token_admin_registry; // update the bump in case it was not set before
 
     emit_cpi!(PoolInterfaceImplementationUpdated {
@@ -67,7 +67,7 @@ pub struct EditPoolTokenAdminRegistryV3<'info> {
         mut,
         seeds = [seed::TOKEN_ADMIN_REGISTRY, params.mint.as_ref()],
         bump,
-        constraint = token_admin_registry.version == 3 @ CcipRouterError::InvalidVersion,
+        constraint = token_admin_registry.version == TokenAdminRegistry::LATEST_VERSION @ CcipRouterError::InvalidVersion,
     )]
     pub token_admin_registry: Account<'info, TokenAdminRegistry>,
 

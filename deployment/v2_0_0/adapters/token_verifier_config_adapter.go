@@ -3,7 +3,6 @@ package adapters
 import (
 	"fmt"
 
-	dsutil "github.com/smartcontractkit/chainlink-ccip/deployment/utils/datastore"
 	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 
@@ -23,7 +22,7 @@ func (a *SolanaTokenVerifierConfigAdapter) ResolveTokenVerifierAddresses(
 	cctpQualifier string,
 	lombardQualifier string,
 ) (*ccvadapters.TokenVerifierChainAddresses, error) {
-	onRampAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
+	onRampAddr, err := solcommon.FindAndFormatCompatibleRef(ds, datastore.AddressRef{
 		Type:    datastore.ContractType(router.ContractType),
 		Version: router.Version,
 	}, chainSelector, solcommon.RefTo0xHex)
@@ -31,7 +30,7 @@ func (a *SolanaTokenVerifierConfigAdapter) ResolveTokenVerifierAddresses(
 		return nil, fmt.Errorf("on ramp address for chain %d: %w", chainSelector, err)
 	}
 
-	rmnRemoteAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
+	rmnRemoteAddr, err := solcommon.FindAndFormatCompatibleRef(ds, datastore.AddressRef{
 		Type:    rmnRemoteContractType,
 		Version: rmnRemoteSemver,
 	}, chainSelector, solcommon.RefTo0xHex)
@@ -70,7 +69,7 @@ func (a *SolanaTokenVerifierConfigAdapter) ResolveTokenVerifierAddresses(
 	// that field against CCTPVerifierAddress. Solana has no separate resolver contract, so account
 	// resolution still uses the cctp_token_pool program itself. The qualifier mirrors the production
 	// convention (qualifier equals the contract type) and is a pass-through, matching the EVM adapter.
-	if cctpAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
+	if cctpAddr, err := solcommon.FindAndFormatCompatibleRef(ds, datastore.AddressRef{
 		Type:      datastore.ContractType(cctpverifierops.ContractType),
 		Version:   cctpverifierops.Version,
 		Qualifier: cctpQualifier,

@@ -19,11 +19,11 @@ import (
 )
 
 type ApproveTestReceiverSenderInput struct {
-	ChainSelector         uint64
-	ExistingAddresses     []datastore.AddressRef
-	ReceiverQualifier     string
-	SourceChainSelector   uint64
-	ApprovedRemoteSenders []string
+	ChainSelector       uint64
+	ExistingAddresses   []datastore.AddressRef
+	ReceiverQualifier   string
+	SourceChainSelector uint64
+	Approvals           []SenderApproval
 	// ReceiverVersion selects which receiver to target. Both register as TestReceiver and are told
 	// apart by version, so this picks the ref to resolve and the interface to call. Nil means the
 	// current version.
@@ -44,11 +44,55 @@ func ResolveTestReceiver(refs []datastore.AddressRef, chainSelector uint64, qual
 	))
 }
 
+// SenderApproval is one approved-sender PDA to create for a remote sender.
+type SenderApproval struct {
+	Sender   string
+	Unpadded bool
+	PDA      solana.PublicKey
+}
+
+// SenderApprovals lists the distinct approved-sender PDAs a receiver needs for a remote sender: the
+// 32-byte padded one, plus the unpadded one on a legacy (v1) receiver, which gets raw senders from
+// 1.6 lanes. A sender that is already 32 bytes yields a single approval.
+func SenderApprovals(receiver solana.PublicKey, sourceChainSelector uint64, sender string, receiverVersion *semver.Version) ([]SenderApproval, error) {
+	legacy, err := testreceiverops.IsLegacy(receiverVersion)
+	if err != nil {
+		return nil, err
+	}
+	encodings := []bool{false}
+	if legacy {
+		encodings = append(encodings, true)
+	}
+	var approvals []SenderApproval
+	seen := map[solana.PublicKey]bool{}
+	for _, unpadded := range encodings {
+		pda, err := ApprovedSenderPDAWithPadding(receiver, sourceChainSelector, sender, receiverVersion, unpadded)
+		if err != nil {
+			return nil, err
+		}
+		if seen[pda] {
+			continue
+		}
+		seen[pda] = true
+		approvals = append(approvals, SenderApproval{Sender: sender, Unpadded: unpadded, PDA: pda})
+	}
+	return approvals, nil
+}
+
 // ApprovedSenderPDA derives the approved-sender PDA for a remote sender, decoding the sender with
 // the same padding the receiver stores it under. Exposed so callers can check whether an approval
 // already exists before attempting one.
 func ApprovedSenderPDA(receiver solana.PublicKey, sourceChainSelector uint64, sender string, receiverVersion *semver.Version) (solana.PublicKey, error) {
-	remoteSender, err := solcommon.DecodeRemoteSender(sender)
+	return ApprovedSenderPDAWithPadding(receiver, sourceChainSelector, sender, receiverVersion, false)
+}
+
+// ApprovedSenderPDAWithPadding is ApprovedSenderPDA, keeping the sender unpadded when unpadded is true.
+func ApprovedSenderPDAWithPadding(receiver solana.PublicKey, sourceChainSelector uint64, sender string, receiverVersion *semver.Version, unpadded bool) (solana.PublicKey, error) {
+	decode := solcommon.DecodeRemoteSender
+	if unpadded {
+		decode = solcommon.DecodeRemoteSenderUnpadded
+	}
+	remoteSender, err := decode(sender)
 	if err != nil {
 		return solana.PublicKey{}, err
 	}
@@ -76,8 +120,8 @@ var ApproveTestReceiverSender = cldf_ops.NewSequence(
 		if input.ReceiverQualifier == "" {
 			return seq_core.OnChainOutput{}, errors.New("receiver qualifier is required")
 		}
-		if len(input.ApprovedRemoteSenders) == 0 {
-			return seq_core.OnChainOutput{}, errors.New("at least one approved remote sender is required")
+		if len(input.Approvals) == 0 {
+			return seq_core.OnChainOutput{}, errors.New("at least one sender approval is required")
 		}
 
 		receiver, err := ResolveTestReceiver(input.ExistingAddresses, input.ChainSelector, input.ReceiverQualifier, input.ReceiverVersion)
@@ -86,15 +130,16 @@ var ApproveTestReceiverSender = cldf_ops.NewSequence(
 		}
 
 		var batchOps []mcmstypes.BatchOperation
-		for _, sender := range input.ApprovedRemoteSenders {
+		for _, approval := range input.Approvals {
 			report, opErr := cldf_ops.ExecuteOperation(b, testreceiverops.ApproveSender, solChain, testreceiverops.ApproveSenderParams{
 				Receiver:            receiver,
 				SourceChainSelector: input.SourceChainSelector,
-				RemoteSender:        sender,
+				RemoteSender:        approval.Sender,
+				Unpadded:            approval.Unpadded,
 				ReceiverVersion:     input.ReceiverVersion,
 			})
 			if opErr != nil {
-				return seq_core.OnChainOutput{}, fmt.Errorf("approve remote sender %q: %w", sender, opErr)
+				return seq_core.OnChainOutput{}, fmt.Errorf("approve remote sender %q: %w", approval.Sender, opErr)
 			}
 			batchOps = append(batchOps, report.Output.BatchOps...)
 		}

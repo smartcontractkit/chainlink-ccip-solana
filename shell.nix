@@ -15,8 +15,6 @@ pkgs.mkShell {
     delve
     golangci-lint
     gotools
-
-    nodejs_24
   ];
 
   RUST_BACKTRACE = "1";

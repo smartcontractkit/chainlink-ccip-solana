@@ -8,7 +8,7 @@ export type CommitteeVerifier = {
   "address": "CV2s8jsYhx9th8pyZ4pN7apLELAB42e5j4XqWhqTdWCm",
   "metadata": {
     "name": "committeeVerifier",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "spec": "0.1.0",
     "description": "CCIP Committee Verifier - Cross-Chain Verifier for CCIP 2.0"
   },

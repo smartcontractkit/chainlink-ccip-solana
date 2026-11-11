@@ -10,6 +10,7 @@ use solana_address_lookup_table_interface::state::AddressLookupTable;
 use crate::messages::SVMTokenReceiverUsage;
 use crate::router_accounts::{
     OldTokenAdminRegistry, TokenAdminRegistry, TokenAdminRegistryV1, TokenAdminRegistryV2,
+    TokenAdminRegistryV3,
 };
 use crate::seed;
 use crate::CommonCcipError;
@@ -18,9 +19,11 @@ pub const MIN_TOKEN_POOL_ACCOUNTS: usize = 13; // see TokenAccounts struct for a
 const U160_MAX: U256 = U256::from_words(u32::MAX as u128, u128::MAX);
 
 pub const V1_TOKEN_ADMIN_REGISTRY_SIZE: usize =
-    TokenAdminRegistry::DISCRIMINATOR.len() + TokenAdminRegistryV1::INIT_SPACE; // for migration v1->v3 of the TokenAdminRegistry
+    TokenAdminRegistry::DISCRIMINATOR.len() + TokenAdminRegistryV1::INIT_SPACE; // for migration v1->v4 of the TokenAdminRegistry
 pub const V2_TOKEN_ADMIN_REGISTRY_SIZE: usize =
-    TokenAdminRegistry::DISCRIMINATOR.len() + TokenAdminRegistryV2::INIT_SPACE; // for migration v2->v3 of the TokenAdminRegistry
+    TokenAdminRegistry::DISCRIMINATOR.len() + TokenAdminRegistryV2::INIT_SPACE; // for migration v2->v4 of the TokenAdminRegistry
+pub const V3_TOKEN_ADMIN_REGISTRY_SIZE: usize =
+    TokenAdminRegistry::DISCRIMINATOR.len() + TokenAdminRegistryV3::INIT_SPACE; // for migration v3->v4 of the TokenAdminRegistry
 
 /// 32-byte big-endian uint256 representation of 11 (0x0b)
 pub const APTOS_PRECOMPILE_SPACE: [u8; 32] = [
@@ -288,7 +291,10 @@ impl<'a> CcipV1OfframpOnrampCommonTokenAccounts<'a> {
                 let mut remaining_keys: Vec<Pubkey> =
                     remaining_accounts.iter().map(|x| x.key()).collect();
                 expected_keys.append(&mut remaining_keys);
-                if token_admin_registry_account.account_resolution.is_enabled() {
+                if token_admin_registry_account
+                    .account_resolution()
+                    .is_enabled()
+                {
                     // When auto-derivation is supported, there may be more accounts than what the lookup table contains.
                     // On those extra accounts, given that the token pool supports derivation, we also trust that the pool
                     // performs the required checks.
@@ -320,26 +326,28 @@ impl<'a> CcipV1OfframpOnrampCommonTokenAccounts<'a> {
                 let mut expected_is_writable: Vec<bool> =
                     self.required_entries().map(|x| x.is_writable).collect();
 
-                let mut remaining_is_writable: Vec<bool> =
-                    if token_admin_registry_account.account_resolution.is_enabled() {
-                        // when auto-derivation is supported, we only validate the accounts present in the LUT
-                        // as the pool is expected to validate the rest of the accounts. The LUT must contain
-                        // the required entries, plus it may contain some additional ones that are static,
-                        // and finally the auto-derivation may add more accounts at the end (static or message-dependant).
-                        let lut_len = lookup_table_account.addresses.len();
-                        let end = lut_len
-                            .checked_sub(self.required_entries().count())
-                            .ok_or(CommonCcipError::InvalidInputsLookupTableAccounts)?;
+                let mut remaining_is_writable: Vec<bool> = if token_admin_registry_account
+                    .account_resolution()
+                    .is_enabled()
+                {
+                    // when auto-derivation is supported, we only validate the accounts present in the LUT
+                    // as the pool is expected to validate the rest of the accounts. The LUT must contain
+                    // the required entries, plus it may contain some additional ones that are static,
+                    // and finally the auto-derivation may add more accounts at the end (static or message-dependant).
+                    let lut_len = lookup_table_account.addresses.len();
+                    let end = lut_len
+                        .checked_sub(self.required_entries().count())
+                        .ok_or(CommonCcipError::InvalidInputsLookupTableAccounts)?;
 
-                        remaining_accounts[..end]
-                            .iter()
-                            .map(|x| x.is_writable)
-                            .collect()
-                    } else {
-                        // when auto-derivation is not supported, we validate all remaining accounts
-                        // as they are all expected to be in the LUT
-                        remaining_accounts.iter().map(|x| x.is_writable).collect()
-                    };
+                    remaining_accounts[..end]
+                        .iter()
+                        .map(|x| x.is_writable)
+                        .collect()
+                } else {
+                    // when auto-derivation is not supported, we validate all remaining accounts
+                    // as they are all expected to be in the LUT
+                    remaining_accounts.iter().map(|x| x.is_writable).collect()
+                };
 
                 expected_is_writable.append(&mut remaining_is_writable);
                 for (i, is_writable) in expected_is_writable.iter().enumerate() {
@@ -382,6 +390,9 @@ pub fn load_token_admin_registry_checked(
         }
         V2_TOKEN_ADMIN_REGISTRY_SIZE => {
             load_old_token_admin_registry::<TokenAdminRegistryV2>(token_admin_registry)?
+        }
+        V3_TOKEN_ADMIN_REGISTRY_SIZE => {
+            load_old_token_admin_registry::<TokenAdminRegistryV3>(token_admin_registry)?
         }
         _ => load_current_token_admin_registry(token_admin_registry)?,
     })
@@ -473,7 +484,6 @@ pub mod token_admin_registry_writable {
     #[cfg(test)]
     mod tests {
         use super::*;
-        use crate::router_accounts::ResolutionType;
         use anchor_lang::solana_program::pubkey::Pubkey;
 
         #[test]
@@ -485,7 +495,8 @@ pub mod token_admin_registry_writable {
                 lookup_table: Pubkey::default(),
                 writable_indexes: [0, 0],
                 mint: Pubkey::default(),
-                account_resolution: ResolutionType::NoResolution,
+                account_resolution_enabled: false,
+                skip_lookup_table_additional_entries: false,
                 interface_version: 0,
                 bump: 0,
             };
@@ -527,7 +538,8 @@ pub mod token_admin_registry_writable {
                     2u128.pow(127 - 8) + 2u128.pow(127 - 56) + 2u128.pow(127 - 100),
                 ],
                 mint: Pubkey::default(),
-                account_resolution: ResolutionType::NoResolution,
+                account_resolution_enabled: false,
+                skip_lookup_table_additional_entries: false,
                 interface_version: 0,
                 bump: 0,
             };
@@ -919,7 +931,7 @@ mod tests {
     use super::*;
 
     mod loading_token_admin_registry {
-        use crate::router_accounts;
+        use crate::router_accounts::ResolutionType;
 
         use super::*;
 
@@ -931,18 +943,32 @@ mod tests {
                 lookup_table: Pubkey::new_unique(),
                 writable_indexes: [1, 2],
                 mint: Pubkey::new_unique(),
-                account_resolution: if version == 1 {
-                    TokenAdminRegistry::DEFAULT_ACCOUNT_RESOLUTION
+                // non-default value from v2 on, to make sure it's properly loaded from v2/v3 data
+                account_resolution_enabled: version != 1,
+                // v3 is the first layout storing these, so use non-defaults to make sure they're carried over
+                interface_version: if version == 3 {
+                    2
                 } else {
-                    router_accounts::ResolutionType::Standard // non-default value here to make sure it's properly loaded from v2 data
+                    TokenAdminRegistry::DEFAULT_INTERFACE_VERSION
                 },
-                interface_version: TokenAdminRegistry::DEFAULT_INTERFACE_VERSION,
-                bump: TokenAdminRegistry::DEFAULT_EMPTY_BUMP,
+                bump: if version == 3 {
+                    254
+                } else {
+                    TokenAdminRegistry::DEFAULT_EMPTY_BUMP
+                },
+                skip_lookup_table_additional_entries:
+                    TokenAdminRegistry::DEFAULT_SKIP_LOOKUP_TABLE_ADDITIONAL_ENTRIES,
             }
         }
 
-        fn to_v2_bytes(t: &TokenAdminRegistry) -> Vec<u8> {
+        fn to_v3_bytes(t: &TokenAdminRegistry) -> Vec<u8> {
             let mut bytes = borsh::to_vec(&t).unwrap();
+            bytes.pop(); // remove the `skip_lookup_table_additional_entries` field, as this is not part of the v3 data
+            bytes
+        }
+
+        fn to_v2_bytes(t: &TokenAdminRegistry) -> Vec<u8> {
+            let mut bytes = to_v3_bytes(t);
             bytes.pop(); // remove the `interface_version` field, as this is not part of the v2 data
             bytes.pop(); // remove the `bump` field, as this is not part of the v2 data
             bytes
@@ -977,6 +1003,11 @@ mod tests {
             to_bytes: to_v2_bytes,
             size: V2_TOKEN_ADMIN_REGISTRY_SIZE,
         };
+        const V3: TestVersionParams = TestVersionParams {
+            version: 3,
+            to_bytes: to_v3_bytes,
+            size: V3_TOKEN_ADMIN_REGISTRY_SIZE,
+        };
 
         fn check_valid_load<T>(params: TestVersionParams)
         where
@@ -1007,6 +1038,115 @@ mod tests {
         }
 
         #[test]
+        fn test_valid_load_v3() {
+            check_valid_load::<TokenAdminRegistryV3>(V3);
+        }
+
+        /// A v3 registry may still hold `WithoutExtendedLookupTable` (2) in the resolution byte. It
+        /// must load as that mode (split across the two v4 fields) rather than fail, so the account
+        /// stays usable on 2.0 lanes and can still be migrated to v4.
+        #[test]
+        fn test_v3_without_extended_lookup_table_loads() {
+            let mut data = vec![0u8; V3_TOKEN_ADMIN_REGISTRY_SIZE];
+            data[0..8].copy_from_slice(TokenAdminRegistry::DISCRIMINATOR);
+            data[8..].copy_from_slice(to_v3_bytes(&get_expected(3)).as_slice());
+            // the resolution byte sits right before `bump` and `interface_version`
+            let resolution_offset = V3_TOKEN_ADMIN_REGISTRY_SIZE - 3;
+            assert_eq!(data[resolution_offset], 1);
+            data[resolution_offset] = 2;
+
+            let (mut lamports, key) = (0u64, Pubkey::new_unique());
+            let account_info = to_acc_info(&key, &mut lamports, &mut data);
+            let result =
+                load_old_token_admin_registry::<TokenAdminRegistryV3>(&account_info).unwrap();
+            assert_eq!(
+                result.account_resolution(),
+                ResolutionType::WithoutExtendedLookupTable
+            );
+            assert!(result.account_resolution_enabled);
+            assert!(result.skip_lookup_table_additional_entries);
+        }
+
+        #[test]
+        fn test_account_resolution_round_trip() {
+            for resolution in [
+                ResolutionType::NoResolution,
+                ResolutionType::Standard,
+                ResolutionType::WithoutExtendedLookupTable,
+            ] {
+                let mut registry = get_expected(TokenAdminRegistry::LATEST_VERSION);
+                registry.set_account_resolution(&resolution);
+                assert_eq!(registry.account_resolution(), resolution);
+            }
+        }
+
+        /// Frozen copy of `router_accounts::TokenAdminRegistry` as of chainlink-ccip v1.6
+        /// (1f9fb0b2). It keeps its original name so `#[account]` derives the same discriminator,
+        /// and the crate ID is the Router's, as in 1.6, so the owner check matches too. Left out of
+        /// IDL builds so it cannot collide with the live account type.
+        #[cfg(not(feature = "idl-build"))]
+        mod frozen_1_6 {
+            use anchor_lang::prelude::*;
+
+            #[account]
+            pub struct TokenAdminRegistry {
+                pub version: u8,
+                pub administrator: Pubkey,
+                pub pending_administrator: Pubkey,
+                pub lookup_table: Pubkey,
+                pub writable_indexes: [u128; 2],
+                pub mint: Pubkey,
+                pub supports_auto_derivation: bool,
+            }
+        }
+
+        /// The 1.6 offramp is not upgraded and keeps loading every registry it executes against
+        /// with its own (v2) layout: a `bool` at the position of `account_resolution_enabled`,
+        /// with any trailing bytes ignored. Every registry the current code can write must stay
+        /// loadable that way, or 1.6 execution (including manual execution) breaks for the token.
+        ///
+        /// This goes through the same path as the 1.6 `load_token_admin_registry_checked`: any
+        /// account that is not exactly the v1 size is loaded with `Account::try_from`, which checks
+        /// the owner and the discriminator before decoding. 1.6 was built on Anchor 0.29, whose
+        /// `#[account]` codegen performs the same three checks as the version used here.
+        #[cfg(not(feature = "idl-build"))]
+        #[test]
+        fn test_latest_layout_is_loadable_by_1_6_offramp() {
+            assert_eq!(
+                frozen_1_6::TokenAdminRegistry::DISCRIMINATOR,
+                TokenAdminRegistry::DISCRIMINATOR
+            );
+
+            for resolution in [
+                ResolutionType::NoResolution,
+                ResolutionType::Standard,
+                ResolutionType::WithoutExtendedLookupTable,
+            ] {
+                let mut registry = get_expected(TokenAdminRegistry::LATEST_VERSION);
+                registry.interface_version = 2;
+                registry.bump = 254;
+                registry.set_account_resolution(&resolution);
+                let mut data = TokenAdminRegistry::DISCRIMINATOR.to_vec();
+                data.extend_from_slice(&borsh::to_vec(&registry).unwrap());
+                // 1.6 only takes its hand-rolled v1 path for accounts of exactly the v1 size.
+                assert_ne!(data.len(), V1_TOKEN_ADMIN_REGISTRY_SIZE);
+
+                let (mut lamports, key) = (1u64, Pubkey::new_unique());
+                let account_info = to_acc_info(&key, &mut lamports, &mut data);
+                let legacy = Account::<frozen_1_6::TokenAdminRegistry>::try_from(&account_info)
+                    .unwrap_or_else(|e| panic!("1.6 cannot load {resolution:?}: {e}"))
+                    .into_inner();
+                assert_eq!(legacy.supports_auto_derivation, resolution.is_enabled());
+                assert_eq!(legacy.version, registry.version);
+                assert_eq!(legacy.administrator, registry.administrator);
+                assert_eq!(legacy.pending_administrator, registry.pending_administrator);
+                assert_eq!(legacy.lookup_table, registry.lookup_table);
+                assert_eq!(legacy.writable_indexes, registry.writable_indexes);
+                assert_eq!(legacy.mint, registry.mint);
+            }
+        }
+
+        #[test]
         fn test_invalid_discriminator() {
             let source = get_expected(1);
             let bytes = to_v1_bytes(&source);
@@ -1028,10 +1168,9 @@ mod tests {
             T: OldTokenAdminRegistry,
             TokenAdminRegistry: From<T>,
         {
-            for v in [0, 3, 255] {
+            for v in [0, 3, 4, 255].into_iter().filter(|v| *v != params.version) {
                 let source = get_expected(v);
 
-                // load from v1
                 let bytes = (params.to_bytes)(&source);
 
                 let mut data = vec![0u8; params.size];
@@ -1054,6 +1193,11 @@ mod tests {
         #[test]
         fn test_invalid_version_v2() {
             check_invalid_version_load::<TokenAdminRegistryV2>(V2);
+        }
+
+        #[test]
+        fn test_invalid_version_v3() {
+            check_invalid_version_load::<TokenAdminRegistryV3>(V3);
         }
 
         /// An account whose length matches one schema version but whose persisted version byte
@@ -1092,6 +1236,11 @@ mod tests {
         #[test]
         fn test_mismatched_version_v2_layout_claiming_v1() {
             check_mismatched_version_load::<TokenAdminRegistryV2>(V2, 1);
+        }
+
+        #[test]
+        fn test_mismatched_version_v3_layout_claiming_v4() {
+            check_mismatched_version_load::<TokenAdminRegistryV3>(V3, 4);
         }
 
         #[test]
@@ -1143,6 +1292,7 @@ mod tests {
             // Otherwise the loader would take one of the legacy migration paths instead.
             assert_ne!(data.len(), V1_TOKEN_ADMIN_REGISTRY_SIZE);
             assert_ne!(data.len(), V2_TOKEN_ADMIN_REGISTRY_SIZE);
+            assert_ne!(data.len(), V3_TOKEN_ADMIN_REGISTRY_SIZE);
             data
         }
 

@@ -8,17 +8,19 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/txm"
 
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/ccip_offramp"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/ccip_offramp"
 	solcommon "github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/common"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/state"
 	"github.com/smartcontractkit/chainlink-ccip-solana/pkg/commonreader"
@@ -29,8 +31,9 @@ import (
 const solanaDestinationReaderServiceName = "solana.destinationreader.Service"
 
 var (
-	_ chainaccess.DestinationReader = (*DestinationReader)(nil)
-	_ services.Service              = (*DestinationReader)(nil)
+	_ chainaccess.DestinationReader        = (*DestinationReader)(nil)
+	_ chainaccess.ExecutorMonitoringSetter = (*DestinationReader)(nil)
+	_ services.Service                     = (*DestinationReader)(nil)
 )
 
 // RPCClient is the Solana JSON-RPC subset this package reads through. It covers the
@@ -75,6 +78,7 @@ type DestinationReader struct {
 	rpc                    RPCClient
 	logPoller              logpoller.Service
 	executionAttemptPoller *ExecutionAttemptPoller
+	monitoring             monitoring.Monitoring
 
 	// simFeePayerMu guards simFeePayer, which is set after construction once the
 	// executor keystore is wired (see SetSimulationFeePayer).
@@ -130,6 +134,7 @@ func NewDestinationReader(params Params) (*DestinationReader, error) {
 		rpc:                    params.RPC,
 		logPoller:              params.LogPoller,
 		executionAttemptPoller: poller,
+		monitoring:             monitoring.NewNoopExecutorMonitoring(),
 	}, nil
 }
 
@@ -191,6 +196,16 @@ func (d *DestinationReader) SetSimulationFeePayer(payer solana.PublicKey) {
 	d.simFeePayerMu.Lock()
 	defer d.simFeePayerMu.Unlock()
 	d.simFeePayer = payer
+}
+
+// SetExecutorMonitoring implements chainaccess.ExecutorMonitoringSetter. The accessor
+// builds the reader with no-op monitoring because the executor's process-level monitoring
+// does not exist yet; the executor swaps in the real one here before the coordinator starts.
+func (d *DestinationReader) SetExecutorMonitoring(m monitoring.Monitoring) {
+	if m == nil {
+		return
+	}
+	d.monitoring = m
 }
 
 // GetRMNCursedSubjects queries the destination chain's RMN Remote contract for cursed subjects.
@@ -271,6 +286,7 @@ func (d *DestinationReader) GetCCVSForMessage(ctx context.Context, message proto
 		return protocol.CCVAddressInfo{}, fmt.Errorf("compute message ID: %w", err)
 	}
 
+	start := time.Now()
 	resp, err := getCCVsForMessage(
 		ctx,
 		d.lggr,
@@ -280,7 +296,7 @@ func (d *DestinationReader) GetCCVSForMessage(ctx context.Context, message proto
 		feePayer,
 	)
 	if err != nil {
-		// TODO: add metrics chainlink-ccv/integration/pkg/destinationreader/evm_destination_reader.go#L169
+		d.monitoring.Metrics().IncrementOfframpGetCCVsForMessageFailure(ctx, d.chainSelector)
 		d.lggr.Warnw("GetCCVSForMessage: failed to resolve onchain CCV quorum",
 			"messageID", msgID,
 			"sourceChain", message.SourceChainSelector,
@@ -291,6 +307,8 @@ func (d *DestinationReader) GetCCVSForMessage(ctx context.Context, message proto
 		)
 		return protocol.CCVAddressInfo{}, fmt.Errorf("get CCVs for message: %w", err)
 	}
+	// record only successful calls for clean distribution
+	d.monitoring.Metrics().RecordOfframpGetCCVsForMessageLatency(ctx, time.Since(start), d.chainSelector)
 
 	ccvInfo := protocol.CCVAddressInfo{
 		RequiredCCVs:      pubkeysToUnknownAddresses(resp.RequiredCcvs),

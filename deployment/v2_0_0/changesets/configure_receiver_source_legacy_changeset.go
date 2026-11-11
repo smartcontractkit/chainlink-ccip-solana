@@ -13,7 +13,8 @@ import (
 )
 
 // ConfigureLegacyTestReceiverSourceChangesetInput's MCMS builds the proposal when the timelock owns
-// the receiver.
+// the receiver. Each sender is approved in both the 32-byte padded and the raw 20-byte format, and
+// approvals that already exist are skipped, so re-running it only creates what is missing.
 type ConfigureLegacyTestReceiverSourceChangesetInput struct {
 	ChainSelector         uint64     `json:"chainSelector"`
 	ReceiverQualifier     string     `json:"receiverQualifier"`
@@ -35,7 +36,7 @@ func configureLegacySourceVerify(env cldf.Environment, input ConfigureLegacyTest
 	if err := validateMCMSInput(env.Logger, input.MCMS); err != nil {
 		return err
 	}
-	solChain, addresses, err := fetchSolanaChain(env, input.ChainSelector, testreceiverops.LegacyVersion, input.ReceiverQualifier)
+	_, addresses, err := fetchSolanaChain(env, input.ChainSelector, testreceiverops.LegacyVersion, input.ReceiverQualifier)
 	if err != nil {
 		return err
 	}
@@ -44,16 +45,12 @@ func configureLegacySourceVerify(env cldf.Environment, input ConfigureLegacyTest
 	if err != nil {
 		return fmt.Errorf("resolve v1 receiver (%q): %w", input.ReceiverQualifier, err)
 	}
-	for _, sender := range input.ApprovedRemoteSenders {
-		pda, pdaErr := sequences.ApprovedSenderPDA(receiverV1, input.SourceChainSelector, sender, testreceiverops.LegacyVersion)
-		if pdaErr != nil {
-			return fmt.Errorf("derive approved sender PDA for %q: %w", sender, pdaErr)
-		}
-		if err := assertPDAAbsent(env, solChain, pda, fmt.Sprintf("approved sender %s on receiver %s", sender, receiverV1)); err != nil {
-			return err
-		}
-	}
-	return nil
+	return senderApprovals{
+		Receiver:            receiverV1,
+		SourceChainSelector: input.SourceChainSelector,
+		Senders:             input.ApprovedRemoteSenders,
+		ReceiverVersion:     testreceiverops.LegacyVersion,
+	}.validate()
 }
 
 func configureLegacySourceApply(e cldf.Environment, input ConfigureLegacyTestReceiverSourceChangesetInput) (cldf.ChangesetOutput, error) {
@@ -68,17 +65,28 @@ func configureLegacySourceApply(e cldf.Environment, input ConfigureLegacyTestRec
 		return cldf.ChangesetOutput{}, fmt.Errorf("resolve v1 receiver: %w", err)
 	}
 
+	pending, err := senderApprovals{
+		Receiver:            receiverV1,
+		SourceChainSelector: input.SourceChainSelector,
+		Senders:             input.ApprovedRemoteSenders,
+		ReceiverVersion:     testreceiverops.LegacyVersion,
+	}.pending(e, solChain)
+	if err != nil {
+		return cldf.ChangesetOutput{}, err
+	}
+
 	var reports []cldf_ops.Report[any, any]
 	var batchOps []mcmstypes.BatchOperation
-	for _, sender := range input.ApprovedRemoteSenders {
+	for _, approval := range pending {
 		report, err := cldf_ops.ExecuteOperation(e.OperationsBundle, testreceiverops.ApproveSender, solChain, testreceiverops.ApproveSenderParams{
 			Receiver:            receiverV1,
 			SourceChainSelector: input.SourceChainSelector,
-			RemoteSender:        sender,
+			RemoteSender:        approval.Sender,
+			Unpadded:            approval.Unpadded,
 			ReceiverVersion:     testreceiverops.LegacyVersion,
 		})
 		if err != nil {
-			return cldf.ChangesetOutput{}, fmt.Errorf("approve remote sender %q: %w", sender, err)
+			return cldf.ChangesetOutput{}, fmt.Errorf("approve remote sender %q: %w", approval.Sender, err)
 		}
 		reports = append(reports, report.ToGenericReport())
 		batchOps = append(batchOps, report.Output.BatchOps...)

@@ -32,8 +32,8 @@ import (
 	"github.com/gagliardetto/solana-go"
 	"github.com/stretchr/testify/require"
 
-	message_transmitter_v2 "github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/cctp_message_transmitter_v2"
-	token_messenger_minter_v2 "github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/cctp_token_messenger_minter_v2"
+	message_transmitter_v2 "github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/cctp_message_transmitter_v2"
+	token_messenger_minter_v2 "github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/cctp_token_messenger_minter_v2"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/tests/cctp"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/tests/config"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/tests/testutils"

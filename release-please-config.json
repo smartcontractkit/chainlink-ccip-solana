@@ -23,10 +23,6 @@
       "release-type": "go",
       "package-name": "deployment"
     },
-    "contracts/gobindings": {
-      "release-type": "go",
-      "package-name": "contracts/gobindings"
-    },
     "contracts": {
       "release-type": "simple",
       "package-name": "contracts",
@@ -37,8 +33,20 @@
           "jsonpath": "$.workspace.package.version"
         }
       ]
+    },
+    "contracts/gobindings/v2": {
+      "release-type": "go",
+      "package-name": "contracts/gobindings",
+      "component": "contracts/gobindings"
     }
   },
+  "plugins": [
+    {
+      "type": "linked-versions",
+      "groupName": "contracts",
+      "components": ["contracts", "contracts/gobindings"]
+    }
+  ],
   "changelog-sections": [
     { "type": "build", "section": "Builds", "hidden": true },
     { "type": "chore", "section": "Miscellaneous", "hidden": true },

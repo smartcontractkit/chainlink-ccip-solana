@@ -11,7 +11,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/executor"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/executor"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/tests/config"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/tests/testutils"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/ccip"

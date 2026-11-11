@@ -9,7 +9,7 @@ import (
 	cldf_ops "github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	mcmstypes "github.com/smartcontractkit/mcms/types"
 
-	example_ccip_receiver_v2 "github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/example_ccip_receiver_v2"
+	example_ccip_receiver_v2 "github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/example_ccip_receiver_v2"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/state"
 	cvops "github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/operations/committeeverifier"
 	routerops "github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/operations/router"
@@ -20,8 +20,9 @@ import (
 // ConfigureV2TestReceiverSourceChangesetInput configures an already-deployed v2 TestReceiver for a
 // new source chain without redeploying or re-initializing it: it carries the receiver's CCV/finality
 // config for the source and the remote senders to approve. The receiver is also registered with the
-// router, which is skipped when it already is. MCMS builds the proposal when the timelock owns the
-// receiver.
+// router, which is skipped when it already is. The source CCV config and each sender are likewise
+// skipped when they already exist, so re-running it is a no-op. The v2 receiver only accepts the
+// 32-byte sender format. MCMS builds the proposal when the timelock owns the receiver.
 type ConfigureV2TestReceiverSourceChangesetInput struct {
 	ChainSelector         uint64                                  `json:"chainSelector"`
 	ReceiverQualifier     string                                  `json:"receiverQualifier"`
@@ -47,11 +48,11 @@ func configureV2SourceVerify(env cldf.Environment, input ConfigureV2TestReceiver
 	if err := validateMCMSInput(env.Logger, input.MCMS); err != nil {
 		return err
 	}
-	solChain, addresses, err := fetchSolanaChain(env, input.ChainSelector, testreceiverops.Version, input.ReceiverQualifier)
+	_, addresses, err := fetchSolanaChain(env, input.ChainSelector, testreceiverops.Version, input.ReceiverQualifier)
 	if err != nil {
 		return err
 	}
-	if _, initErr := resolveInitializerRef(env, input.ChainSelector, datastore.ContractType(routerops.ContractType), routerops.Version, ""); err != nil {
+	if _, initErr := resolveInitializerRef(env, input.ChainSelector, datastore.ContractType(routerops.ContractType), routerops.Version, ""); initErr != nil {
 		return fmt.Errorf("resolve Router: %w", initErr)
 	}
 
@@ -59,24 +60,15 @@ func configureV2SourceVerify(env cldf.Environment, input ConfigureV2TestReceiver
 	if err != nil {
 		return fmt.Errorf("resolve v2 receiver (%q): %w", input.ReceiverQualifier, err)
 	}
-
-	ccvPDA, _, err := state.FindReceiverCCVConfigPDA(input.SourceChainSelector, receiverV2)
-	if err != nil {
+	if _, _, err := state.FindReceiverCCVConfigPDA(input.SourceChainSelector, receiverV2); err != nil {
 		return fmt.Errorf("derive source CCV config PDA: %w", err)
 	}
-	if err := assertPDAAbsent(env, solChain, ccvPDA, fmt.Sprintf("source CCV config for selector %d on receiver %s", input.SourceChainSelector, receiverV2)); err != nil {
-		return err
-	}
-	for _, sender := range input.ApprovedRemoteSenders {
-		pda, pdaErr := sequences.ApprovedSenderPDA(receiverV2, input.SourceChainSelector, sender, testreceiverops.Version)
-		if pdaErr != nil {
-			return fmt.Errorf("derive approved sender PDA for %q: %w", sender, pdaErr)
-		}
-		if err := assertPDAAbsent(env, solChain, pda, fmt.Sprintf("approved sender %s on receiver %s", sender, receiverV2)); err != nil {
-			return err
-		}
-	}
-	return nil
+	return senderApprovals{
+		Receiver:            receiverV2,
+		SourceChainSelector: input.SourceChainSelector,
+		Senders:             input.ApprovedRemoteSenders,
+		ReceiverVersion:     testreceiverops.Version,
+	}.validate()
 }
 
 func configureV2SourceApply(e cldf.Environment, input ConfigureV2TestReceiverSourceChangesetInput) (cldf.ChangesetOutput, error) {
@@ -117,28 +109,49 @@ func configureV2SourceApply(e cldf.Environment, input ConfigureV2TestReceiverSou
 	}
 	appendOutput(&reports, &batchOps, registerReport)
 
-	ccvReport, err := cldf_ops.ExecuteOperation(e.OperationsBundle, testreceiverops.SetCCVConfig, solChain, testreceiverops.SetCCVConfigParams{
-		Receiver:              receiverV2,
-		SourceChainSelector:   input.SourceChainSelector,
-		RequiredCCVs:          requiredCCVs,
-		OptionalCCVs:          optionalCCVs,
-		OptionalThreshold:     input.OptionalThreshold,
-		AllowedFinalityConfig: input.AllowedFinalityConfig,
-	})
+	ccvPDA, _, err := state.FindReceiverCCVConfigPDA(input.SourceChainSelector, receiverV2)
 	if err != nil {
-		return cldf.ChangesetOutput{}, fmt.Errorf("set CCV config: %w", err)
+		return cldf.ChangesetOutput{}, fmt.Errorf("derive source CCV config PDA: %w", err)
 	}
-	appendOutput(&reports, &batchOps, ccvReport)
+	ccvConfigured, err := accountExists(e, solChain, ccvPDA)
+	if err != nil {
+		return cldf.ChangesetOutput{}, fmt.Errorf("source CCV config: %w", err)
+	}
+	if ccvConfigured {
+		e.Logger.Infof("source CCV config for selector %d on receiver %s already exists (PDA %s), skipping", input.SourceChainSelector, receiverV2, ccvPDA)
+	} else {
+		ccvReport, ccvErr := cldf_ops.ExecuteOperation(e.OperationsBundle, testreceiverops.SetCCVConfig, solChain, testreceiverops.SetCCVConfigParams{
+			Receiver:              receiverV2,
+			SourceChainSelector:   input.SourceChainSelector,
+			RequiredCCVs:          requiredCCVs,
+			OptionalCCVs:          optionalCCVs,
+			OptionalThreshold:     input.OptionalThreshold,
+			AllowedFinalityConfig: input.AllowedFinalityConfig,
+		})
+		if ccvErr != nil {
+			return cldf.ChangesetOutput{}, fmt.Errorf("set CCV config: %w", ccvErr)
+		}
+		appendOutput(&reports, &batchOps, ccvReport)
+	}
 
-	for _, sender := range input.ApprovedRemoteSenders {
+	pending, err := senderApprovals{
+		Receiver:            receiverV2,
+		SourceChainSelector: input.SourceChainSelector,
+		Senders:             input.ApprovedRemoteSenders,
+		ReceiverVersion:     testreceiverops.Version,
+	}.pending(e, solChain)
+	if err != nil {
+		return cldf.ChangesetOutput{}, err
+	}
+	for _, approval := range pending {
 		approveReport, err := cldf_ops.ExecuteOperation(e.OperationsBundle, testreceiverops.ApproveSender, solChain, testreceiverops.ApproveSenderParams{
 			Receiver:            receiverV2,
 			SourceChainSelector: input.SourceChainSelector,
-			RemoteSender:        sender,
+			RemoteSender:        approval.Sender,
 			ReceiverVersion:     testreceiverops.Version,
 		})
 		if err != nil {
-			return cldf.ChangesetOutput{}, fmt.Errorf("approve remote sender %q: %w", sender, err)
+			return cldf.ChangesetOutput{}, fmt.Errorf("approve remote sender %q: %w", approval.Sender, err)
 		}
 		appendOutput(&reports, &batchOps, approveReport)
 	}

@@ -191,6 +191,21 @@ pub mod ccip_offramp {
         admin::disable_source_chain_selector(ctx, source_chain_selector)
     }
 
+    /// Deletes the source chain PDA.
+    ///
+    /// The Admin is the only one able to delete the chain as source.
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx` - The context containing the accounts required for deleting the chain.
+    /// * `source_chain_selector` - The source chain selector to be deleted.
+    pub fn delete_source_chain(
+        ctx: Context<DeleteSourceChain>,
+        source_chain_selector: u64,
+    ) -> Result<()> {
+        admin::delete_source_chain(ctx, source_chain_selector)
+    }
+
     /// Updates the configuration of the source chain selector.
     ///
     /// The Admin is the only one able to update the source chain config.

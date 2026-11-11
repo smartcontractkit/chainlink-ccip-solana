@@ -10,7 +10,7 @@ import (
 	cldf_solana "github.com/smartcontractkit/chainlink-deployments-framework/chain/solana"
 	cldf_ops "github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
-	lockrelease "github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/lockrelease_token_pool"
+	lockrelease "github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/lockrelease_token_pool"
 	soltokens "github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/tokens"
 	tokenpoolops "github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/operations/tokenpools"
 )

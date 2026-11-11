@@ -14,7 +14,7 @@ import (
 	cldf_deployment "github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/ccip_offramp"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/ccip_offramp"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/common"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/state"
 	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/solcommon"
@@ -54,6 +54,9 @@ type ConnectChainsParams struct {
 	IsRMNVerificationDisabled bool
 	DefaultCCVs               []solana.PublicKey
 	LaneMandatedCCVs          []solana.PublicKey
+	// LegacyAddressLength is the width the OffRamp trims source pool addresses to before CPI'ing
+	// into pools (20 for EVM remotes, 32 otherwise), so they match what pools store.
+	LegacyAddressLength uint8
 }
 
 var Deploy = operations.NewOperation(
@@ -227,10 +230,11 @@ var ConnectChains = operations.NewOperation(
 			onRampAddresses = append(onRampAddresses, onRampAddress)
 		}
 		validSourceChainConfig := ccip_offramp.SourceChainConfig{
-			OnRamps:          onRampAddresses,
-			IsEnabled:        input.EnabledAsSource,
-			DefaultCcvs:      input.DefaultCCVs,
-			LaneMandatedCcvs: input.LaneMandatedCCVs,
+			OnRamps:             onRampAddresses,
+			IsEnabled:           input.EnabledAsSource,
+			DefaultCcvs:         input.DefaultCCVs,
+			LaneMandatedCcvs:    input.LaneMandatedCCVs,
+			LegacyAddressLength: input.LegacyAddressLength,
 		}
 		b.Logger.Infof("Source chain config to be set: %+v", validSourceChainConfig)
 		var ixn solana.Instruction

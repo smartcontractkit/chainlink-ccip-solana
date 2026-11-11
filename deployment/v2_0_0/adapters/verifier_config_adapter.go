@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	dsutil "github.com/smartcontractkit/chainlink-ccip/deployment/utils/datastore"
 	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 
@@ -28,7 +27,7 @@ func (a *SolanaVerifierConfigAdapter) ResolveVerifierContractAddresses(
 		return nil, err
 	}
 
-	onRampAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
+	onRampAddr, err := solcommon.FindAndFormatCompatibleRef(ds, datastore.AddressRef{
 		Type:    datastore.ContractType(router.ContractType),
 		Version: router.Version,
 	}, chainSelector, solcommon.RefTo0xHex)
@@ -36,7 +35,7 @@ func (a *SolanaVerifierConfigAdapter) ResolveVerifierContractAddresses(
 		return nil, fmt.Errorf("on ramp address for chain %d: %w", chainSelector, err)
 	}
 
-	rmnRemoteAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
+	rmnRemoteAddr, err := solcommon.FindAndFormatCompatibleRef(ds, datastore.AddressRef{
 		Type:    rmnRemoteContractType,
 		Version: rmnRemoteSemver,
 	}, chainSelector, solcommon.RefTo0xHex)

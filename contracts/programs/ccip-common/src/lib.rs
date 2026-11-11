@@ -280,12 +280,12 @@ pub mod router_accounts {
         pub writable_indexes: [u128; 2],
         pub mint: Pubkey,
 
-        // --- V2 additional fields (renamed here for v3) ---
+        // --- V2 additional fields (renamed here for v3, narrowed back to bool in v4) ---
         // if true, the pool supports calling `derive_accounts_lock_or_burn` and
         // `derive_accounts_release_or_mint` to derive the list of accounts and LUTs
         // needed to interact with it on 1.6-compatible flows. If the pool implements the v2 interface
         // and is invoked on a 2.0+ lane, then it will invoke the newer `resolve_accounts_start` method.
-        pub account_resolution: ResolutionType, // changed from bool to enum in v3
+        pub account_resolution_enabled: bool,
 
         // --- V3 additional fields ---
         pub bump: u8,
@@ -294,15 +294,44 @@ pub mod router_accounts {
         // 1 = CCIP v1.6
         // 2 = CCIP v2.0 and above
         pub interface_version: u8,
+
+        // --- V4 additional fields ---
+        // Only meaningful when `account_resolution_enabled`: if true, 2.0 flows include only the mandatory
+        // entries of the pool's lookup table and skip the additional ones (see
+        // `ResolutionType::WithoutExtendedLookupTable`). Negative sense on purpose, so that zero-filled
+        // bytes (from realloc or from older layouts) mean "include all entries", the pre-v4 behavior.
+        // Appended at the end, so 1.6 programs (which ignore trailing bytes) never see it.
+        pub skip_lookup_table_additional_entries: bool,
     }
 
     impl TokenAdminRegistry {
-        pub const LATEST_VERSION: u8 = 3; // this refers to the pda data layout version (the schema)
+        pub const LATEST_VERSION: u8 = 4; // this refers to the pda data layout version (the schema)
 
         // safe defaults for new values
-        pub const DEFAULT_ACCOUNT_RESOLUTION: ResolutionType = ResolutionType::NoResolution;
+        pub const DEFAULT_ACCOUNT_RESOLUTION_ENABLED: bool = false;
+        pub const DEFAULT_SKIP_LOOKUP_TABLE_ADDITIONAL_ENTRIES: bool = false;
         pub const DEFAULT_INTERFACE_VERSION: u8 = 1; // refers to  interface implemented by the pool (v1 is compatible with CCIP 1.6)
         pub const DEFAULT_EMPTY_BUMP: u8 = 0; // this is just a placeholder, 0 means that it is not actually set
+
+        /// The resolution mode encoded by the two stored fields.
+        pub fn account_resolution(&self) -> ResolutionType {
+            match (
+                self.account_resolution_enabled,
+                self.skip_lookup_table_additional_entries,
+            ) {
+                (false, _) => ResolutionType::NoResolution,
+                (true, false) => ResolutionType::Standard,
+                (true, true) => ResolutionType::WithoutExtendedLookupTable,
+            }
+        }
+
+        /// Stores `resolution` across the two fields, keeping `account_resolution_enabled` a bool
+        /// that the 1.6 offramp can decode.
+        pub fn set_account_resolution(&mut self, resolution: &ResolutionType) {
+            self.account_resolution_enabled = resolution.is_enabled();
+            self.skip_lookup_table_additional_entries =
+                !resolution.use_lookup_table_additional_entries();
+        }
 
         pub fn validate_interface_version(version: u8) -> Result<()> {
             // As of CCIP 2.0, there's only a pool's v1 interface (1.6-compatible) and v2 interface
@@ -326,6 +355,49 @@ pub mod router_accounts {
         const CANONICAL_VERSION: u8;
 
         fn stored_version(&self) -> u8;
+    }
+
+    #[derive(AnchorDeserialize, InitSpace)]
+    pub(super) struct TokenAdminRegistryV3 {
+        pub version: u8,
+        pub administrator: Pubkey,
+        pub pending_administrator: Pubkey,
+        pub lookup_table: Pubkey,
+        pub writable_indexes: [u128; 2],
+        pub mint: Pubkey,
+        // v3 stored the whole enum in this byte, so it could hold 2 (unreadable by the 1.6 offramp).
+        pub account_resolution: ResolutionType,
+        pub bump: u8,
+        pub interface_version: u8,
+    }
+
+    impl OldTokenAdminRegistry for TokenAdminRegistryV3 {
+        const CANONICAL_VERSION: u8 = 3;
+
+        fn stored_version(&self) -> u8 {
+            self.version
+        }
+    }
+
+    impl From<TokenAdminRegistryV3> for TokenAdminRegistry {
+        fn from(v3: TokenAdminRegistryV3) -> TokenAdminRegistry {
+            // Translating every variant (not only 0/1) keeps a v3 registry that still holds 2 both readable
+            // and migratable; otherwise it could neither be upgraded nor fixed through the (v4-only) setter.
+            TokenAdminRegistry {
+                version: 3,
+                administrator: v3.administrator,
+                pending_administrator: v3.pending_administrator,
+                lookup_table: v3.lookup_table,
+                writable_indexes: v3.writable_indexes,
+                mint: v3.mint,
+                account_resolution_enabled: v3.account_resolution.is_enabled(),
+                interface_version: v3.interface_version,
+                bump: v3.bump,
+                skip_lookup_table_additional_entries: !v3
+                    .account_resolution
+                    .use_lookup_table_additional_entries(),
+            }
+        }
     }
 
     #[derive(AnchorDeserialize, InitSpace)]
@@ -361,13 +433,11 @@ pub mod router_accounts {
                 lookup_table: v2.lookup_table,
                 writable_indexes: v2.writable_indexes,
                 mint: v2.mint,
-                account_resolution: if v2.supports_auto_derivation {
-                    ResolutionType::Standard
-                } else {
-                    ResolutionType::NoResolution
-                }, // the field was renamed and changed into an enum, but the meaning is still related
+                account_resolution_enabled: v2.supports_auto_derivation, // same byte, renamed
                 interface_version: TokenAdminRegistry::DEFAULT_INTERFACE_VERSION, // v2 didn't have this field, so use the safe default
                 bump: TokenAdminRegistry::DEFAULT_EMPTY_BUMP, // v2 didn't have this field, so use the safe default
+                skip_lookup_table_additional_entries:
+                    TokenAdminRegistry::DEFAULT_SKIP_LOOKUP_TABLE_ADDITIONAL_ENTRIES, // added in v4
             }
         }
     }
@@ -399,9 +469,11 @@ pub mod router_accounts {
                 lookup_table: v1.lookup_table,
                 writable_indexes: v1.writable_indexes,
                 mint: v1.mint,
-                account_resolution: TokenAdminRegistry::DEFAULT_ACCOUNT_RESOLUTION,
+                account_resolution_enabled: TokenAdminRegistry::DEFAULT_ACCOUNT_RESOLUTION_ENABLED,
                 interface_version: TokenAdminRegistry::DEFAULT_INTERFACE_VERSION,
                 bump: TokenAdminRegistry::DEFAULT_EMPTY_BUMP,
+                skip_lookup_table_additional_entries:
+                    TokenAdminRegistry::DEFAULT_SKIP_LOOKUP_TABLE_ADDITIONAL_ENTRIES,
             }
         }
     }

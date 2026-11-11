@@ -38,5 +38,5 @@
 - Run anchor-lint: `make anchor-lint` (or `--strict` for CI)
 
 ## Generated Files
-- Never manually edit `contracts/gobindings/latest/` — regenerate with `make anchor-go-gen`
+- Never manually edit `contracts/gobindings/v2/latest/` — regenerate with `make anchor-go-gen`
 - Never manually edit `contracts/target/idl/*.json` — rebuild with `anchor build`

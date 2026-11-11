@@ -15,7 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	"github.com/smartcontractkit/mcms/types"
 
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/burnmint_token_pool"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/burnmint_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/common"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/state"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/tokens"
@@ -391,6 +391,15 @@ var UpsertRateLimitsBurnMint = operations.NewOperation(
 		remoteChainConfigPDA, _, err := tokens.TokenPoolChainConfigPDA(input.RemoteSelector, input.TokenMint, input.TokenPool)
 		if err != nil {
 			return sequences.OnChainOutput{}, fmt.Errorf("failed to derive remote chain config PDA: %w", err)
+		}
+		// Setting a rate limit refills the bucket, so skip it when the limits are already set.
+		existing, err := common.GetInitializedAccount(b.GetContext(), chain.Client, remoteChainConfigPDA, input.TokenPool, cldf_solana.SolDefaultCommitment, burnmint_token_pool.ParseAccount_ChainConfig)
+		if err != nil {
+			return sequences.OnChainOutput{}, err
+		}
+		if existing != nil && existing.Base.InboundRateLimit.Cfg == inbound && existing.Base.OutboundRateLimit.Cfg == outbound {
+			b.Logger.Info("BurnMintTokenPool rate limits already set for remote chain:", input.RemoteSelector)
+			return sequences.OnChainOutput{}, nil
 		}
 		ixn, err := burnmint_token_pool.NewSetChainRateLimitInstruction(
 			input.RemoteSelector,

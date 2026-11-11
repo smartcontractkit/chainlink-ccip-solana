@@ -15,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/solcommon"
 	executorops "github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/operations/executor"
 	fqops "github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/operations/feequoter"
+	offrampops "github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/operations/offramp"
 	rmnremoteops "github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/operations/rmnremote"
 	routerops "github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/operations/router"
 	tokenpoolops "github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/operations/tokenpools"
@@ -133,4 +134,73 @@ func TestResolveCcipSendLutAccountsLink(t *testing.T) {
 
 	_, err = resolveCcipSendLutAccounts(program(), testSelector)
 	require.ErrorIs(t, err, solcommon.ErrAddressRefNotFound)
+}
+
+func TestResolveOfframpLutAccounts(t *testing.T) {
+	ref := func(contractType datastore.ContractType, version *semver.Version, qualifier string) datastore.AddressRef {
+		return datastore.AddressRef{
+			ChainSelector: testSelector,
+			Address:       randomPubkey(t),
+			Type:          contractType,
+			Version:       version,
+			Qualifier:     qualifier,
+		}
+	}
+	offRamp := ref(datastore.ContractType(offrampops.ContractType), offrampops.Version, "")
+	refs := []datastore.AddressRef{
+		ref(datastore.ContractType(tokensops.LinkContractType), semver.MustParse("1.6.0"), "LINK"),
+		ref(datastore.ContractType(routerops.ContractType), routerops.Version, ""),
+		ref(datastore.ContractType(fqops.ContractType), fqops.Version, ""),
+		ref(datastore.ContractType(rmnremoteops.ContractType), rmnremoteops.Version, ""),
+		ref(datastore.ContractType(common_utils.BurnMintTokenPool), solcommon.Version2_0_0, solcommon.PoolProgramQualifier),
+		ref(datastore.ContractType(common_utils.LockReleaseTokenPool), solcommon.Version2_0_0, solcommon.PoolProgramQualifier),
+	}
+
+	got, err := resolveOfframpLutAccounts(append(refs, offRamp), testSelector)
+	require.NoError(t, err)
+	require.Equal(t, offRamp.Address, got.OffRamp.String())
+	require.Equal(t, refs[0].Address, got.LinkToken.String())
+	require.Equal(t, refs[5].Address, got.LockReleaseTokenPool.String())
+
+	_, err = resolveOfframpLutAccounts(refs, testSelector)
+	require.ErrorIs(t, err, solcommon.ErrAddressRefNotFound)
+}
+
+func TestCcipSendLookupTable(t *testing.T) {
+	recorded := solana.MustPublicKeyFromBase58(randomPubkey(t))
+	other := solana.MustPublicKeyFromBase58(randomPubkey(t))
+	notFound := solcommon.ErrAddressRefNotFound
+	zero := solana.PublicKey{}
+
+	tests := []struct {
+		name            string
+		recorded        solana.PublicKey
+		recordedErr     error
+		onChain         solana.PublicKey
+		createIfMissing bool
+		want            solana.PublicKey
+		register        bool
+		errContains     string
+	}{
+		{name: "recorded and pointed at", recorded: recorded, onChain: recorded, want: recorded},
+		{name: "recorded, router not pointed yet", recorded: recorded, onChain: zero, want: recorded},
+		{name: "recorded differs from router", recorded: recorded, onChain: other, errContains: "but the router points at"},
+		{name: "router table not recorded", recordedErr: notFound, onChain: other, want: other, register: true},
+		{name: "router table not recorded, create allowed", recordedErr: notFound, onChain: other, createIfMissing: true, want: other, register: true},
+		{name: "no table anywhere, create allowed", recordedErr: notFound, onChain: zero, createIfMissing: true, want: zero, register: true},
+		{name: "no table anywhere", recordedErr: notFound, onChain: zero, errContains: "resolve ccip_send lookup table"},
+		{name: "datastore error", recordedErr: assert.AnError, onChain: other, errContains: "resolve ccip_send lookup table"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, register, err := ccipSendLookupTable(tc.recorded, tc.recordedErr, tc.onChain, tc.createIfMissing)
+			if tc.errContains != "" {
+				require.ErrorContains(t, err, tc.errContains)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+			require.Equal(t, tc.register, register)
+		})
+	}
 }

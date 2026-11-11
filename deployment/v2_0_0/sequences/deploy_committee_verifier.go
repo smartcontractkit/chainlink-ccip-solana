@@ -211,7 +211,7 @@ func withCommitteeVerifierQualifier(refs []datastore.AddressRef, qualifier strin
 	var program *datastore.AddressRef
 	for i := range refs {
 		ref := refs[i]
-		if ref.Type != datastore.ContractType(cvops.ContractType) || !ref.Version.Equal(cvops.Version) {
+		if ref.Type != datastore.ContractType(cvops.ContractType) || !solcommon.RefVersionMatches(ref.Version, cvops.Version) {
 			continue
 		}
 		if ref.Qualifier == qualifier {

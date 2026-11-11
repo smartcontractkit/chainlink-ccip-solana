@@ -132,5 +132,5 @@ func (a *LombardChainAdapter) tokenPool(ds datastore.DataStore, selector uint64,
 		Qualifier: solcommon.PoolProgramQualifier,
 	}
 	_ = tokenQualifier // the pool program is one shared instance per chain, not per-token
-	return datastore_utils.FindAndFormatRef(ds, ref, selector, datastore_utils.FullRef)
+	return solcommon.FindAndFormatCompatibleRef(ds, ref, selector, datastore_utils.FullRef)
 }

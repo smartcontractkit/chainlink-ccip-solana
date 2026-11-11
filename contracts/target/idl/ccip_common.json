@@ -2,7 +2,7 @@
   "address": "Ccip842gzYHhvdDkSyi2YVCoAWPbYJoApMFzSxQroE9C",
   "metadata": {
     "name": "ccip_common",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "spec": "0.1.0"
   },
   "instructions": [
@@ -476,23 +476,6 @@
       }
     },
     {
-      "name": "ResolutionType",
-      "type": {
-        "kind": "enum",
-        "variants": [
-          {
-            "name": "NoResolution"
-          },
-          {
-            "name": "Standard"
-          },
-          {
-            "name": "WithoutExtendedLookupTable"
-          }
-        ]
-      }
-    },
-    {
       "name": "ResolveAccountsParams",
       "type": {
         "kind": "struct",
@@ -759,12 +742,8 @@
             "type": "pubkey"
           },
           {
-            "name": "account_resolution",
-            "type": {
-              "defined": {
-                "name": "ResolutionType"
-              }
-            }
+            "name": "account_resolution_enabled",
+            "type": "bool"
           },
           {
             "name": "bump",
@@ -773,6 +752,10 @@
           {
             "name": "interface_version",
             "type": "u8"
+          },
+          {
+            "name": "skip_lookup_table_additional_entries",
+            "type": "bool"
           }
         ]
       }

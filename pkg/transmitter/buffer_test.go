@@ -16,11 +16,10 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/config"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	commontypes "github.com/smartcontractkit/chainlink-common/pkg/types"
-	"github.com/smartcontractkit/chainlink-solana/pkg/solana/fees"
 	txmmocks "github.com/smartcontractkit/chainlink-solana/pkg/solana/txm/mocks"
 	txmutils "github.com/smartcontractkit/chainlink-solana/pkg/solana/txm/utils"
 
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/ccip_offramp"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/ccip_offramp"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/ccip"
 	solcommon "github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/common"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/state"
@@ -219,77 +218,27 @@ func TestExecuteAndWaitOversized(t *testing.T) {
 	require.ErrorIs(t, err, executor.ErrMessageRejectedByTransmitter)
 }
 
-// simRPC returns a fixed simulation result and keeps the simulated tx.
-type simRPC struct {
-	RPCClient
-	res *rpc.SimulateTransactionResponse
-	err error
-	tx  *solana.Transaction
-}
-
-func (f *simRPC) SimulateTransactionWithOpts(_ context.Context, tx *solana.Transaction, _ *rpc.SimulateTransactionOpts) (*rpc.SimulateTransactionResponse, error) {
-	f.tx = tx
-	return f.res, f.err
-}
-
-func simResult(err any, logs []string) *rpc.SimulateTransactionResponse {
-	return &rpc.SimulateTransactionResponse{Value: &rpc.SimulateTransactionResult{Err: err, Logs: logs}}
-}
-
-func newSimTransmitter(fake *simRPC, txm *txmmocks.TxManager) *bufferedExecution {
-	authority := solana.NewWallet().PublicKey()
-	tr := &SolanaContractTransmitter{
-		lggr:             logger.Sugared(logger.Nop()),
-		rpcClient:        fake,
-		txm:              txm,
-		ccipLog:          logger.Nop(),
-		feePayerPubKey:   authority,
-		offrampProgramID: ccip_offramp.ProgramID,
-		cfg:              Config{BufferedConfig: BufferedConfig{TxStatusPollInterval: *config.MustNewDuration(time.Millisecond)}},
-	}
-	return &bufferedExecution{t: tr, authority: authority, computeUnits: 300_000}
-}
-
-func TestExecuteAndWaitSimulation(t *testing.T) {
+// TestExecuteAndWaitFailedTx pins that a program error is sent and comes back as a retryable error.
+func TestExecuteAndWaitFailedTx(t *testing.T) {
 	t.Parallel()
-	ix := solana.NewInstruction(ccip_offramp.ProgramID, solana.AccountMetaSlice{solana.Meta(solana.NewWallet().PublicKey()).SIGNER()}, []byte{1})
+	txm := txmmocks.NewTxManager(t)
+	txm.EXPECT().Enqueue(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	txm.EXPECT().GetTransactionStatus(mock.Anything, mock.Anything).Return(commontypes.Fatal, nil)
+	b := &bufferedExecution{
+		t: &SolanaContractTransmitter{
+			lggr: logger.Sugared(logger.Nop()),
+			txm:  txm,
+			cfg:  Config{BufferedConfig: BufferedConfig{TxStatusPollInterval: *config.MustNewDuration(time.Millisecond)}},
+		},
+		authority:    solana.NewWallet().PublicKey(),
+		computeUnits: 300_000,
+	}
+	ix := solana.NewInstruction(ccip_offramp.ProgramID, solana.AccountMetaSlice{solana.Meta(b.authority).SIGNER()}, []byte{1})
 
-	t.Run("failed simulation is retryable and not sent", func(t *testing.T) {
-		t.Parallel()
-		// no Enqueue expectation: the mock fails the test if the tx is sent
-		b := newSimTransmitter(&simRPC{res: simResult("TooManyAccountLocks", nil)}, txmmocks.NewTxManager(t))
-		err := b.executeAndWait(t.Context(), ccip.ResolveAccountsResult{Ix: ix}, nil)
-		require.ErrorContains(t, err, "exec simulation failed")
-		require.NotErrorIs(t, err, executor.ErrMessageRejectedByTransmitter)
-	})
-
-	t.Run("simulates with the compute budget instructions the txm adds", func(t *testing.T) {
-		t.Parallel()
-		fake := &simRPC{res: simResult("ComputationalBudgetExceeded", nil)}
-		b := newSimTransmitter(fake, txmmocks.NewTxManager(t))
-		require.Error(t, b.executeAndWait(t.Context(), ccip.ResolveAccountsResult{Ix: ix}, nil))
-		var limits []fees.ComputeUnitLimit
-		var prices int
-		for _, cix := range fake.tx.Message.Instructions {
-			if limit, err := fees.ParseComputeUnitLimit(cix.Data); err == nil {
-				limits = append(limits, limit)
-			}
-			if _, err := fees.ParseComputeUnitPrice(cix.Data); err == nil {
-				prices++
-			}
-		}
-		require.Equal(t, []fees.ComputeUnitLimit{300_000}, limits)
-		require.Equal(t, 1, prices)
-	})
-
-	t.Run("sends when the simulation cannot run", func(t *testing.T) {
-		t.Parallel()
-		txm := txmmocks.NewTxManager(t)
-		txm.EXPECT().Enqueue(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		txm.EXPECT().GetTransactionStatus(mock.Anything, mock.Anything).Return(commontypes.Finalized, nil)
-		b := newSimTransmitter(&simRPC{err: errors.New("rpc down")}, txm)
-		require.NoError(t, b.executeAndWait(t.Context(), ccip.ResolveAccountsResult{Ix: ix}, nil))
-	})
+	err := b.executeAndWait(t.Context(), ccip.ResolveAccountsResult{Ix: ix}, nil)
+	require.ErrorContains(t, err, "failed with status")
+	require.NotErrorIs(t, err, executor.ErrMessageRejectedByTransmitter)
+	require.Len(t, b.inFlightTxs, 1, "the failed exec tx must stay tracked for cleanup")
 }
 
 // chainRPC is a fake chain whose block height goes up by one on each read.

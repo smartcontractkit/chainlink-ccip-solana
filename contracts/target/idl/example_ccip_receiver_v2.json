@@ -2,7 +2,7 @@
   "address": "CbYiUaBi9nx1m3XhADWTdPoN25zeg5qDFBpbEfWKmrCL",
   "metadata": {
     "name": "example_ccip_receiver_v2",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "spec": "0.1.0",
     "description": "Created with Anchor"
   },

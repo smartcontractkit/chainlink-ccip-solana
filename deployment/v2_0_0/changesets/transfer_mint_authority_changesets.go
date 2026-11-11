@@ -54,7 +54,7 @@ func transferMintAuthoritiesVerify(env cldf.Environment, input TransferMintAutho
 		return err
 	}
 	for i, u := range input.Updates {
-		fullRef, err := datastore_utils.FindAndFormatRef(env.DataStore, u.TokenPoolRef, input.ChainSelector, datastore_utils.FullRef)
+		fullRef, err := solcommon.FindAndFormatCompatibleRef(env.DataStore, u.TokenPoolRef, input.ChainSelector, datastore_utils.FullRef)
 		if err != nil {
 			return fmt.Errorf("update[%d]: failed to resolve token pool ref: %w", i, err)
 		}
@@ -107,7 +107,7 @@ func transferMintAuthoritiesApply(e cldf.Environment, input TransferMintAuthorit
 	}
 	todo := make([]pending, 0, len(input.Updates))
 	for i, u := range input.Updates {
-		pool, err := datastore_utils.FindAndFormatRef(e.DataStore, u.TokenPoolRef, input.ChainSelector, solcommon.ToAddress)
+		pool, err := solcommon.FindAndFormatCompatibleRef(e.DataStore, u.TokenPoolRef, input.ChainSelector, solcommon.ToAddress)
 		if err != nil {
 			return cldf.ChangesetOutput{}, fmt.Errorf("update[%d]: failed to resolve token pool ref: %w", i, err)
 		}

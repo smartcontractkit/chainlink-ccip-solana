@@ -10,8 +10,8 @@ import (
 	"github.com/gagliardetto/solana-go"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/ccip_common"
-	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/latest/ccip_router"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/ccip_common"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/ccip_router"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/tests/config"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/tests/testutils"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/ccip"
@@ -97,7 +97,7 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 				tokenAdminRegistry := ccip_common.TokenAdminRegistry{}
 				err = common.GetAccountDataBorshIntoAnchor(ctx, client, token0.AdminRegistryPDA, config.DefaultCommitment, &tokenAdminRegistry)
 				require.NoError(t, err)
-				require.Equal(t, uint8(3), tokenAdminRegistry.Version)
+				require.Equal(t, uint8(4), tokenAdminRegistry.Version)
 				require.Equal(t, token0PoolAdmin.PublicKey(), tokenAdminRegistry.PendingAdministrator)
 				require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.Administrator)
 				require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.LookupTable)
@@ -144,7 +144,7 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 				tokenAdminRegistry := ccip_common.TokenAdminRegistry{}
 				err = common.GetAccountDataBorshIntoAnchor(ctx, client, token0.AdminRegistryPDA, config.DefaultCommitment, &tokenAdminRegistry)
 				require.NoError(t, err)
-				require.Equal(t, uint8(3), tokenAdminRegistry.Version)
+				require.Equal(t, uint8(4), tokenAdminRegistry.Version)
 				require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.PendingAdministrator)
 				require.Equal(t, token0PoolAdmin.PublicKey(), tokenAdminRegistry.Administrator)
 				require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.LookupTable)
@@ -244,7 +244,7 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 				err = common.GetAccountDataBorshIntoAnchor(ctx, client, token0.AdminRegistryPDA, config.DefaultCommitment, &tokenAdminRegistry)
 				require.NoError(t, err)
 				require.Equal(t, token0PoolAdmin.PublicKey(), tokenAdminRegistry.Administrator)
-				require.Equal(t, uint8(3), tokenAdminRegistry.Version)
+				require.Equal(t, uint8(4), tokenAdminRegistry.Version)
 				require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.PendingAdministrator)
 				require.Equal(t, token0.PoolLookupTable, tokenAdminRegistry.LookupTable)
 			})
@@ -269,7 +269,8 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 				tokenAdminRegistry := ccip_common.TokenAdminRegistry{}
 				err = common.GetAccountDataBorshIntoAnchor(ctx, client, token0.AdminRegistryPDA, config.DefaultCommitment, &tokenAdminRegistry)
 				require.NoError(t, err)
-				require.Equal(t, ccip_common.ResolutionType_Standard, tokenAdminRegistry.AccountResolution)
+				require.True(t, tokenAdminRegistry.AccountResolutionEnabled)
+				require.False(t, tokenAdminRegistry.SkipLookupTableAdditionalEntries)
 			})
 
 			t.Run("When Token Pool Admin wants to set up the pool again to zero, it is none", func(t *testing.T) {
@@ -290,7 +291,7 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 				err = common.GetAccountDataBorshIntoAnchor(ctx, client, token0.AdminRegistryPDA, config.DefaultCommitment, &tokenAdminRegistry)
 				require.NoError(t, err)
 				require.Equal(t, token0PoolAdmin.PublicKey(), tokenAdminRegistry.Administrator)
-				require.Equal(t, uint8(3), tokenAdminRegistry.Version)
+				require.Equal(t, uint8(4), tokenAdminRegistry.Version)
 				require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.PendingAdministrator)
 				require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.LookupTable)
 
@@ -340,7 +341,7 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 				err = common.GetAccountDataBorshIntoAnchor(ctx, client, token0.AdminRegistryPDA, config.DefaultCommitment, &tokenAdminRegistry)
 				require.NoError(t, err)
 				require.Equal(t, token0PoolAdmin.PublicKey(), tokenAdminRegistry.Administrator)
-				require.Equal(t, uint8(3), tokenAdminRegistry.Version)
+				require.Equal(t, uint8(4), tokenAdminRegistry.Version)
 				require.Equal(t, token1PoolAdmin.PublicKey(), tokenAdminRegistry.PendingAdministrator)
 				require.Equal(t, token0.PoolLookupTable, tokenAdminRegistry.LookupTable)
 
@@ -387,7 +388,7 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 				err = common.GetAccountDataBorshIntoAnchor(ctx, client, token0.AdminRegistryPDA, config.DefaultCommitment, &tokenAdminRegistry)
 				require.NoError(t, err)
 				require.Equal(t, token1PoolAdmin.PublicKey(), tokenAdminRegistry.Administrator)
-				require.Equal(t, uint8(3), tokenAdminRegistry.Version)
+				require.Equal(t, uint8(4), tokenAdminRegistry.Version)
 				require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.PendingAdministrator)
 				require.Equal(t, token0.PoolLookupTable, tokenAdminRegistry.LookupTable)
 
@@ -437,7 +438,7 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 				tokenAdminRegistry := ccip_common.TokenAdminRegistry{}
 				err = common.GetAccountDataBorshIntoAnchor(ctx, client, usdcPool.AdminRegistryPDA, config.DefaultCommitment, &tokenAdminRegistry)
 				require.NoError(t, err)
-				require.Equal(t, uint8(3), tokenAdminRegistry.Version)
+				require.Equal(t, uint8(4), tokenAdminRegistry.Version)
 				require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.Administrator)
 				require.Equal(t, usdcPoolAdmin.PublicKey(), tokenAdminRegistry.PendingAdministrator)
 				require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.LookupTable)
@@ -458,7 +459,7 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 				tokenAdminRegistry := ccip_common.TokenAdminRegistry{}
 				err = common.GetAccountDataBorshIntoAnchor(ctx, client, usdcPool.AdminRegistryPDA, config.DefaultCommitment, &tokenAdminRegistry)
 				require.NoError(t, err)
-				require.Equal(t, uint8(3), tokenAdminRegistry.Version)
+				require.Equal(t, uint8(4), tokenAdminRegistry.Version)
 				require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.PendingAdministrator)
 				require.Equal(t, usdcPoolAdmin.PublicKey(), tokenAdminRegistry.Administrator)
 				require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.LookupTable)
@@ -482,10 +483,10 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 				err = common.GetAccountDataBorshIntoAnchor(ctx, client, usdcPool.AdminRegistryPDA, config.DefaultCommitment, &tokenAdminRegistry)
 				require.NoError(t, err)
 				require.Equal(t, usdcPoolAdmin.PublicKey(), tokenAdminRegistry.Administrator)
-				require.Equal(t, uint8(3), tokenAdminRegistry.Version)
+				require.Equal(t, uint8(4), tokenAdminRegistry.Version)
 				require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.PendingAdministrator)
 				require.Equal(t, usdcPool.PoolLookupTable, tokenAdminRegistry.LookupTable)
-				require.Equal(t, ccip_common.ResolutionType_NoResolution, tokenAdminRegistry.AccountResolution)
+				require.False(t, tokenAdminRegistry.AccountResolutionEnabled)
 				require.Equal(t, uint8(1), tokenAdminRegistry.InterfaceVersion)
 			})
 
@@ -511,10 +512,11 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 				err = common.GetAccountDataBorshIntoAnchor(ctx, client, usdcPool.AdminRegistryPDA, config.DefaultCommitment, &tokenAdminRegistry)
 				require.NoError(t, err)
 				require.Equal(t, usdcPoolAdmin.PublicKey(), tokenAdminRegistry.Administrator)
-				require.Equal(t, uint8(3), tokenAdminRegistry.Version)
+				require.Equal(t, uint8(4), tokenAdminRegistry.Version)
 				require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.PendingAdministrator)
 				require.Equal(t, usdcPool.PoolLookupTable, tokenAdminRegistry.LookupTable)
-				require.Equal(t, ccip_common.ResolutionType_Standard, tokenAdminRegistry.AccountResolution)
+				require.True(t, tokenAdminRegistry.AccountResolutionEnabled)
+				require.False(t, tokenAdminRegistry.SkipLookupTableAdditionalEntries)
 			})
 		})
 	})
@@ -581,7 +583,7 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 				tokenAdminRegistry := ccip_common.TokenAdminRegistry{}
 				err = common.GetAccountDataBorshIntoAnchor(ctx, client, token1.AdminRegistryPDA, config.DefaultCommitment, &tokenAdminRegistry)
 				require.NoError(t, err)
-				require.Equal(t, uint8(3), tokenAdminRegistry.Version)
+				require.Equal(t, uint8(4), tokenAdminRegistry.Version)
 				require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.Administrator)
 				require.Equal(t, token1PoolAdmin.PublicKey(), tokenAdminRegistry.PendingAdministrator)
 				require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.LookupTable)
@@ -604,7 +606,7 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 			tokenAdminRegistry := ccip_common.TokenAdminRegistry{}
 			err = common.GetAccountDataBorshIntoAnchor(ctx, client, token1.AdminRegistryPDA, config.DefaultCommitment, &tokenAdminRegistry)
 			require.NoError(t, err)
-			require.Equal(t, uint8(3), tokenAdminRegistry.Version)
+			require.Equal(t, uint8(4), tokenAdminRegistry.Version)
 			require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.Administrator)
 			require.Equal(t, token2PoolAdmin.PublicKey(), tokenAdminRegistry.PendingAdministrator)
 			require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.LookupTable)
@@ -625,7 +627,7 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 			tokenAdminRegistry = ccip_common.TokenAdminRegistry{}
 			err = common.GetAccountDataBorshIntoAnchor(ctx, client, token1.AdminRegistryPDA, config.DefaultCommitment, &tokenAdminRegistry)
 			require.NoError(t, err)
-			require.Equal(t, uint8(3), tokenAdminRegistry.Version)
+			require.Equal(t, uint8(4), tokenAdminRegistry.Version)
 			require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.Administrator)
 			require.Equal(t, token1PoolAdmin.PublicKey(), tokenAdminRegistry.PendingAdministrator)
 			require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.LookupTable)
@@ -671,7 +673,7 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 				tokenAdminRegistry := ccip_common.TokenAdminRegistry{}
 				err = common.GetAccountDataBorshIntoAnchor(ctx, client, token1.AdminRegistryPDA, config.DefaultCommitment, &tokenAdminRegistry)
 				require.NoError(t, err)
-				require.Equal(t, uint8(3), tokenAdminRegistry.Version)
+				require.Equal(t, uint8(4), tokenAdminRegistry.Version)
 				require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.PendingAdministrator)
 				require.Equal(t, token1PoolAdmin.PublicKey(), tokenAdminRegistry.Administrator)
 				require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.LookupTable)
@@ -715,7 +717,7 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 				err = common.GetAccountDataBorshIntoAnchor(ctx, client, token1.AdminRegistryPDA, config.DefaultCommitment, &tokenAdminRegistry)
 				require.NoError(t, err)
 				require.Equal(t, token1PoolAdmin.PublicKey(), tokenAdminRegistry.Administrator)
-				require.Equal(t, uint8(3), tokenAdminRegistry.Version)
+				require.Equal(t, uint8(4), tokenAdminRegistry.Version)
 				require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.PendingAdministrator)
 				require.Equal(t, token1.PoolLookupTable, tokenAdminRegistry.LookupTable)
 			})
@@ -797,7 +799,8 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 				tokenAdminRegistry := ccip_common.TokenAdminRegistry{}
 				err = common.GetAccountDataBorshIntoAnchor(ctx, client, token1.AdminRegistryPDA, config.DefaultCommitment, &tokenAdminRegistry)
 				require.NoError(t, err)
-				require.Equal(t, ccip_common.ResolutionType_Standard, tokenAdminRegistry.AccountResolution)
+				require.True(t, tokenAdminRegistry.AccountResolutionEnabled)
+				require.False(t, tokenAdminRegistry.SkipLookupTableAdditionalEntries)
 				require.Equal(t, uint8(2), tokenAdminRegistry.InterfaceVersion)
 			})
 
@@ -820,7 +823,7 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 				tokenAdminRegistry := ccip_common.TokenAdminRegistry{}
 				err = common.GetAccountDataBorshIntoAnchor(ctx, client, token1.AdminRegistryPDA, config.DefaultCommitment, &tokenAdminRegistry)
 				require.NoError(t, err)
-				require.Equal(t, ccip_common.ResolutionType_NoResolution, tokenAdminRegistry.AccountResolution)
+				require.False(t, tokenAdminRegistry.AccountResolutionEnabled)
 				require.Equal(t, uint8(1), tokenAdminRegistry.InterfaceVersion)
 			})
 		})
@@ -855,7 +858,7 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 				err = common.GetAccountDataBorshIntoAnchor(ctx, client, token1.AdminRegistryPDA, config.DefaultCommitment, &tokenAdminRegistry)
 				require.NoError(t, err)
 				require.Equal(t, token1PoolAdmin.PublicKey(), tokenAdminRegistry.Administrator)
-				require.Equal(t, uint8(3), tokenAdminRegistry.Version)
+				require.Equal(t, uint8(4), tokenAdminRegistry.Version)
 				require.Equal(t, token0PoolAdmin.PublicKey(), tokenAdminRegistry.PendingAdministrator)
 				require.Equal(t, token1.PoolLookupTable, tokenAdminRegistry.LookupTable)
 
@@ -902,7 +905,7 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 				err = common.GetAccountDataBorshIntoAnchor(ctx, client, token1.AdminRegistryPDA, config.DefaultCommitment, &tokenAdminRegistry)
 				require.NoError(t, err)
 				require.Equal(t, token0PoolAdmin.PublicKey(), tokenAdminRegistry.Administrator)
-				require.Equal(t, uint8(3), tokenAdminRegistry.Version)
+				require.Equal(t, uint8(4), tokenAdminRegistry.Version)
 				require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.PendingAdministrator)
 				require.Equal(t, token1.PoolLookupTable, tokenAdminRegistry.LookupTable)
 
@@ -1023,7 +1026,7 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 				tokenAdminRegistry := ccip_common.TokenAdminRegistry{}
 				err = common.GetAccountDataBorshIntoAnchor(ctx, client, adminRegistryPDA, config.DefaultCommitment, &tokenAdminRegistry)
 				require.NoError(t, err)
-				require.Equal(t, uint8(3), tokenAdminRegistry.Version)
+				require.Equal(t, uint8(4), tokenAdminRegistry.Version)
 				require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.Administrator)
 				require.Equal(t, multisigTestAdmin.PublicKey(), tokenAdminRegistry.PendingAdministrator)
 			})
@@ -1045,7 +1048,7 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 				tokenAdminRegistry := ccip_common.TokenAdminRegistry{}
 				err = common.GetAccountDataBorshIntoAnchor(ctx, client, adminRegistryPDA, config.DefaultCommitment, &tokenAdminRegistry)
 				require.NoError(t, err)
-				require.Equal(t, uint8(3), tokenAdminRegistry.Version)
+				require.Equal(t, uint8(4), tokenAdminRegistry.Version)
 				require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.Administrator)
 				require.Equal(t, otherSigner.PublicKey(), tokenAdminRegistry.PendingAdministrator)
 			})
@@ -1134,7 +1137,7 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 				tokenAdminRegistry := ccip_common.TokenAdminRegistry{}
 				err = common.GetAccountDataBorshIntoAnchor(ctx, client, linkPool.AdminRegistryPDA, config.DefaultCommitment, &tokenAdminRegistry)
 				require.NoError(t, err)
-				require.Equal(t, uint8(3), tokenAdminRegistry.Version)
+				require.Equal(t, uint8(4), tokenAdminRegistry.Version)
 				require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.Administrator)
 				require.Equal(t, legacyAdmin.PublicKey(), tokenAdminRegistry.PendingAdministrator)
 				require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.LookupTable)
@@ -1155,7 +1158,7 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 				tokenAdminRegistry := ccip_common.TokenAdminRegistry{}
 				err = common.GetAccountDataBorshIntoAnchor(ctx, client, linkPool.AdminRegistryPDA, config.DefaultCommitment, &tokenAdminRegistry)
 				require.NoError(t, err)
-				require.Equal(t, uint8(3), tokenAdminRegistry.Version)
+				require.Equal(t, uint8(4), tokenAdminRegistry.Version)
 				require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.PendingAdministrator)
 				require.Equal(t, legacyAdmin.PublicKey(), tokenAdminRegistry.Administrator)
 				require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.LookupTable)
@@ -1183,7 +1186,7 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 				err = common.GetAccountDataBorshIntoAnchor(ctx, client, linkPool.AdminRegistryPDA, config.DefaultCommitment, &tokenAdminRegistry)
 				require.NoError(t, err)
 				require.Equal(t, legacyAdmin.PublicKey(), tokenAdminRegistry.Administrator)
-				require.Equal(t, uint8(3), tokenAdminRegistry.Version)
+				require.Equal(t, uint8(4), tokenAdminRegistry.Version)
 				require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.PendingAdministrator)
 				require.Equal(t, linkPool.PoolLookupTable, tokenAdminRegistry.LookupTable)
 			})

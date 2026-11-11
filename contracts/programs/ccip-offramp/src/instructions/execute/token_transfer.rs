@@ -7,7 +7,8 @@ use base_token_pool::state::RemoteAddress;
 use base_token_pool::v2::{ReleaseOrMintInV2, ReleaseOrMintOutV2};
 use ccip_common::cpi::get_verified_cpi_return_data;
 use ccip_common::messages::{
-    FinalityConfig, MessageV1, SVMDestBlob, SVMTokenReceiverUsage, TokenTransferV1,
+    normalized_address, FinalityConfig, MessageV1, SVMDestBlob, SVMTokenReceiverUsage,
+    TokenTransferV1,
 };
 use ccip_common::router_accounts::TokenAdminRegistry;
 use ccip_common::seed;
@@ -91,7 +92,7 @@ impl<'a, 'info> TokenTransferContext<'info> {
                 } else {
                     let accounts = validate_v1_token_transfer(ctx, message, layout, use_ata)?;
                     require!(
-                        !tar.account_resolution.is_enabled(),
+                        !tar.account_resolution().is_enabled(),
                         CcipOfframpError::UnsupportedPoolV1ResolutionOnLaneV2
                     );
                     TokenTransferContext::V1(accounts, use_ata)
@@ -289,13 +290,27 @@ fn transfer_token_legacy<'info>(
     let receiver = parse_pubkey(&token_transfer.token_receiver)?;
     let mint = parse_pubkey(&token_transfer.dest_token_address)?;
 
+    // Pools in CCIP 1.6 were already configured using 20 bytes for EVM remote pool addresses.
+    // Since the pools have a single configuration for both the PoolsV1 and PoolsV2 interfaces, we need to make
+    // the value that the offramps send consistent across CCIP versions. In 1.6, the DONs sent the 20-bytes address
+    // for the pool. In 2.0, the EVM onramp already pads it to 32 bytes, and the offchain doesn't manipulate the field.
+    // So, here, before invoking the pool, we normalize this address _across CCIP versions_ so that pools can work
+    // seamlessly with both 1.6 and 2.0 pools.
+    // Note that this applies to the remote pool address but not to the remote token address, which was already being
+    // configured in the pool with a padded 32-byte representation for EVM lanes.
+    let source_pool_address = normalized_address(
+        &token_transfer.source_pool_address,
+        ctx.accounts.source_chain.config.legacy_address_length as usize,
+        CcipOfframpError::InvalidSourcePoolAddress,
+    )?;
+
     let release_or_mint = ReleaseOrMintInLegacy {
         original_sender: message.sender.clone(),
         receiver,
         amount: token_transfer.amount.into(),
         local_token: mint,
         remote_chain_selector: message.source_chain_selector,
-        source_pool_address: token_transfer.source_pool_address.clone(),
+        source_pool_address,
         source_pool_data: token_transfer.extra_data.clone(),
         // Unsupported for legacy transfers in 2.0
         offchain_token_data: vec![],
@@ -403,7 +418,11 @@ fn transfer_token_ccipv2<'info>(
         local_token: message_mint,
         remote_chain_selector: message.source_chain_selector,
         source_pool_address: RemoteAddress {
-            address: token_transfer.source_pool_address.clone(),
+            address: normalized_address(
+                &token_transfer.source_pool_address,
+                ctx.accounts.source_chain.config.legacy_address_length as usize,
+                CcipOfframpError::InvalidSourcePoolAddress,
+            )?,
         },
         source_pool_data: token_transfer.extra_data.clone(),
         requested_finality_config: message.finality,

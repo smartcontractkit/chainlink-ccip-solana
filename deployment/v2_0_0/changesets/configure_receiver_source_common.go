@@ -46,14 +46,53 @@ func fetchSolanaChain(env cldf.Environment, chainSelector uint64, version *semve
 	return solChain, addresses, nil
 }
 
-// assertPDAAbsent fails if the PDA already has an on-chain account.
-func assertPDAAbsent(env cldf.Environment, chain cldf_solana.Chain, pda solana.PublicKey, what string) error {
-	acc, err := chain.Client.GetAccountInfoWithOpts(env.GetContext(), pda, &rpc.GetAccountInfoOpts{Commitment: rpc.CommitmentConfirmed})
+// accountExists reports whether the address has an on-chain account.
+func accountExists(env cldf.Environment, chain cldf_solana.Chain, addr solana.PublicKey) (bool, error) {
+	acc, err := chain.Client.GetAccountInfoWithOpts(env.GetContext(), addr, &rpc.GetAccountInfoOpts{Commitment: rpc.CommitmentConfirmed})
 	if err != nil && !errors.Is(err, rpc.ErrNotFound) {
-		return fmt.Errorf("read %s PDA %s: %w", what, pda, err)
+		return false, fmt.Errorf("read account %s: %w", addr, err)
 	}
-	if acc != nil && acc.Value != nil {
-		return fmt.Errorf("%s %s already configured (PDA %s)", what, pda, pda)
+	return acc != nil && acc.Value != nil, nil
+}
+
+// senderApprovals identifies the remote senders a changeset approves on a receiver.
+type senderApprovals struct {
+	Receiver            solana.PublicKey
+	SourceChainSelector uint64
+	Senders             []string
+	ReceiverVersion     *semver.Version
+}
+
+// validate checks that every sender decodes and derives its approved-sender PDAs.
+func (a senderApprovals) validate() error {
+	for _, sender := range a.Senders {
+		if _, err := sequences.SenderApprovals(a.Receiver, a.SourceChainSelector, sender, a.ReceiverVersion); err != nil {
+			return fmt.Errorf("derive approved sender PDAs for %q: %w", sender, err)
+		}
 	}
 	return nil
+}
+
+// pending returns the approvals whose PDA does not exist yet. ApproveSender creates that PDA, so
+// approving an existing one fails with account-already-in-use.
+func (a senderApprovals) pending(env cldf.Environment, chain cldf_solana.Chain) ([]sequences.SenderApproval, error) {
+	var pending []sequences.SenderApproval
+	for _, sender := range a.Senders {
+		approvals, err := sequences.SenderApprovals(a.Receiver, a.SourceChainSelector, sender, a.ReceiverVersion)
+		if err != nil {
+			return nil, fmt.Errorf("derive approved sender PDAs for %q: %w", sender, err)
+		}
+		for _, approval := range approvals {
+			exists, err := accountExists(env, chain, approval.PDA)
+			if err != nil {
+				return nil, fmt.Errorf("approved sender %q: %w", sender, err)
+			}
+			if exists {
+				env.Logger.Infof("remote sender %s is already approved on receiver %s (PDA %s), skipping", sender, a.Receiver, approval.PDA)
+				continue
+			}
+			pending = append(pending, approval)
+		}
+	}
+	return pending, nil
 }

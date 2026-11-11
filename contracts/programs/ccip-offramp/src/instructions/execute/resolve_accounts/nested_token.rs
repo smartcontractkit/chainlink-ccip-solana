@@ -7,9 +7,9 @@ use base_token_pool::v2::{ReleaseOrMintInV2, TokenPoolCpiResolutionInputs};
 
 use crate::error::CcipOfframpError;
 use crate::instruction as offramp_instruction;
-use crate::state::Config;
+use crate::state::{Config, SourceChain};
 use ccip_common::cpi::parse_verified_cpi_return_or;
-use ccip_common::messages::{MessageV1, SVMDestBlob};
+use ccip_common::messages::{normalized_address, MessageV1, SVMDestBlob};
 use ccip_common::state::AccountSchemaVersion;
 use ccip_common::{resolution::*, seed};
 
@@ -30,6 +30,7 @@ pub struct ResolveAccountsExecuteNestedTokenStage<'info> {
         constraint = config.version == Config::MAX_V @ CcipOfframpError::InvalidVersion,
     )]
     pub config: Account<'info, Config>,
+    pub source_chain: Account<'info, SourceChain>,
     pub pool_program: UncheckedAccount<'info>,
     pub pool_signer: UncheckedAccount<'info>,
 }
@@ -51,11 +52,22 @@ pub fn nested_token_stage<'info>(
         ctx.remaining_accounts
     };
 
+    // `source_chain` carries no seeds constraint, so this check is what binds it to the message:
+    // the selector stored in an OffRamp-owned `SourceChain` always matches its PDA seed.
+    require_eq!(
+        ctx.accounts.source_chain.chain_selector,
+        message.source_chain_selector,
+        CcipOfframpError::InvalidMessageSourceChainSelector
+    );
+
     // On the first round the stage constructs the initial resolution inputs; subsequent
     // rounds forward the inputs returned by the previous round.
     let cpi_resolution_inputs = if stage_metadata.inner_cpi_resolution_inputs.is_empty() {
         serialize_metadata(&TokenPoolCpiResolutionInputs::ReleaseOrMint(Box::new(
-            release_or_mint_resolution_inputs(&message)?,
+            release_or_mint_resolution_inputs(
+                &message,
+                ctx.accounts.source_chain.config.legacy_address_length,
+            )?,
         )))?
     } else {
         stage_metadata.inner_cpi_resolution_inputs.clone()
@@ -75,6 +87,7 @@ pub fn nested_token_stage<'info>(
         exec_params,
         message.compute_message_id(),
         ctx.accounts.config.key(),
+        ctx.accounts.source_chain.key(),
         ctx.accounts.pool_program.key(),
         &mut stage_metadata,
         nested_response,
@@ -87,7 +100,10 @@ pub fn nested_token_stage<'info>(
 /// Unlike the onramp side, nothing here has to be left out: the offramp is executing an
 /// already-built message, so the whole transfer is readable off it, and the receiver usage off its
 /// dest blob. This mirrors `transfer_token_ccipv2`, which builds the same params at execution time.
-fn release_or_mint_resolution_inputs(message: &MessageV1) -> Result<ReleaseOrMintInV2> {
+fn release_or_mint_resolution_inputs(
+    message: &MessageV1,
+    legacy_address_length: u8,
+) -> Result<ReleaseOrMintInV2> {
     let token_transfer = message
         .token_transfer
         .as_ref()
@@ -104,7 +120,11 @@ fn release_or_mint_resolution_inputs(message: &MessageV1) -> Result<ReleaseOrMin
         amount: token_transfer.amount,
         local_token: parse_pubkey(&token_transfer.dest_token_address)?,
         source_pool_address: RemoteAddress {
-            address: token_transfer.source_pool_address.clone(),
+            address: normalized_address(
+                &token_transfer.source_pool_address,
+                legacy_address_length as usize,
+                CcipOfframpError::InvalidSourcePoolAddress,
+            )?,
         },
         source_pool_data: token_transfer.extra_data.clone(),
         requested_finality_config: message.finality,
@@ -116,6 +136,7 @@ fn handle_nested_token_pool_response(
     exec_params: ResolvedExecInputs,
     message_id: [u8; 32],
     offramp_config: Pubkey,
+    chain_config: Pubkey,
     pool_program: Pubkey,
     metadata: &mut ExecuteNestedTokenStageMetadata,
     nested_response: NestedResolveAccountsResponse,
@@ -127,6 +148,7 @@ fn handle_nested_token_pool_response(
         message_id,
         offramp_config,
         pool_program,
+        chain_config,
         metadata,
         nested_response,
     )?;
@@ -139,6 +161,7 @@ fn build_nested_token_pool_response(
     message_id: [u8; 32],
     offramp_config: Pubkey,
     pool_program: Pubkey,
+    chain_config: Pubkey,
     metadata: &mut ExecuteNestedTokenStageMetadata,
     nested_response: NestedResolveAccountsResponse,
 ) -> Result<ResolveAccountsResponse> {
@@ -157,6 +180,7 @@ fn build_nested_token_pool_response(
         Ok(ResolveAccountsResponse {
             ask_again_with: ask_again_with_for_nested_tokens(
                 offramp_config,
+                chain_config,
                 pool_program,
                 find(
                     &[seed::EXTERNAL_TOKEN_POOLS_SIGNER, pool_program.as_ref()],
