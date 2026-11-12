@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
@@ -16,8 +17,11 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/keystore"
+	commonconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/services"
 	solconfig "github.com/smartcontractkit/chainlink-solana/pkg/solana/config"
+	"github.com/smartcontractkit/chainlink-solana/pkg/solana/monitor"
 	soltxm "github.com/smartcontractkit/chainlink-solana/pkg/solana/txm"
 	txmutils "github.com/smartcontractkit/chainlink-solana/pkg/solana/txm/utils"
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/utils"
@@ -73,6 +77,7 @@ type SolanaContractTransmitter struct {
 	rpcClient        RPCClient
 	feePayerPubKey   solana.PublicKey
 	txm              soltxm.TxManager
+	balanceMonitor   services.Service
 	ccipLog          logger.Logger
 	cfg              Config
 
@@ -129,16 +134,22 @@ func NewSolanaContractTransmitter(ctx context.Context, p Params) (*SolanaContrac
 
 	// Keep terminal status records available for finality polling.
 	tomlCfg.Chain.TxRetentionTimeout = &cfg.TxRetentionTimeout
+	tomlCfg.Chain.BalancePollPeriod = commonconfig.MustNewDuration(time.Minute)
 	txmInst, err := soltxm.NewTxm(p.ChainID, utils.NewOnceLoader(p.RPC.Select), p.RPC.Send, &tomlCfg, ks, p.Lggr)
 	if err != nil {
 		return nil, fmt.Errorf("new txm: %w", err)
 	}
-	if err := errors.Join(txmInst.Start(ctx), ctx.Err()); err != nil {
+	balanceMonitor, err := monitor.NewBalanceMonitor(p.ChainID, &tomlCfg, p.Lggr, ks,
+		utils.NewOnceLoader(func(ctx context.Context) (monitor.BalanceClient, error) { return p.RPC.Select(ctx) }))
+	if err != nil {
+		return nil, fmt.Errorf("new balance monitor: %w", err)
+	}
+	if err = errors.Join(txmInst.Start(ctx), balanceMonitor.Start(ctx), ctx.Err()); err != nil {
 		// Close to release resources from Start before returning.
-		if cerr := txmInst.Close(); cerr != nil {
-			p.Lggr.Warnw("failed to close txm after startup failed", "error", cerr)
+		if cerr := errors.Join(balanceMonitor.Close(), txmInst.Close()); cerr != nil {
+			p.Lggr.Warnw("failed to close txm and balance monitor after startup failed", "error", cerr)
 		}
-		return nil, fmt.Errorf("start txm: %w", err)
+		return nil, fmt.Errorf("start txm and balance monitor: %w", err)
 	}
 
 	t := &SolanaContractTransmitter{
@@ -149,6 +160,7 @@ func NewSolanaContractTransmitter(ctx context.Context, p Params) (*SolanaContrac
 		rpcClient:        p.RPC,
 		feePayerPubKey:   feePayerPubKey,
 		txm:              txmInst,
+		balanceMonitor:   balanceMonitor,
 		ccipLog:          logger.Named(p.Lggr, "ccip.ResolveExecAccounts"),
 		cfg:              cfg,
 		closed:           make(chan struct{}),
@@ -157,16 +169,16 @@ func NewSolanaContractTransmitter(ctx context.Context, p Params) (*SolanaContrac
 	return t, nil
 }
 
-// Close shuts down the underlying txm and marks the transmitter closed so subsequent calls to
-// ConvertAndWriteMessageToChain return ErrTransmitterClosed. Idempotent and safe to call from
-// any goroutine.
+// Close shuts down the balance monitor and the underlying txm and marks the transmitter closed
+// so subsequent calls to ConvertAndWriteMessageToChain return ErrTransmitterClosed. Idempotent
+// and safe to call from any goroutine.
 //
 // In-flight submissions run on the caller's goroutine and are scoped to the caller's context,
 // so they are cancelled by the executor's own shutdown rather than here.
 func (t *SolanaContractTransmitter) Close() error {
 	t.closeOnce.Do(func() {
 		close(t.closed)
-		t.closeErr = t.txm.Close()
+		t.closeErr = errors.Join(t.balanceMonitor.Close(), t.txm.Close())
 	})
 	return t.closeErr
 }
