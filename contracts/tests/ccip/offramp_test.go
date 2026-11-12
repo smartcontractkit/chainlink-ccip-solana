@@ -2015,8 +2015,8 @@ func TestOffRamp(t *testing.T) {
 	// them. One table serves both directions, so on 2.0 the table cannot be what delivers the
 	// multisig: the release_or_mint resolver has to return it.
 	//
-	// Each case below is a configuration that should work both ways. Today the sends succeed and
-	// the executions fail with InvalidMultisig, because nothing passes the pool its multisig.
+	// Each case below is a configuration that has to work both ways. Neither puts the multisig where
+	// a 2.0 lane would forward it, so the executions rely on the resolver alone.
 	t.Run("token v2 bnm with a multisig mint authority", func(t *testing.T) {
 		programDataAddress := testutils.GetProgramDataAddress(ctx, t, solanaGoClient, config.CcipBurnMintTokenPoolProgram)
 
@@ -2168,8 +2168,8 @@ func TestOffRamp(t *testing.T) {
 					}
 					resolved := resolveExecAccountsWithAutoBuffering(t, execInputs, user)
 
-					// Fails today with InvalidMultisig: the pool's resolver returns only its own
-					// #[event_cpi] accounts, so the multisig never reaches release_or_mint.
+					// The multisig reaches release_or_mint only because the pool's resolver reads it
+					// off the mint; without it, this fails with InvalidMultisig.
 					result := testutils.SendAndConfirmWithLookupTables(ctx, t, solanaGoClient, []solana.Instruction{resolved.Ix}, user, config.DefaultCommitment, resolveLutMap(t, resolved.LookupTables), common.AddComputeUnitLimit(400_000))
 					require.NotNil(t, result)
 
