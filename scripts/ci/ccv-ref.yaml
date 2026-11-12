@@ -10,7 +10,7 @@
 # When pinned becomes invalid (e.g., after upstream squash-merge),
 # the required CI check will fail. Repin with: make pin-ccv-all REF=<new-sha>
 
-pinned: 51125e91f2d01d4ad326efa59f8d18beec780862
+pinned: 2ce98a8f934e857554e59de35971da45b20d22c7
 tracking: main
 module: github.com/smartcontractkit/chainlink-ccv
 submodules:
