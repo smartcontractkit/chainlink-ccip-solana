@@ -8,7 +8,7 @@ export type CcipRouter = {
   "address": "Ccip842gzYHhvdDkSyi2YVCoAWPbYJoApMFzSxQroE9C",
   "metadata": {
     "name": "ccipRouter",
-    "version": "2.0.1",
+    "version": "2.0.2",
     "spec": "0.1.0",
     "description": "Created with Anchor"
   },

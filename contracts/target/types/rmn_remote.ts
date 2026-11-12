@@ -8,7 +8,7 @@ export type RmnRemote = {
   "address": "RmnXLft1mSEwDgMKu2okYuHkiazxntFFcZFrrcXxYg7",
   "metadata": {
     "name": "rmnRemote",
-    "version": "2.0.1",
+    "version": "2.0.2",
     "spec": "0.1.0",
     "description": "Created with Anchor"
   },

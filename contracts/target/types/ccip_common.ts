@@ -8,7 +8,7 @@ export type CcipCommon = {
   "address": "Ccip842gzYHhvdDkSyi2YVCoAWPbYJoApMFzSxQroE9C",
   "metadata": {
     "name": "ccipCommon",
-    "version": "2.0.1",
+    "version": "2.0.2",
     "spec": "0.1.0"
   },
   "instructions": [

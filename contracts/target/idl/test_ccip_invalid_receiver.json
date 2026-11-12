@@ -2,7 +2,7 @@
   "address": "MhPhxwRHtZt9rkHEEFJ9eFjEna8fwbMHr8KYByvJkUm",
   "metadata": {
     "name": "test_ccip_invalid_receiver",
-    "version": "2.0.1",
+    "version": "2.0.2",
     "spec": "0.1.0",
     "description": "Created with Anchor"
   },
