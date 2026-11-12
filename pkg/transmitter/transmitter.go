@@ -50,7 +50,7 @@ type RPCClient interface {
 // ExecutionGasLimit, which already includes CcipReceiveGasLimit.
 func computeUnitLimit(msg protocol.Message) uint32 {
 	cu := min(uint64(msg.ExecutionGasLimit), soltxm.MaxComputeUnitLimit)
-	return uint32(cu) //nolint:gosec // G115: cu is capped at soltxm.MaxComputeUnitLimit (1.4M), fits in uint32
+	return uint32(cu)
 }
 
 // SolanaContractTransmitter submits CCIP execute_v2 transactions via chainlink-solana txm.
