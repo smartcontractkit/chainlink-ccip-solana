@@ -457,10 +457,15 @@ func TestSetPoolInterfaceImplementationVerify(t *testing.T) {
 		return SetPoolInterfaceImplementationChangesetInput{ChainSelector: sel, TokenMint: token, InterfaceVersion: version, AccountResolution: resolution}
 	}
 
-	require.NoError(t, setPoolInterfaceImplementationVerify(env, input(mint, 2, AccountResolutionStandard)))
-	require.ErrorContains(t, setPoolInterfaceImplementationVerify(env, input("not-a-key", 2, AccountResolutionStandard)), "invalid token mint")
-	require.ErrorContains(t, setPoolInterfaceImplementationVerify(env, input(mint, 3, AccountResolutionStandard)), "interfaceVersion")
+	require.NoError(t, setPoolInterfaceImplementationVerify(env, input(mint, 2, AccountResolutionWithoutExtendedLookupTable)))
+	require.NoError(t, setPoolInterfaceImplementationVerify(env, input(mint, 1, AccountResolutionNoResolution)))
+	require.ErrorContains(t, setPoolInterfaceImplementationVerify(env, input("not-a-key", 2, AccountResolutionWithoutExtendedLookupTable)), "invalid token mint")
+	require.ErrorContains(t, setPoolInterfaceImplementationVerify(env, input(mint, 3, AccountResolutionWithoutExtendedLookupTable)), "interfaceVersion")
 	require.ErrorContains(t, setPoolInterfaceImplementationVerify(env, input(mint, 2, "2")), "invalid accountResolution")
+	// Each interface version takes a single resolution mode, as the Router enforces.
+	require.ErrorContains(t, setPoolInterfaceImplementationVerify(env, input(mint, 2, AccountResolutionStandard)), "requires account resolution WithoutExtendedLookupTable")
+	require.ErrorContains(t, setPoolInterfaceImplementationVerify(env, input(mint, 2, AccountResolutionNoResolution)), "requires account resolution WithoutExtendedLookupTable")
+	require.ErrorContains(t, setPoolInterfaceImplementationVerify(env, input(mint, 1, AccountResolutionWithoutExtendedLookupTable)), "requires account resolution NoResolution")
 	envNoRouter := cldf.Environment{BlockChains: env.BlockChains, DataStore: datastore.NewMemoryDataStore().Seal()}
-	require.ErrorContains(t, setPoolInterfaceImplementationVerify(envNoRouter, input(mint, 2, AccountResolutionStandard)), "find router")
+	require.ErrorContains(t, setPoolInterfaceImplementationVerify(envNoRouter, input(mint, 2, AccountResolutionWithoutExtendedLookupTable)), "find router")
 }

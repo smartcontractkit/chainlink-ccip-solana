@@ -4965,6 +4965,11 @@ export type CcipRouter = {
       "code": 7067,
       "name": "tokenOwnedByMultisig",
       "msg": "Token uses a multisig as mint authority - use the multisig-specific method instead"
+    },
+    {
+      "code": 7068,
+      "name": "poolV2RequiresWithoutExtendedLookupTable",
+      "msg": "Pool interface version 2 requires the WithoutExtendedLookupTable account resolution"
     }
   ],
   "types": [

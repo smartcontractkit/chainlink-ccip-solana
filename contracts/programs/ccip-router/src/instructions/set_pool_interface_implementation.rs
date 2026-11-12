@@ -15,11 +15,24 @@ pub struct SetPoolInterfaceImplementationParams {
 }
 
 impl SetPoolInterfaceImplementationParams {
+    /// Each interface version allows a single account resolution mode, so the two can't be
+    /// misconfigured against each other:
+    ///
+    /// * A v1 pool takes no account resolution, as 2.0 lanes reject a v1 pool that has it.
+    /// * A v2 pool takes `WithoutExtendedLookupTable`. 2.0 lanes resolve every account a v2 pool
+    ///   needs beyond the lookup table's required entries, so they never take the additional
+    ///   entries. A table may still carry them for the token's 1.6 lanes, which ignore the skip
+    ///   flag and read the mode as resolution enabled.
     pub fn validate(&self) -> Result<()> {
         TokenAdminRegistry::validate_interface_version(self.interface_version)?;
         require!(
             !self.account_resolution.is_enabled() || self.interface_version >= 2,
             CcipRouterError::AccountResolutionRequiresV2
+        );
+        require!(
+            self.interface_version < 2
+                || self.account_resolution == ResolutionType::WithoutExtendedLookupTable,
+            CcipRouterError::PoolV2RequiresWithoutExtendedLookupTable
         );
         Ok(())
     }
@@ -99,23 +112,32 @@ mod tests {
     }
 
     #[test]
-    fn test_v2_without_account_resolution_ok() {
-        assert!(make_params(2, ResolutionType::NoResolution)
+    fn test_v2_without_extended_lookup_table_ok() {
+        assert!(make_params(2, ResolutionType::WithoutExtendedLookupTable)
             .validate()
             .is_ok());
     }
 
     #[test]
-    fn test_v2_with_account_resolution_ok() {
-        assert!(make_params(2, ResolutionType::Standard).validate().is_ok());
+    fn test_v2_with_other_account_resolutions_fails() {
+        for resolution in [ResolutionType::NoResolution, ResolutionType::Standard] {
+            let err = make_params(2, resolution).validate().unwrap_err();
+            assert_eq!(
+                err,
+                CcipRouterError::PoolV2RequiresWithoutExtendedLookupTable.into()
+            );
+        }
     }
 
     #[test]
     fn test_v1_with_account_resolution_fails() {
-        let err = make_params(1, ResolutionType::Standard)
-            .validate()
-            .unwrap_err();
-        assert_eq!(err, CcipRouterError::AccountResolutionRequiresV2.into());
+        for resolution in [
+            ResolutionType::Standard,
+            ResolutionType::WithoutExtendedLookupTable,
+        ] {
+            let err = make_params(1, resolution).validate().unwrap_err();
+            assert_eq!(err, CcipRouterError::AccountResolutionRequiresV2.into());
+        }
     }
 
     #[test]

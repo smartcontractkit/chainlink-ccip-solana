@@ -128,6 +128,27 @@ func loadTokenAdminRegistry(b operations.Bundle, chain cldf_solana.Chain, router
 	return ReadTokenAdminRegistry(b.GetContext(), chain.Client, pda)
 }
 
+// ValidatePoolInterfaceImplementation mirrors the Router's set_pool_interface_implementation validation, under which
+// each pool interface version takes a single account resolution mode. A v1 pool takes NoResolution, as 2.0 lanes reject
+// a v1 pool with account resolution. A v2 pool takes WithoutExtendedLookupTable, as 2.0 lanes resolve every account a
+// v2 pool needs beyond the lookup table's required entries. Checking it here also covers Routers that predate the v2
+// rule.
+func ValidatePoolInterfaceImplementation(interfaceVersion uint8, resolution ccip_router.ResolutionType) error {
+	var want ccip_router.ResolutionType
+	switch interfaceVersion {
+	case 1:
+		want = ccip_router.ResolutionType_NoResolution
+	case 2:
+		want = ccip_router.ResolutionType_WithoutExtendedLookupTable
+	default:
+		return fmt.Errorf("invalid pool interface version %d: must be 1 or 2", interfaceVersion)
+	}
+	if resolution != want {
+		return fmt.Errorf("pool interface version %d requires account resolution %s, got %s", interfaceVersion, want, resolution)
+	}
+	return nil
+}
+
 // requireLatestLayoutForResolution refuses to write WithoutExtendedLookupTable to a registry that is still on an
 // older layout. Only the latest layout stores that mode as the 0/1 resolution byte the 1.6 OffRamp decodes as a bool,
 // plus a trailing flag. An older layout stores it as 2 in that byte, which makes the registry unreadable to the 1.6

@@ -2535,7 +2535,7 @@ func TestOnRamp(t *testing.T) {
 			// withdrawal. (Account resolution for v1 pools is not supported on the v2 lane, so
 			// it is disabled together with the version downgrade.)
 			setToken1Interface(t, 1, ccip_router.ResolutionType_NoResolution)
-			defer setToken1Interface(t, 2, ccip_router.ResolutionType_Standard)
+			defer setToken1Interface(t, 2, ccip_router.ResolutionType_WithoutExtendedLookupTable)
 
 			feesBefore := feeBalances(env.WSOL.UserATA, env.WSOL.BillingATA, env.WSOL.BurnMintPoolVaultATA)
 
@@ -2600,7 +2600,7 @@ func TestOnRamp(t *testing.T) {
 			// withdrawal. (Account resolution for v1 pools is not supported on the v2 lane, so
 			// it is disabled together with the version downgrade.)
 			setToken1Interface(t, 1, ccip_router.ResolutionType_NoResolution)
-			defer setToken1Interface(t, 2, ccip_router.ResolutionType_Standard)
+			defer setToken1Interface(t, 2, ccip_router.ResolutionType_WithoutExtendedLookupTable)
 
 			// A pure token transfer (no data, zero receiver) skips the user/default CCV fallback
 			// entirely, so the pool is the only source that can pull in the lane defaults. A
@@ -2912,7 +2912,7 @@ func TestOnRamp(t *testing.T) {
 				ccip_router.SetPoolInterfaceImplementationParams{
 					Mint:              v2Token.Mint,
 					InterfaceVersion:  2,
-					AccountResolution: ccip_router.ResolutionType_Standard,
+					AccountResolution: ccip_router.ResolutionType_WithoutExtendedLookupTable,
 				},
 				config.RouterConfigPDA,
 				v2Token.AdminRegistryPDA,

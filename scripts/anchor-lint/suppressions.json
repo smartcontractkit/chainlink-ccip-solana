@@ -608,8 +608,8 @@
       "file": "programs/ccip-router/src/instructions/set_pool_interface_implementation.rs",
       "check": "INV-LINT-BUMP",
       "lines": [
-        59,
-        66
+        72,
+        79
       ]
     },
     {

@@ -9,6 +9,34 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/ccip_router"
 )
 
+func TestValidatePoolInterfaceImplementation(t *testing.T) {
+	tests := []struct {
+		name             string
+		interfaceVersion uint8
+		resolution       ccip_router.ResolutionType
+		wantErr          string
+	}{
+		{"v1 without resolution", 1, ccip_router.ResolutionType_NoResolution, ""},
+		{"v1 with standard resolution", 1, ccip_router.ResolutionType_Standard, "requires account resolution NoResolution"},
+		{"v1 skipping extras", 1, ccip_router.ResolutionType_WithoutExtendedLookupTable, "requires account resolution NoResolution"},
+		{"v2 skipping extras", 2, ccip_router.ResolutionType_WithoutExtendedLookupTable, ""},
+		{"v2 without resolution", 2, ccip_router.ResolutionType_NoResolution, "requires account resolution WithoutExtendedLookupTable"},
+		{"v2 with standard resolution", 2, ccip_router.ResolutionType_Standard, "requires account resolution WithoutExtendedLookupTable"},
+		{"unknown version", 3, ccip_router.ResolutionType_WithoutExtendedLookupTable, "invalid pool interface version 3"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidatePoolInterfaceImplementation(tt.interfaceVersion, tt.resolution)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestRequireLatestLayoutForResolution(t *testing.T) {
 	mint := solana.NewWallet().PublicKey()
 

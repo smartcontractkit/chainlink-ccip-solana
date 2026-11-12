@@ -30,9 +30,11 @@ type SetPoolInterfaceImplementationChangesetInput struct {
 	TokenMint string `json:"tokenMint"`
 	// InterfaceVersion is the pool interface the registry records: 1 (CCIP 1.6) or 2 (CCIP 2.0+).
 	InterfaceVersion uint8 `json:"interfaceVersion"`
-	// AccountResolution is NoResolution, Standard or WithoutExtendedLookupTable. Since TAR v4 all
-	// three keep the registry decodable by the 1.6 OffRamp: WithoutExtendedLookupTable is stored as
-	// Standard in the legacy byte plus a trailing skip flag.
+	// AccountResolution is NoResolution, Standard or WithoutExtendedLookupTable. Each interface version
+	// takes a single one, as the Router enforces: NoResolution for 1 and WithoutExtendedLookupTable for
+	// 2, so Standard is always rejected. Since TAR v4 every mode keeps the registry decodable by the 1.6
+	// OffRamp: WithoutExtendedLookupTable is stored as Standard in the legacy byte plus a trailing skip
+	// flag.
 	AccountResolution string     `json:"accountResolution"`
 	MCMS              mcms.Input `json:"mcms"`
 }
@@ -43,10 +45,10 @@ type SetPoolInterfaceImplementationChangesetInput struct {
 // It was introduced as a stopgap for the 1.6 CCTP lane outage, when a TAR v3 registry holding
 // WithoutExtendedLookupTable (enum value 2) broke 1.6 execution and the workaround was to set
 // Standard. TAR v4 removed that reason: WithoutExtendedLookupTable is now stored as Standard in the
-// legacy byte plus a trailing skip flag, so every mode is decodable by the 1.6 OffRamp. Do not set
-// Standard on a migrated CCTP registry: it makes 2.0 resolution include the legacy lookup table's
-// CCTPv1-specific entries, and lane promotion rejects it. After the Router upgrade to TAR v4, use
-// this changeset (or re-run MigrateCctpTokenPoolToV2Changeset) to set WithoutExtendedLookupTable.
+// legacy byte plus a trailing skip flag, so every mode is decodable by the 1.6 OffRamp. A v2 pool
+// now takes only WithoutExtendedLookupTable, so this changeset can no longer set Standard. After the
+// Router upgrade to TAR v4, use it (or re-run MigrateCctpTokenPoolToV2Changeset) to move a registry
+// left at Standard to WithoutExtendedLookupTable.
 //
 // It is idempotent: a registry already at the requested values produces no instruction.
 func SetPoolInterfaceImplementationChangeset() cldf.ChangeSetV2[SetPoolInterfaceImplementationChangesetInput] {
@@ -83,7 +85,11 @@ func setPoolInterfaceImplementationVerify(env cldf.Environment, input SetPoolInt
 	if input.InterfaceVersion != 1 && input.InterfaceVersion != 2 {
 		return fmt.Errorf("invalid interfaceVersion %d: must be 1 or 2", input.InterfaceVersion)
 	}
-	if _, err := parseAccountResolution(input.AccountResolution); err != nil {
+	resolution, parseErr := parseAccountResolution(input.AccountResolution)
+	if parseErr != nil {
+		return parseErr
+	}
+	if err := routerops.ValidatePoolInterfaceImplementation(input.InterfaceVersion, ccip_router.ResolutionType(resolution)); err != nil {
 		return err
 	}
 	if err := validateMCMSInput(env.Logger, input.MCMS); err != nil {

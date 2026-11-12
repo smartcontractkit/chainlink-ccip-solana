@@ -160,12 +160,14 @@ func TestLegacyTokenAdminRegistry(t *testing.T) {
 		require.Equal(t, []byte{1, bump, 2, tc.skipExtras}, raw[resolutionOffset:], tc.name)
 	}
 
-	// A Router write that requires v3 now succeeds.
+	// A Router write that requires the latest layout now succeeds.
 	require.NoError(t, exec(t, chain, routerops.SetPoolInterfaceImplementation, routerops.SetPoolInterfaceImplParams{
-		Router: ccip_router.ProgramID, TokenMint: mintV2.PublicKey(), InterfaceVersion: 2, ImplementsAccountResolution: 1,
+		Router: ccip_router.ProgramID, TokenMint: mintV2.PublicKey(), InterfaceVersion: 2,
+		ImplementsAccountResolution: uint8(ccip_router.ResolutionType_WithoutExtendedLookupTable),
 	}))
 	v2, _ = read(tarV2.Address)
 	require.Equal(t, uint8(2), v2.InterfaceVersion)
+	require.Equal(t, ccip_router.ResolutionType_WithoutExtendedLookupTable, routerops.TokenAdminRegistryResolutionType(v2))
 
 	// Setting WithoutExtendedLookupTable upgrades a registry still on the v3 layout first. Written on v3, the mode
 	// would be a 2 in the byte the 1.6 offramp decodes as a bool, and the token's 1.6 lanes would break.

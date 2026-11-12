@@ -675,6 +675,9 @@ var SetPoolInterfaceImplementation = operations.NewOperation(
 		if err != nil {
 			return sequences.OnChainOutput{}, fmt.Errorf("invalid resolution type: %w", err)
 		}
+		if err = ValidatePoolInterfaceImplementation(input.InterfaceVersion, *resolutionType); err != nil {
+			return sequences.OnChainOutput{}, fmt.Errorf("invalid pool interface implementation for mint %s: %w", input.TokenMint, err)
+		}
 		var tokenAdminRegistryVersion uint8
 		tokenAdminRegistryAccount, tokenAdminRegistryVersion, err = loadTokenAdminRegistry(b, chain, input.Router, input.TokenMint)
 		if err != nil && !errors.Is(err, rpc.ErrNotFound) {

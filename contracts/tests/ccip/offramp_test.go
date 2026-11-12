@@ -1622,14 +1622,12 @@ func TestOffRamp(t *testing.T) {
 		})
 	})
 
-	// setupV2BurnmintPool creates, funds, registers (interface v2) and lane-configures a v2 burn/mint
-	// pool, returning it ready for transfers and view queries.
-	// setupV2BurnmintPoolWith sets up a v2 burn/mint pool with Standard resolution. With
-	// multisigMintAuthority the pool mints through a multisig carried as a lookup table extra (see
-	// useMultisigMintAuthority); otherwise the pool signer is the mint authority.
+	// setupV2BurnmintPool creates, funds, registers (interface v2, WithoutExtendedLookupTable) and
+	// lane-configures a v2 burn/mint pool whose signer is the mint authority, returning it ready for
+	// transfers and view queries.
 	v2SourcePoolAddressFull := protocol.ByteSlice(config.EVMRemotePoolAddressBytes)
 	v2SourcePoolAddressTrim := protocol.ByteSlice(config.EVMRemotePoolAddressBytesTrim)
-	setupV2BurnmintPoolWith := func(t *testing.T, multisigMintAuthority bool) tokens.TokenPool {
+	setupV2BurnmintPool := func(t *testing.T) tokens.TokenPool {
 		v2TokenMint := solana.NewWallet().PrivateKey
 		v2Token, err := tokens.NewTokenPool(config.SPLTokenProgram, config.CcipBurnMintTokenPoolProgram, v2TokenMint.PublicKey())
 		require.NoError(t, err)
@@ -1679,25 +1677,14 @@ func TestOffRamp(t *testing.T) {
 		require.NoError(t, err)
 		v2Token.PoolTokenAccount = addrV2Pool
 		v2Token.User[v2Token.PoolSigner] = addrV2Pool
-		if multisigMintAuthority {
-			testutils.SendAndConfirm(ctx, t, solanaGoClient, []solana.Instruction{ixAtaV2Pool}, testutils.Token0Admin, config.DefaultCommitment)
-			// Lookup table extras reach a 2.0 pool ahead of the accounts its nested resolution
-			// supplies, so they must lead with the pool's own `#[event_cpi]` accounts or they would
-			// shift its account list (see example_sender_v2_test.go).
-			eventAuthority, _, findErr := state.FindEventAuthorityPDA(v2Token.PoolProgram)
-			require.NoError(t, findErr)
-			v2Token.AdditionalAccounts = append(v2Token.AdditionalAccounts, eventAuthority, v2Token.PoolProgram)
-			useMultisigMintAuthority(t, &v2Token)
-		} else {
-			ixAuthV2, authErr := tokens.SetTokenMintAuthority(v2Token.Program, v2Token.PoolSigner, v2Token.Mint, testutils.Token0Admin.PublicKey())
-			require.NoError(t, authErr)
-			testutils.SendAndConfirm(ctx, t, solanaGoClient, []solana.Instruction{ixAtaV2Pool, ixAuthV2}, testutils.Token0Admin, config.DefaultCommitment)
-		}
+		ixAuthV2, err := tokens.SetTokenMintAuthority(v2Token.Program, v2Token.PoolSigner, v2Token.Mint, testutils.Token0Admin.PublicKey())
+		require.NoError(t, err)
+		testutils.SendAndConfirm(ctx, t, solanaGoClient, []solana.Instruction{ixAtaV2Pool, ixAuthV2}, testutils.Token0Admin, config.DefaultCommitment)
 
 		require.NoError(t, v2Token.SetupLookupTable(ctx, solanaGoClient, testutils.Token0Admin))
 
 		ensureCommitteeVerifierLane(t, 1)
-		registerPoolWithRouter(t, v2Token, 2, ccip_router.ResolutionType_Standard)
+		registerPoolWithRouter(t, v2Token, 2, ccip_router.ResolutionType_WithoutExtendedLookupTable)
 
 		poolAddresses := []burnmint_tokenpool.RemoteAddress{{Address: v2SourcePoolAddressTrim}}
 		ixRemoteConfigV2, err := burnmint_tokenpool.NewInitChainRemoteConfigInstruction(
@@ -1736,10 +1723,6 @@ func TestOffRamp(t *testing.T) {
 		testutils.SendAndConfirm(ctx, t, solanaGoClient, []solana.Instruction{ixRemoteConfigV2, ixAppendRemoteV2, ixRateLimitV2}, testutils.Token0Admin, config.DefaultCommitment)
 
 		return v2Token
-	}
-
-	setupV2BurnmintPool := func(t *testing.T) tokens.TokenPool {
-		return setupV2BurnmintPoolWith(t, false)
 	}
 
 	t.Run("token v2 bnm (all ATA options)", func(t *testing.T) {
@@ -1957,10 +1940,11 @@ func TestOffRamp(t *testing.T) {
 	})
 
 	// A pool lookup table may carry additional entries after the required ones, which the OffRamp
-	// forwards to the pool. When the message asks for the receiver ATA to be created, the parsers
+	// forwards to a v1 pool. When the message asks for the receiver ATA to be created, the parsers
 	// expect those entries after the receiver wallet and the Associated Token Program, so resolution
 	// must emit them there. A pool minting through a multisig is the canonical case: the multisig is
-	// such an entry, and the pool cannot mint without it.
+	// such an entry, and the pool cannot mint without it. A v2 pool never gets the entries on a 2.0
+	// lane, as the router only registers v2 pools with WithoutExtendedLookupTable.
 	t.Run("token transfer creating the receiver ATA with lookup table extras", func(t *testing.T) {
 		transferCreatingAta := func(t *testing.T, pool tokens.TokenPool, sourcePoolAddress protocol.ByteSlice) {
 			require.NotEmpty(t, pool.AdditionalAccounts, "the pool lookup table must carry an additional entry")
@@ -1999,32 +1983,23 @@ func TestOffRamp(t *testing.T) {
 			// resolution round.
 			transferCreatingAta(t, setupV1BurnmintPool(t, true), v1SourcePoolAddressFull)
 		})
-
-		t.Run("v2 pool", func(t *testing.T) {
-			// The prefix, the required entries and the ATA pair fill the first resolution round
-			// exactly, so the extras are emitted in a second one.
-			transferCreatingAta(t, setupV2BurnmintPoolWith(t, true), v2SourcePoolAddressFull)
-		})
 	})
 
 	// A burn/mint token whose mint authority is an SPL multisig (with the pool signer as a member)
-	// has to work on 2.0 lanes in both directions. On those lanes the router and the OffRamp pass
-	// the pool its named accounts, then the lookup table's additional entries, then the accounts
-	// the pool's own resolver returned. lock_or_burn_tokens_v2 and release_or_mint_tokens_v2 both
-	// expect their resolver's accounts right after the named ones, so any additional entry shifts
-	// them. One table serves both directions, so on 2.0 the table cannot be what delivers the
-	// multisig: the release_or_mint resolver has to return it.
+	// has to work on 2.0 lanes in both directions. A v2 registry has those lanes skip the lookup
+	// table's additional entries, so the table cannot deliver the multisig there: the
+	// release_or_mint resolver has to return it.
 	//
-	// Each case below is a configuration that has to work both ways. Neither puts the multisig where
-	// a 2.0 lane would forward it, so the executions rely on the resolver alone.
+	// Each case below is a configuration that has to work both ways, and the executions rely on the
+	// resolver alone.
 	t.Run("token v2 bnm with a multisig mint authority", func(t *testing.T) {
 		programDataAddress := testutils.GetProgramDataAddress(ctx, t, solanaGoClient, config.CcipBurnMintTokenPoolProgram)
 
 		// setupMultisigPool starts from a pool that mints with its own signer and hands the mint
 		// authority to a 1-of-2 multisig of [Token0Admin, pool signer] through the pool's own
 		// instruction, as the v2_0_0 token sequence does. It then appends lookupTableExtras to the
-		// pool's lookup table and registers the pool with the given resolution type.
-		setupMultisigPool := func(t *testing.T, lookupTableExtras func(multisig solana.PublicKey) []solana.PublicKey, resolution ccip_router.ResolutionType) tokens.TokenPool {
+		// pool's lookup table.
+		setupMultisigPool := func(t *testing.T, lookupTableExtras func(multisig solana.PublicKey) []solana.PublicKey) tokens.TokenPool {
 			pool := setupV2BurnmintPool(t)
 
 			multisig := solana.NewWallet().PrivateKey
@@ -2059,24 +2034,6 @@ func TestOffRamp(t *testing.T) {
 				pool.AdditionalAccounts = append(pool.AdditionalAccounts, extras...)
 			}
 
-			// setupV2BurnmintPool registers the pool with Standard resolution.
-			if resolution != ccip_router.ResolutionType_Standard {
-				ixInterface, ixErr := ccip_router.NewSetPoolInterfaceImplementationInstruction(
-					ccip_router.SetPoolInterfaceImplementationParams{
-						Mint:              pool.Mint,
-						InterfaceVersion:  2,
-						AccountResolution: resolution,
-					},
-					config.RouterConfigPDA,
-					pool.AdminRegistryPDA,
-					testutils.Token0Admin.PublicKey(),
-					config.RouterEventAuthorityPDA,
-					config.CcipRouterProgram,
-				)
-				require.NoError(t, ixErr)
-				testutils.SendAndConfirm(ctx, t, solanaGoClient, []solana.Instruction{ixInterface}, testutils.Token0Admin, config.DefaultCommitment)
-			}
-
 			// ccip_send_v2 pays the pool's fee receipt into the pool's fee vault ATA for the fee
 			// token. The vault is qualified by the managed mint, so this fresh mint needs its own.
 			feeVault, _, err := state.FindFeeVaultPDA(config.CcipBurnMintTokenPoolProgram, pool.Mint.Bytes())
@@ -2093,26 +2050,22 @@ func TestOffRamp(t *testing.T) {
 			// lookupTableExtras returns the entries the pool's lookup table carries after the
 			// required ones. Nil means none.
 			lookupTableExtras func(multisig solana.PublicKey) []solana.PublicKey
-			resolution        ccip_router.ResolutionType
 		}{
 			{
-				// A token onboarded on 2.0 has nothing after the required entries, so nothing
-				// shifts the pool's resolved accounts in either direction.
-				name:       "onboarded on 2.0 with no lookup table extras",
-				resolution: ccip_router.ResolutionType_Standard,
+				// A token onboarded on 2.0 has nothing after the required entries.
+				name: "onboarded on 2.0 with no lookup table extras",
 			},
 			{
 				// A token migrated from 1.6 keeps the multisig in its lookup table, because its 1.6
-				// lanes find it nowhere else, and its registry has 2.0 lanes skip the extras.
+				// lanes find it nowhere else. Its v2 registry has 2.0 lanes skip the extras.
 				name:              "migrated from 1.6 with the multisig extra skipped on 2.0",
 				lookupTableExtras: func(multisig solana.PublicKey) []solana.PublicKey { return []solana.PublicKey{multisig} },
-				resolution:        ccip_router.ResolutionType_WithoutExtendedLookupTable,
 			},
 		}
 
 		for _, tc := range testcases {
 			t.Run(tc.name, func(t *testing.T) {
-				pool := setupMultisigPool(t, tc.lookupTableExtras, tc.resolution)
+				pool := setupMultisigPool(t, tc.lookupTableExtras)
 
 				t.Run("ccip_send_v2 burns the tokens", func(t *testing.T) {
 					userTokenAccount := pool.User[user.PublicKey()]
@@ -2311,7 +2264,7 @@ func TestOffRamp(t *testing.T) {
 		testutils.SendAndConfirm(ctx, t, solanaGoClient, []solana.Instruction{ixPoolAta}, testutils.Token0Admin, config.DefaultCommitment)
 		lombardPool.PoolTokenAccount = poolAta
 
-		// An extra the table carries past its required entries, which only Standard resolution forwards.
+		// An extra the table carries past its required entries, which a v2 registry never forwards.
 		extra := solana.NewWallet().PublicKey()
 		lombardPool.AdditionalAccounts = append(lombardPool.AdditionalAccounts, extra)
 		require.NoError(t, lombardPool.SetupLookupTable(ctx, solanaGoClient, testutils.Token0Admin))
@@ -2337,32 +2290,16 @@ func TestOffRamp(t *testing.T) {
 			return keys
 		}
 
+		// The table does carry the extra, so its absence below is down to the resolution mode.
+		entries, err := common.GetAddressLookupTable(ctx, solanaGoClient, lombardPool.PoolLookupTable)
+		require.NoError(t, err)
+		require.Contains(t, entries, extra)
+
 		keys := resolvedKeys(t)
 		require.NotContains(t, keys, extra, "WithoutExtendedLookupTable must skip the table's additional entries")
 		// The pool's nested resolution still ran: these come from its release_or_mint_start.
 		require.Contains(t, keys, lombardEventAuthority)
 		require.Contains(t, keys, config.LombardTokenPoolProgram)
-
-		// Flipping the same registry to Standard brings the extra back, so the absence above is down
-		// to the resolution mode rather than to how the table was built.
-		ixStandard, err := ccip_router.NewSetPoolInterfaceImplementationInstruction(
-			ccip_router.SetPoolInterfaceImplementationParams{
-				Mint:              lombardPool.Mint,
-				InterfaceVersion:  2,
-				AccountResolution: ccip_router.ResolutionType_Standard,
-			},
-			config.RouterConfigPDA,
-			lombardPool.AdminRegistryPDA,
-			testutils.Token0Admin.PublicKey(),
-			config.RouterEventAuthorityPDA,
-			config.CcipRouterProgram,
-		)
-		require.NoError(t, err)
-		testutils.SendAndConfirm(ctx, t, solanaGoClient, []solana.Instruction{ixStandard}, testutils.Token0Admin, config.DefaultCommitment)
-
-		keys = resolvedKeys(t)
-		require.Contains(t, keys, extra)
-		require.Contains(t, keys, lombardEventAuthority)
 	})
 
 	t.Run("token v2 cctp", func(t *testing.T) {
@@ -2690,7 +2627,7 @@ func TestOffRamp(t *testing.T) {
 		require.NoError(t, lnrToken.SetupLookupTable(ctx, solanaGoClient, testutils.Token0Admin))
 
 		ensureCommitteeVerifierLane(t, 1)
-		registerPoolWithRouter(t, lnrToken, 2, ccip_router.ResolutionType_Standard)
+		registerPoolWithRouter(t, lnrToken, 2, ccip_router.ResolutionType_WithoutExtendedLookupTable)
 
 		// Remote config + allowed source pool address + rate limit.
 		poolAddresses := []lockrelease_tokenpool.RemoteAddress{{Address: config.EVMRemotePoolAddressBytesTrim}}
