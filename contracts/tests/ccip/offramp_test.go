@@ -5,6 +5,7 @@ package contracts
 
 import (
 	"fmt"
+	"maps"
 	"math/big"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ import (
 
 	bin "github.com/gagliardetto/binary"
 	"github.com/gagliardetto/solana-go"
+	"github.com/gagliardetto/solana-go/programs/token"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/stretchr/testify/require"
 
@@ -2003,6 +2005,187 @@ func TestOffRamp(t *testing.T) {
 			// exactly, so the extras are emitted in a second one.
 			transferCreatingAta(t, setupV2BurnmintPoolWith(t, true), v2SourcePoolAddressFull)
 		})
+	})
+
+	// A burn/mint token whose mint authority is an SPL multisig (with the pool signer as a member)
+	// has to work on 2.0 lanes in both directions. On those lanes the router and the OffRamp pass
+	// the pool its named accounts, then the lookup table's additional entries, then the accounts
+	// the pool's own resolver returned. lock_or_burn_tokens_v2 and release_or_mint_tokens_v2 both
+	// expect their resolver's accounts right after the named ones, so any additional entry shifts
+	// them. One table serves both directions, so on 2.0 the table cannot be what delivers the
+	// multisig: the release_or_mint resolver has to return it.
+	//
+	// Each case below is a configuration that should work both ways. Today the sends succeed and
+	// the executions fail with InvalidMultisig, because nothing passes the pool its multisig.
+	t.Run("token v2 bnm with a multisig mint authority", func(t *testing.T) {
+		programDataAddress := testutils.GetProgramDataAddress(ctx, t, solanaGoClient, config.CcipBurnMintTokenPoolProgram)
+
+		// setupMultisigPool starts from a pool that mints with its own signer and hands the mint
+		// authority to a 1-of-2 multisig of [Token0Admin, pool signer] through the pool's own
+		// instruction, as the v2_0_0 token sequence does. It then appends lookupTableExtras to the
+		// pool's lookup table and registers the pool with the given resolution type.
+		setupMultisigPool := func(t *testing.T, lookupTableExtras func(multisig solana.PublicKey) []solana.PublicKey, resolution ccip_router.ResolutionType) tokens.TokenPool {
+			pool := setupV2BurnmintPool(t)
+
+			multisig := solana.NewWallet().PrivateKey
+			ixMsig, err := tokens.CreateMultisig(ctx, testutils.Token0Admin.PublicKey(), pool.Program, multisig.PublicKey(), 1, []solana.PublicKey{testutils.Token0Admin.PublicKey(), pool.PoolSigner}, solanaGoClient, config.DefaultCommitment)
+			require.NoError(t, err)
+			testutils.SendAndConfirm(ctx, t, solanaGoClient, ixMsig, testutils.Token0Admin, config.DefaultCommitment, common.AddSigners(multisig))
+
+			ixAuth, err := burnmint_tokenpool.NewTransferMintAuthorityToMultisigInstruction(
+				pool.PoolConfig,
+				pool.Mint,
+				pool.Program,
+				pool.PoolSigner,
+				legacyAdmin.PublicKey(),
+				multisig.PublicKey(),
+				config.CcipBurnMintTokenPoolProgram,
+				programDataAddress,
+			)
+			require.NoError(t, err)
+			testutils.SendAndConfirm(ctx, t, solanaGoClient, []solana.Instruction{ixAuth}, legacyAdmin, config.DefaultCommitment)
+			pool.MintAuthorityMultisig = multisig.PublicKey()
+
+			// Guard against a vacuous pass: the pool must not be able to mint with its signer alone.
+			var mintAccount token.Mint
+			require.NoError(t, common.GetAccountDataBorshInto(ctx, solanaGoClient, pool.Mint, config.DefaultCommitment, &mintAccount))
+			require.NotNil(t, mintAccount.MintAuthority)
+			require.Equal(t, multisig.PublicKey(), *mintAccount.MintAuthority)
+
+			if lookupTableExtras != nil {
+				extras := lookupTableExtras(multisig.PublicKey())
+				require.NoError(t, common.ExtendLookupTable(ctx, solanaGoClient, pool.PoolLookupTable, testutils.Token0Admin, extras))
+				require.NoError(t, common.AwaitSlotChange(ctx, solanaGoClient))
+				pool.AdditionalAccounts = append(pool.AdditionalAccounts, extras...)
+			}
+
+			// setupV2BurnmintPool registers the pool with Standard resolution.
+			if resolution != ccip_router.ResolutionType_Standard {
+				ixInterface, ixErr := ccip_router.NewSetPoolInterfaceImplementationInstruction(
+					ccip_router.SetPoolInterfaceImplementationParams{
+						Mint:              pool.Mint,
+						InterfaceVersion:  2,
+						AccountResolution: resolution,
+					},
+					config.RouterConfigPDA,
+					pool.AdminRegistryPDA,
+					testutils.Token0Admin.PublicKey(),
+					config.RouterEventAuthorityPDA,
+					config.CcipRouterProgram,
+				)
+				require.NoError(t, ixErr)
+				testutils.SendAndConfirm(ctx, t, solanaGoClient, []solana.Instruction{ixInterface}, testutils.Token0Admin, config.DefaultCommitment)
+			}
+
+			// ccip_send_v2 pays the pool's fee receipt into the pool's fee vault ATA for the fee
+			// token. The vault is qualified by the managed mint, so this fresh mint needs its own.
+			feeVault, _, err := state.FindFeeVaultPDA(config.CcipBurnMintTokenPoolProgram, pool.Mint.Bytes())
+			require.NoError(t, err)
+			ixVaultAta, _, err := tokens.CreateAssociatedTokenAccount(env.WSOL.Program, env.WSOL.Mint, feeVault, legacyAdmin.PublicKey())
+			require.NoError(t, err)
+			testutils.SendAndConfirm(ctx, t, solanaGoClient, []solana.Instruction{ixVaultAta}, legacyAdmin, config.DefaultCommitment)
+
+			return pool
+		}
+
+		testcases := []struct {
+			name string
+			// lookupTableExtras returns the entries the pool's lookup table carries after the
+			// required ones. Nil means none.
+			lookupTableExtras func(multisig solana.PublicKey) []solana.PublicKey
+			resolution        ccip_router.ResolutionType
+		}{
+			{
+				// A token onboarded on 2.0 has nothing after the required entries, so nothing
+				// shifts the pool's resolved accounts in either direction.
+				name:       "onboarded on 2.0 with no lookup table extras",
+				resolution: ccip_router.ResolutionType_Standard,
+			},
+			{
+				// A token migrated from 1.6 keeps the multisig in its lookup table, because its 1.6
+				// lanes find it nowhere else, and its registry has 2.0 lanes skip the extras.
+				name:              "migrated from 1.6 with the multisig extra skipped on 2.0",
+				lookupTableExtras: func(multisig solana.PublicKey) []solana.PublicKey { return []solana.PublicKey{multisig} },
+				resolution:        ccip_router.ResolutionType_WithoutExtendedLookupTable,
+			},
+		}
+
+		for _, tc := range testcases {
+			t.Run(tc.name, func(t *testing.T) {
+				pool := setupMultisigPool(t, tc.lookupTableExtras, tc.resolution)
+
+				t.Run("ccip_send_v2 burns the tokens", func(t *testing.T) {
+					userTokenAccount := pool.User[user.PublicKey()]
+					_, initBal, err := tokens.TokenBalance(ctx, solanaGoClient, userTokenAccount, config.DefaultCommitment)
+					require.NoError(t, err)
+
+					message := ccip_router.Svm2AnyMessage{
+						FeeToken:     env.WSOL.Mint,
+						Receiver:     env.ValidEvmRawReceiverAddress[:],
+						Data:         []byte{7, 8, 9},
+						ExtraArgs:    []byte{},
+						TokenAmounts: []ccip_router.SvmTokenAmount{{Token: pool.Mint, Amount: 1}},
+					}
+					resolved, err := ccip.ResolveCcipSendV2Accounts(ctx, solanaGoClient, config.CcipRouterProgram, config.EvmChainSelector, message, user.PublicKey(), logger.Test(t))
+					require.NoError(t, err)
+
+					// This suite never sets the router's onramp lookup table, so resolution doesn't
+					// return it. Attach it here so the send fits in a transaction.
+					lookupTables := resolveLutMap(t, resolved.LookupTables)
+					maps.Copy(lookupTables, env.CcipSendLookupTable)
+
+					ixApprove, err := tokens.TokenApproveChecked(1, 9, pool.Program, userTokenAccount, pool.Mint, config.BillingSignerPDA, user.PublicKey(), nil)
+					require.NoError(t, err)
+
+					result := testutils.SendAndConfirmWithLookupTables(ctx, t, solanaGoClient, []solana.Instruction{ixApprove, resolved.Ix}, user, config.DefaultCommitment, lookupTables, common.AddComputeUnitLimit(500_000))
+					require.NotNil(t, result)
+
+					tx, err := result.Transaction.GetTransaction()
+					require.NoError(t, err)
+					burnEvent, err := common.ExtractCPIEvent(tx, result.Meta, config.CcipBurnMintTokenPoolProgram, base_token_pool.ParseEvent_LockedOrBurned)
+					require.NoError(t, err)
+					require.Equal(t, pool.Mint, burnEvent.Mint)
+					require.Equal(t, uint64(1), burnEvent.Amount)
+
+					_, finalBal, err := tokens.TokenBalance(ctx, solanaGoClient, userTokenAccount, config.DefaultCommitment)
+					require.NoError(t, err)
+					require.Equal(t, 1, initBal-finalBal)
+				})
+
+				t.Run("execute_v2 mints through the multisig", func(t *testing.T) {
+					receiver := solana.NewWallet().PublicKey()
+					receiverAta, _, err := solana.FindAssociatedTokenAddress(receiver, pool.Mint)
+					require.NoError(t, err)
+
+					encodedMessage, messageID := buildTokenTransferMsg(t, pool.Mint, v2SourcePoolAddressFull, receiver, ccip_common.SvmTokenReceiverUsage_DeriveAtaAndCreate)
+					verifierResults, err := testutils.SignCommitteeVerifierMessage(messageID, signers, 1)
+					require.NoError(t, err)
+
+					execInputs := ccip_offramp.ExecutionInputsV2{
+						EncodedMessage:  encodedMessage,
+						Ccvs:            []solana.PublicKey{config.CommitteeVerifierProgram},
+						VerifierResults: [][]byte{verifierResults},
+					}
+					resolved := resolveExecAccountsWithAutoBuffering(t, execInputs, user)
+
+					// Fails today with InvalidMultisig: the pool's resolver returns only its own
+					// #[event_cpi] accounts, so the multisig never reaches release_or_mint.
+					result := testutils.SendAndConfirmWithLookupTables(ctx, t, solanaGoClient, []solana.Instruction{resolved.Ix}, user, config.DefaultCommitment, resolveLutMap(t, resolved.LookupTables), common.AddComputeUnitLimit(400_000))
+					require.NotNil(t, result)
+
+					tx, err := result.Transaction.GetTransaction()
+					require.NoError(t, err)
+					mintEvent, err := common.ExtractCPIEvent(tx, result.Meta, config.CcipBurnMintTokenPoolProgram, base_token_pool.ParseEvent_ReleasedOrMinted)
+					require.NoError(t, err)
+					require.Equal(t, receiver, mintEvent.Recipient)
+					require.Equal(t, uint64(1), mintEvent.Amount)
+
+					_, balance, err := tokens.TokenBalance(ctx, solanaGoClient, receiverAta, config.DefaultCommitment)
+					require.NoError(t, err)
+					require.Equal(t, 1, balance)
+				})
+			})
+		}
 	})
 
 	// Pool-side rejections on the inbound path. These live here rather than in tokenpool_test.go
