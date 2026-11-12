@@ -1,21 +1,23 @@
+use anchor_lang::error::ErrorCode;
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::Mint;
 
 use base_token_pool::errors::CcipTokenPoolError;
 use base_token_pool::state::BaseConfig;
-use base_token_pool::v2::{ReleaseOrMintInV2, TokenPoolCpiResolutionInputs};
+use base_token_pool::v2::ReleaseOrMintInV2;
 use ccip_common::resolution::*;
 use ccip_common::seed;
 
-use super::super::resolve_accounts_start::NestedResolveAccountsStart;
+use super::super::resolve_accounts_start::{
+    BurnMintCpiResolutionInputs, NestedResolveAccountsStart,
+};
 
-/// Account resolution for the `release_or_mint_tokens_v2` instruction.
+/// Stage one of account resolution for the `release_or_mint_tokens_v2` instruction.
 ///
-/// Besides its `#[event_cpi]` accounts, the instruction needs the mint authority among its
-/// remaining accounts whenever that authority is a multisig rather than the pool signer, and only
-/// the mint account says which one it is. The caller starts with just the pool's `State`, so a
-/// round without the mint asks for it and saves nothing, and the round that has it returns every
-/// account. Both rounds take the same inputs; what tells them apart is whether the mint was passed.
+/// Besides its `#[event_cpi]` accounts, which this stage returns, the instruction needs the mint
+/// authority among its remaining accounts whenever that authority is a multisig rather than the
+/// pool signer. Only the mint account says which one it is, and the caller starts with just the
+/// pool's `State`, so this stage asks for the mint and [`with_mint`] reads it.
 ///
 /// The pool's lookup table cannot deliver the multisig on a 2.0 lane instead. Its additional
 /// entries reach the pool ahead of the accounts resolved here and would shift the `#[event_cpi]`
@@ -23,47 +25,50 @@ use super::super::resolve_accounts_start::NestedResolveAccountsStart;
 /// shift too.
 pub fn start(
     ctx: Context<NestedResolveAccountsStart>,
-    release_or_mint: &ReleaseOrMintInV2,
+    _release_or_mint: &ReleaseOrMintInV2,
 ) -> Result<NestedResolveAccountsResponse> {
-    resolve(
-        ctx.accounts.state.key(),
-        &ctx.accounts.state.config,
-        ctx.remaining_accounts.first(),
-        release_or_mint,
-    )
+    resolve_start(ctx.accounts.state.key(), ctx.accounts.state.config.mint)
 }
 
-fn resolve(
-    state: Pubkey,
+/// Stage two of account resolution for the `release_or_mint_tokens_v2` instruction. The mint that
+/// [`start`] asked for is the first of the resolver's remaining accounts.
+pub fn with_mint(
+    ctx: Context<NestedResolveAccountsStart>,
+) -> Result<NestedResolveAccountsResponse> {
+    resolve_with_mint(&ctx.accounts.state.config, ctx.remaining_accounts.first())
+}
+
+fn resolve_start(state: Pubkey, mint: Pubkey) -> Result<NestedResolveAccountsResponse> {
+    Ok(NestedResolveAccountsResponse {
+        ask_again_with: vec![state, mint],
+        accounts_to_save: vec![
+            // These could've easily been derived by the offramp resolver, but we leave them here to
+            // prove nested resolution. In the case of a real third party token pool, they won't be
+            // mandatory anyway as they depend on whether the pool emits CPI events.
+            find(&[seed::EVENT_AUTHORITY], crate::ID).readonly(),
+            crate::ID.readonly(),
+        ],
+        lookup_tables_to_save: vec![],
+        next_cpi_resolution_inputs: serialize_metadata(
+            &BurnMintCpiResolutionInputs::ReleaseOrMintWithMint,
+        )?,
+    })
+}
+
+fn resolve_with_mint(
     config: &BaseConfig,
     mint: Option<&AccountInfo>,
-    release_or_mint: &ReleaseOrMintInV2,
 ) -> Result<NestedResolveAccountsResponse> {
-    let Some(mint) = mint else {
-        return Ok(NestedResolveAccountsResponse {
-            ask_again_with: vec![state, config.mint],
-            accounts_to_save: vec![],
-            lookup_tables_to_save: vec![],
-            next_cpi_resolution_inputs: serialize_metadata(
-                &TokenPoolCpiResolutionInputs::ReleaseOrMint(Box::new(release_or_mint.clone())),
-            )?,
-        });
-    };
+    let mint = mint.ok_or(ErrorCode::AccountNotEnoughKeys)?;
 
-    let mut accounts_to_save = vec![
-        // These could've easily been derived by the offramp resolver, but we leave them here to
-        // prove nested resolution. In the case of a real third party token pool, they won't be
-        // mandatory anyway as they depend on whether the pool emits CPI events.
-        find(&[seed::EVENT_AUTHORITY], crate::ID).readonly(),
-        crate::ID.readonly(),
-    ];
-
-    // A mint without an authority can't be minted to at all; the instruction reports that itself.
-    if let Some(mint_authority) = mint_authority(mint, config)? {
-        if mint_authority != config.pool_signer {
-            accounts_to_save.push(mint_authority.readonly());
+    let accounts_to_save = match mint_authority(mint, config)? {
+        Some(mint_authority) if mint_authority != config.pool_signer => {
+            vec![mint_authority.readonly()]
         }
-    }
+        // The pool signer mints on its own. A mint without an authority can't be minted to at all,
+        // and the instruction reports that itself.
+        _ => vec![],
+    };
 
     Ok(NestedResolveAccountsResponse {
         ask_again_with: vec![],
@@ -93,8 +98,6 @@ mod tests {
     use anchor_lang::solana_program::program_pack::Pack;
     use anchor_spl::token::spl_token;
     use anchor_spl::token_2022::spl_token_2022;
-    use base_token_pool::state::RemoteAddress;
-    use ccip_common::messages::{FinalityConfig, SVMTokenReceiverUsage};
 
     fn config(token_program: Pubkey) -> BaseConfig {
         BaseConfig {
@@ -116,24 +119,6 @@ mod tests {
         }
     }
 
-    fn release_or_mint(mint: Pubkey) -> ReleaseOrMintInV2 {
-        ReleaseOrMintInV2 {
-            original_sender: RemoteAddress {
-                address: vec![1; 20],
-            },
-            remote_chain_selector: 1,
-            receiver: Pubkey::new_unique(),
-            amount: 1u64.into(),
-            local_token: mint,
-            source_pool_address: RemoteAddress {
-                address: vec![2; 32],
-            },
-            source_pool_data: vec![0; 32],
-            requested_finality_config: FinalityConfig::default(),
-            receiver_usage: SVMTokenReceiverUsage::DeriveAtaAndCreate,
-        }
-    }
-
     /// The packed bytes of an SPL Token mint with the given authority. The Token-2022 base layout is
     /// the same, so these also unpack as a Token-2022 mint without extensions.
     fn packed_mint(mint_authority: Option<Pubkey>) -> Vec<u8> {
@@ -149,174 +134,119 @@ mod tests {
         data
     }
 
+    /// Runs stage two against a mint account with the given key, owner and authority.
+    fn resolve_with(
+        config: &BaseConfig,
+        key: Pubkey,
+        owner: Pubkey,
+        mint_authority: Option<Pubkey>,
+    ) -> Result<NestedResolveAccountsResponse> {
+        let mut lamports = 0;
+        let mut data = packed_mint(mint_authority);
+        let mint = AccountInfo::new(&key, false, false, &mut lamports, &mut data, &owner, false);
+        resolve_with_mint(config, Some(&mint))
+    }
+
     fn saved(response: &NestedResolveAccountsResponse) -> Vec<Pubkey> {
         response.accounts_to_save.iter().map(|a| a.pubkey).collect()
     }
 
-    fn event_cpi_accounts() -> Vec<Pubkey> {
-        vec![find(&[seed::EVENT_AUTHORITY], crate::ID), crate::ID]
-    }
-
     #[test]
-    fn without_the_mint_it_asks_for_it_with_the_same_inputs() {
-        let config = config(spl_token::ID);
+    fn stage_one_returns_the_event_cpi_accounts_and_asks_for_the_mint() {
         let state = Pubkey::new_unique();
-        let inputs = release_or_mint(config.mint);
+        let mint = Pubkey::new_unique();
 
-        let response = resolve(state, &config, None, &inputs).unwrap();
+        let response = resolve_start(state, mint).unwrap();
 
-        assert_eq!(response.ask_again_with, vec![state, config.mint]);
-        assert!(response.accounts_to_save.is_empty());
+        // The `#[event_cpi]` pair comes first, as the instruction expects it right after its named
+        // accounts; stage two's accounts follow it.
+        assert_eq!(
+            saved(&response),
+            vec![find(&[seed::EVENT_AUTHORITY], crate::ID), crate::ID]
+        );
+        assert_eq!(response.ask_again_with, vec![state, mint]);
         assert!(response.lookup_tables_to_save.is_empty());
-        // The next round must be told what this one was, or the caller ends resolution here.
-        match TokenPoolCpiResolutionInputs::try_from_slice(&response.next_cpi_resolution_inputs)
-            .unwrap()
-        {
-            TokenPoolCpiResolutionInputs::ReleaseOrMint(forwarded) => {
-                assert_eq!(forwarded.receiver, inputs.receiver);
-                assert_eq!(forwarded.local_token, inputs.local_token);
-            }
-            other => panic!("forwarded the wrong inputs: {other:?}"),
-        }
+        assert!(matches!(
+            BurnMintCpiResolutionInputs::try_from_slice(&response.next_cpi_resolution_inputs)
+                .unwrap(),
+            BurnMintCpiResolutionInputs::ReleaseOrMintWithMint
+        ));
     }
 
     #[test]
-    fn a_multisig_mint_authority_is_returned_after_the_event_cpi_accounts() {
+    fn stage_two_returns_a_multisig_mint_authority() {
         for token_program in [spl_token::ID, spl_token_2022::ID] {
             let config = config(token_program);
             let multisig = Pubkey::new_unique();
-            let mut lamports = 0;
-            let mut data = packed_mint(Some(multisig));
-            let mint = AccountInfo::new(
-                &config.mint,
-                false,
-                false,
-                &mut lamports,
-                &mut data,
-                &token_program,
-                false,
-            );
 
-            let response = resolve(
-                Pubkey::new_unique(),
-                &config,
-                Some(&mint),
-                &release_or_mint(config.mint),
-            )
-            .unwrap();
+            let response =
+                resolve_with(&config, config.mint, token_program, Some(multisig)).unwrap();
 
-            // The `#[event_cpi]` pair must come first: the instruction expects it right after its
-            // named accounts, and finds the multisig anywhere among the remaining ones.
-            let mut expected = event_cpi_accounts();
-            expected.push(multisig);
-            assert_eq!(saved(&response), expected);
+            assert_eq!(saved(&response), vec![multisig]);
             assert!(response
                 .accounts_to_save
                 .iter()
                 .all(|a| !a.is_writable && !a.is_signer));
             assert!(response.ask_again_with.is_empty());
+            // Nothing follows, so the caller ends resolution here.
             assert!(response.next_cpi_resolution_inputs.is_empty());
         }
     }
 
     #[test]
-    fn the_pool_signer_as_mint_authority_needs_nothing_more() {
+    fn stage_two_needs_nothing_more_when_the_pool_signer_mints() {
         let config = config(spl_token::ID);
-        let mut lamports = 0;
-        let mut data = packed_mint(Some(config.pool_signer));
-        let mint = AccountInfo::new(
-            &config.mint,
-            false,
-            false,
-            &mut lamports,
-            &mut data,
-            &spl_token::ID,
-            false,
-        );
 
-        let response = resolve(
-            Pubkey::new_unique(),
+        let response = resolve_with(
             &config,
-            Some(&mint),
-            &release_or_mint(config.mint),
+            config.mint,
+            spl_token::ID,
+            Some(config.pool_signer),
         )
         .unwrap();
 
-        assert_eq!(saved(&response), event_cpi_accounts());
+        assert!(response.accounts_to_save.is_empty());
         assert!(response.next_cpi_resolution_inputs.is_empty());
     }
 
     #[test]
-    fn a_mint_without_an_authority_is_left_to_the_instruction() {
+    fn stage_two_leaves_a_mint_without_an_authority_to_the_instruction() {
         let config = config(spl_token::ID);
-        let mut lamports = 0;
-        let mut data = packed_mint(None);
-        let mint = AccountInfo::new(
-            &config.mint,
-            false,
-            false,
-            &mut lamports,
-            &mut data,
-            &spl_token::ID,
-            false,
-        );
 
-        let response = resolve(
-            Pubkey::new_unique(),
-            &config,
-            Some(&mint),
-            &release_or_mint(config.mint),
-        )
-        .unwrap();
+        let response = resolve_with(&config, config.mint, spl_token::ID, None).unwrap();
 
-        assert_eq!(saved(&response), event_cpi_accounts());
+        assert!(response.accounts_to_save.is_empty());
     }
 
     #[test]
-    fn a_mint_other_than_the_pools_is_rejected() {
+    fn stage_two_requires_the_mint() {
         let config = config(spl_token::ID);
-        let other_mint = Pubkey::new_unique();
-        let mut lamports = 0;
-        let mut data = packed_mint(Some(Pubkey::new_unique()));
-        let mint = AccountInfo::new(
-            &other_mint,
-            false,
-            false,
-            &mut lamports,
-            &mut data,
-            &spl_token::ID,
-            false,
-        );
 
-        assert!(resolve(
-            Pubkey::new_unique(),
+        assert!(resolve_with_mint(&config, None).is_err());
+    }
+
+    #[test]
+    fn stage_two_rejects_a_mint_other_than_the_pools() {
+        let config = config(spl_token::ID);
+
+        assert!(resolve_with(
             &config,
-            Some(&mint),
-            &release_or_mint(config.mint)
+            Pubkey::new_unique(),
+            spl_token::ID,
+            Some(Pubkey::new_unique())
         )
         .is_err());
     }
 
     #[test]
-    fn a_mint_owned_by_another_token_program_is_rejected() {
+    fn stage_two_rejects_a_mint_owned_by_another_token_program() {
         let config = config(spl_token::ID);
-        let mut lamports = 0;
-        let mut data = packed_mint(Some(Pubkey::new_unique()));
-        let mint = AccountInfo::new(
-            &config.mint,
-            false,
-            false,
-            &mut lamports,
-            &mut data,
-            &spl_token_2022::ID,
-            false,
-        );
 
-        assert!(resolve(
-            Pubkey::new_unique(),
+        assert!(resolve_with(
             &config,
-            Some(&mint),
-            &release_or_mint(config.mint)
+            config.mint,
+            spl_token_2022::ID,
+            Some(Pubkey::new_unique())
         )
         .is_err());
     }

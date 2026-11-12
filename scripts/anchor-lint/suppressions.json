@@ -120,7 +120,7 @@
       "file": "programs/burnmint-token-pool/src/instructions/operations_v2/resolve_accounts_start.rs",
       "check": "INV-LINT-BUMP",
       "lines": [
-        13
+        44
       ]
     },
     {
