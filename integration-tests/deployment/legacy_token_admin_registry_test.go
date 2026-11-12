@@ -142,8 +142,8 @@ func TestLegacyTokenAdminRegistry(t *testing.T) {
 		{"v3 standard", tarV3Standard, mintV3Standard.PublicKey(), ccip_router.ResolutionType_Standard, 0},
 		{"v3 without extended lookup table", tarV3SkipExtras, mintV3SkipExtras.PublicKey(), ccip_router.ResolutionType_WithoutExtendedLookupTable, 1},
 	} {
-		tar, version := read(tc.account.Address)
-		require.Equal(t, uint8(routerops.LatestTokenAdminRegistryVersion), version, tc.name)
+		tar, upgradedVersion := read(tc.account.Address)
+		require.Equal(t, uint8(routerops.LatestTokenAdminRegistryVersion), upgradedVersion, tc.name)
 		require.Equal(t, admin.PublicKey(), tar.Administrator, tc.name)
 		require.Equal(t, tc.mint, tar.Mint, tc.name)
 		require.Equal(t, tc.resolution, routerops.TokenAdminRegistryResolutionType(tar), tc.name)
