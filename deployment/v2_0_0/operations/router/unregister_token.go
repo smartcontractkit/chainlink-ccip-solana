@@ -34,7 +34,7 @@ var UnregisterToken = operations.NewOperation(
 		if err != nil {
 			return sequences.OnChainOutput{}, fmt.Errorf("failed to derive token admin registry PDA: %w", err)
 		}
-		tar, err := loadTokenAdminRegistry(b, chain, input.Router, input.TokenMint)
+		tar, _, err := loadTokenAdminRegistry(b, chain, input.Router, input.TokenMint)
 		if errors.Is(err, rpc.ErrNotFound) {
 			b.Logger.Infow("Token not registered, nothing to unregister", "mint", input.TokenMint.String())
 			return sequences.OnChainOutput{}, nil

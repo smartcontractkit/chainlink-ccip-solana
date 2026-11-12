@@ -67,6 +67,7 @@ const (
 	InvalidReceiptData_CcipRouterError
 	InvalidFinality_CcipRouterError
 	InvalidAccountForMigration_CcipRouterError
+	PoolV2RequiresWithoutExtendedLookupTable_CcipRouterError
 )
 
 func (value CcipRouterError) String() string {
@@ -167,6 +168,8 @@ func (value CcipRouterError) String() string {
 		return "InvalidFinality"
 	case InvalidAccountForMigration_CcipRouterError:
 		return "InvalidAccountForMigration"
+	case PoolV2RequiresWithoutExtendedLookupTable_CcipRouterError:
+		return "PoolV2RequiresWithoutExtendedLookupTable"
 	default:
 		return ""
 	}

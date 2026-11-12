@@ -40,10 +40,7 @@ func TestExampleSenderV2(t *testing.T) {
 	program := config.CcipBaseSenderV2
 	user := testutils.User
 
-	// Token1 rather than Token0: Token0's pool lookup table carries a 1.6-style additional account
-	// (Token0Multisig). A 2.0 pool supplies its extra CPI accounts through nested account
-	// resolution instead, so that trailing LUT entry lands in front of them and shifts the pool's
-	// own account list by one.
+	// Token1: a plain burn/mint token whose pool signer is the mint authority.
 	const token1Decimals = 18
 
 	// The fee bound every send in this file states. Comfortably above the quoted fee for both fee

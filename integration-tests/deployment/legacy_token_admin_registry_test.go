@@ -55,8 +55,11 @@ func TestLegacyTokenAdminRegistry(t *testing.T) {
 	tarV3Standard := legacyV3(mintV3Standard.PublicKey(), ccip_router.ResolutionType_Standard)
 	tarV3SkipExtras := legacyV3(mintV3SkipExtras.PublicKey(), ccip_router.ResolutionType_WithoutExtendedLookupTable)
 	allMints := []solana.PrivateKey{mintV1, mintV2, mintV3Standard, mintV3SkipExtras}
+	// Left alone until the end, where setting WithoutExtendedLookupTable is the first thing to touch it.
+	mintV3ToSkipExtras := solana.NewWallet().PrivateKey
+	tarV3ToSkipExtras := legacyV3(mintV3ToSkipExtras.PublicKey(), ccip_router.ResolutionType_Standard)
 
-	client := testutils.DeployAllPrograms(t, testutils.PathToAnchorConfig, admin, tarV1, tarV2, tarV3Standard, tarV3SkipExtras)
+	client := testutils.DeployAllPrograms(t, testutils.PathToAnchorConfig, admin, tarV1, tarV2, tarV3Standard, tarV3SkipExtras, tarV3ToSkipExtras)
 	require.NoError(t, testutils.FundAccounts(ctx, []solana.PrivateKey{admin}, client))
 	chain := cldf_solana.Chain{
 		Selector:    124615329519749607, // solana-devnet
@@ -74,7 +77,7 @@ func TestLegacyTokenAdminRegistry(t *testing.T) {
 		RMNRemote: solana.NewWallet().PublicKey(),
 	}))
 
-	for _, mint := range allMints {
+	for _, mint := range append(allMints, mintV3ToSkipExtras) {
 		ixs, createErr := tokens.CreateToken(ctx, solana.TokenProgramID, mint.PublicKey(), admin.PublicKey(), 9, client, rpc.CommitmentConfirmed)
 		require.NoError(t, createErr)
 		testutils.SendAndConfirm(ctx, t, client, ixs, admin, rpc.CommitmentConfirmed, common.AddSigners(mint))
@@ -139,8 +142,8 @@ func TestLegacyTokenAdminRegistry(t *testing.T) {
 		{"v3 standard", tarV3Standard, mintV3Standard.PublicKey(), ccip_router.ResolutionType_Standard, 0},
 		{"v3 without extended lookup table", tarV3SkipExtras, mintV3SkipExtras.PublicKey(), ccip_router.ResolutionType_WithoutExtendedLookupTable, 1},
 	} {
-		tar, version := read(tc.account.Address)
-		require.Equal(t, uint8(routerops.LatestTokenAdminRegistryVersion), version, tc.name)
+		tar, upgradedVersion := read(tc.account.Address)
+		require.Equal(t, uint8(routerops.LatestTokenAdminRegistryVersion), upgradedVersion, tc.name)
 		require.Equal(t, admin.PublicKey(), tar.Administrator, tc.name)
 		require.Equal(t, tc.mint, tar.Mint, tc.name)
 		require.Equal(t, tc.resolution, routerops.TokenAdminRegistryResolutionType(tar), tc.name)
@@ -157,10 +160,31 @@ func TestLegacyTokenAdminRegistry(t *testing.T) {
 		require.Equal(t, []byte{1, bump, 2, tc.skipExtras}, raw[resolutionOffset:], tc.name)
 	}
 
-	// A Router write that requires v3 now succeeds.
+	// A Router write that requires the latest layout now succeeds.
 	require.NoError(t, exec(t, chain, routerops.SetPoolInterfaceImplementation, routerops.SetPoolInterfaceImplParams{
-		Router: ccip_router.ProgramID, TokenMint: mintV2.PublicKey(), InterfaceVersion: 2, ImplementsAccountResolution: 1,
+		Router: ccip_router.ProgramID, TokenMint: mintV2.PublicKey(), InterfaceVersion: 2,
+		ImplementsAccountResolution: uint8(ccip_router.ResolutionType_WithoutExtendedLookupTable),
 	}))
 	v2, _ = read(tarV2.Address)
 	require.Equal(t, uint8(2), v2.InterfaceVersion)
+	require.Equal(t, ccip_router.ResolutionType_WithoutExtendedLookupTable, routerops.TokenAdminRegistryResolutionType(v2))
+
+	// Setting WithoutExtendedLookupTable upgrades a registry still on the v3 layout first. Written on v3, the mode
+	// would be a 2 in the byte the 1.6 offramp decodes as a bool, and the token's 1.6 lanes would break.
+	_, version = read(tarV3ToSkipExtras.Address)
+	require.Equal(t, uint8(3), version)
+	require.NoError(t, exec(t, chain, routerops.SetPoolInterfaceImplementation, routerops.SetPoolInterfaceImplParams{
+		Router: ccip_router.ProgramID, TokenMint: mintV3ToSkipExtras.PublicKey(), InterfaceVersion: 2,
+		ImplementsAccountResolution: uint8(ccip_router.ResolutionType_WithoutExtendedLookupTable),
+	}))
+	skipExtras, version := read(tarV3ToSkipExtras.Address)
+	require.Equal(t, uint8(routerops.LatestTokenAdminRegistryVersion), version)
+	require.Equal(t, ccip_router.ResolutionType_WithoutExtendedLookupTable, routerops.TokenAdminRegistryResolutionType(skipExtras))
+	info, err := client.GetAccountInfoWithOpts(ctx, tarV3ToSkipExtras.Address, &rpc.GetAccountInfoOpts{Commitment: rpc.CommitmentConfirmed})
+	require.NoError(t, err)
+	_, bump, err := state.FindTokenAdminRegistryPDA(mintV3ToSkipExtras.PublicKey(), ccip_router.ProgramID)
+	require.NoError(t, err)
+	// discriminator, version, administrator, pending administrator, lookup table, writable indexes, mint
+	const resolutionOffset = 8 + 1 + 32 + 32 + 32 + 32 + 32
+	require.Equal(t, []byte{1, bump, 2, 1}, info.Value.Data.GetBinary()[resolutionOffset:])
 }

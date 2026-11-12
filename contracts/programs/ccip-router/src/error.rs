@@ -140,4 +140,6 @@ pub enum CcipRouterError {
     TokenReceiverNotAllowed,
     #[msg("Token uses a multisig as mint authority - use the multisig-specific method instead")]
     TokenOwnedByMultisig,
+    #[msg("Pool interface version 2 requires the WithoutExtendedLookupTable account resolution")]
+    PoolV2RequiresWithoutExtendedLookupTable,
 }

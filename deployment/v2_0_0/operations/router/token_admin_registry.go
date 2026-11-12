@@ -90,34 +90,75 @@ func TokenAdminRegistryResolutionType(tar ccip_router.TokenAdminRegistry) ccip_r
 	}
 }
 
-// loadTokenAdminRegistry reads the TokenAdminRegistry of a mint and upgrades an older account to the latest
-// layout first, because every Router instruction that writes the registry requires it.
-// The upgrade is permissionless, so the deployer key signs it directly, also when the caller builds an MCMS proposal.
-func loadTokenAdminRegistry(b operations.Bundle, chain cldf_solana.Chain, router, mint solana.PublicKey) (ccip_router.TokenAdminRegistry, error) {
+// loadTokenAdminRegistry reads the TokenAdminRegistry of a mint, first trying to upgrade an older account to the
+// latest layout, and returns the registry with the layout version it ended up at.
+//
+// A Router that supports the latest layout requires it for every write to the registry, and the upgrade is
+// permissionless and always correct to run, so the deployer key signs it directly, also when the caller builds an
+// MCMS proposal. The upgrade is best-effort: a Router that predates the latest layout rejects it, and the writes such
+// a Router understands are still safe to make. The one that isn't is guarded by requireLatestLayoutForResolution.
+func loadTokenAdminRegistry(b operations.Bundle, chain cldf_solana.Chain, router, mint solana.PublicKey) (ccip_router.TokenAdminRegistry, uint8, error) {
 	pda, _, err := state.FindTokenAdminRegistryPDA(mint, router)
 	if err != nil {
-		return ccip_router.TokenAdminRegistry{}, fmt.Errorf("failed to derive token admin registry PDA: %w", err)
+		return ccip_router.TokenAdminRegistry{}, 0, fmt.Errorf("failed to derive token admin registry PDA: %w", err)
 	}
 	tar, version, err := ReadTokenAdminRegistry(b.GetContext(), chain.Client, pda)
 	if err != nil || version >= LatestTokenAdminRegistryVersion {
-		return tar, err
+		return tar, version, err
 	}
 	configPDA, _, err := state.FindConfigPDA(router)
 	if err != nil {
-		return ccip_router.TokenAdminRegistry{}, fmt.Errorf("failed to derive router config PDA: %w", err)
+		return ccip_router.TokenAdminRegistry{}, 0, fmt.Errorf("failed to derive router config PDA: %w", err)
 	}
 	raw, err := ccip_router.NewUpgradeTokenAdminRegistryInstruction(configPDA, pda, mint, chain.DeployerKey.PublicKey(), solana.SystemProgramID)
 	if err != nil {
-		return ccip_router.TokenAdminRegistry{}, fmt.Errorf("failed to build upgrade token admin registry instruction: %w", err)
+		return ccip_router.TokenAdminRegistry{}, 0, fmt.Errorf("failed to build upgrade token admin registry instruction: %w", err)
 	}
 	ixData, err := raw.Data()
 	if err != nil {
-		return ccip_router.TokenAdminRegistry{}, fmt.Errorf("failed to extract data payload from upgrade token admin registry instruction: %w", err)
+		return ccip_router.TokenAdminRegistry{}, 0, fmt.Errorf("failed to extract data payload from upgrade token admin registry instruction: %w", err)
 	}
 	if err = chain.Confirm([]solana.Instruction{solana.NewInstruction(router, raw.Accounts(), ixData)}); err != nil {
-		return ccip_router.TokenAdminRegistry{}, fmt.Errorf("failed to upgrade token admin registry %s from version %d: %w", pda, version, err)
+		b.Logger.Warnw("Could not upgrade token admin registry to the latest layout, continuing with the layout it has",
+			"pda", pda, "mint", mint, "version", version, "latestVersion", LatestTokenAdminRegistryVersion, "error", err)
+	} else {
+		b.Logger.Infow("Upgraded token admin registry", "pda", pda, "mint", mint, "fromVersion", version)
 	}
-	b.Logger.Infow("Upgraded token admin registry", "pda", pda, "mint", mint, "fromVersion", version)
-	tar, _, err = ReadTokenAdminRegistry(b.GetContext(), chain.Client, pda)
-	return tar, err
+	// Read it back either way: a confirmation error doesn't prove the upgrade didn't land.
+	return ReadTokenAdminRegistry(b.GetContext(), chain.Client, pda)
+}
+
+// ValidatePoolInterfaceImplementation mirrors the Router's set_pool_interface_implementation validation, under which
+// each pool interface version takes a single account resolution mode. A v1 pool takes NoResolution, as 2.0 lanes reject
+// a v1 pool with account resolution. A v2 pool takes WithoutExtendedLookupTable, as 2.0 lanes resolve every account a
+// v2 pool needs beyond the lookup table's required entries. Checking it here also covers Routers that predate the v2
+// rule.
+func ValidatePoolInterfaceImplementation(interfaceVersion uint8, resolution ccip_router.ResolutionType) error {
+	var want ccip_router.ResolutionType
+	switch interfaceVersion {
+	case 1:
+		want = ccip_router.ResolutionType_NoResolution
+	case 2:
+		want = ccip_router.ResolutionType_WithoutExtendedLookupTable
+	default:
+		return fmt.Errorf("invalid pool interface version %d: must be 1 or 2", interfaceVersion)
+	}
+	if resolution != want {
+		return fmt.Errorf("pool interface version %d requires account resolution %s, got %s", interfaceVersion, want, resolution)
+	}
+	return nil
+}
+
+// requireLatestLayoutForResolution refuses to write WithoutExtendedLookupTable to a registry that is still on an
+// older layout. Only the latest layout stores that mode as the 0/1 resolution byte the 1.6 OffRamp decodes as a bool,
+// plus a trailing flag. An older layout stores it as 2 in that byte, which makes the registry unreadable to the 1.6
+// OffRamp and breaks every 1.6 lane of the token. A registry still on an older layout after loadTokenAdminRegistry
+// most likely means the Router program predates the latest layout.
+func requireLatestLayoutForResolution(mint solana.PublicKey, version uint8, resolution ccip_router.ResolutionType) error {
+	if resolution != ccip_router.ResolutionType_WithoutExtendedLookupTable || version >= LatestTokenAdminRegistryVersion {
+		return nil
+	}
+	return fmt.Errorf("token admin registry for mint %s is at layout v%d and could not be upgraded to v%d, most likely because the Router "+
+		"program predates it; setting %s on it would break the token's 1.6 lanes, so upgrade the Router program first",
+		mint, version, LatestTokenAdminRegistryVersion, resolution)
 }

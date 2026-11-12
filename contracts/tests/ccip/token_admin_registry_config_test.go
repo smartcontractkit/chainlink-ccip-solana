@@ -254,7 +254,7 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 					ccip_router.SetPoolInterfaceImplementationParams{
 						Mint:              token0.Mint,
 						InterfaceVersion:  2,
-						AccountResolution: ccip_router.ResolutionType_Standard,
+						AccountResolution: ccip_router.ResolutionType_WithoutExtendedLookupTable,
 					},
 					config.RouterConfigPDA,
 					token0.AdminRegistryPDA,
@@ -270,7 +270,7 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 				err = common.GetAccountDataBorshIntoAnchor(ctx, client, token0.AdminRegistryPDA, config.DefaultCommitment, &tokenAdminRegistry)
 				require.NoError(t, err)
 				require.True(t, tokenAdminRegistry.AccountResolutionEnabled)
-				require.False(t, tokenAdminRegistry.SkipLookupTableAdditionalEntries)
+				require.True(t, tokenAdminRegistry.SkipLookupTableAdditionalEntries)
 			})
 
 			t.Run("When Token Pool Admin wants to set up the pool again to zero, it is none", func(t *testing.T) {
@@ -495,7 +495,7 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 					ccip_router.SetPoolInterfaceImplementationParams{
 						Mint:              usdcPool.Mint,
 						InterfaceVersion:  2,
-						AccountResolution: ccip_router.ResolutionType_Standard,
+						AccountResolution: ccip_router.ResolutionType_WithoutExtendedLookupTable,
 					},
 					config.RouterConfigPDA,
 					usdcPool.AdminRegistryPDA,
@@ -516,7 +516,7 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 				require.Equal(t, solana.PublicKey{}, tokenAdminRegistry.PendingAdministrator)
 				require.Equal(t, usdcPool.PoolLookupTable, tokenAdminRegistry.LookupTable)
 				require.True(t, tokenAdminRegistry.AccountResolutionEnabled)
-				require.False(t, tokenAdminRegistry.SkipLookupTableAdditionalEntries)
+				require.True(t, tokenAdminRegistry.SkipLookupTableAdditionalEntries)
 			})
 		})
 	})
@@ -729,7 +729,7 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 							ccip_router.SetPoolInterfaceImplementationParams{
 								Mint:              token1.Mint,
 								InterfaceVersion:  v,
-								AccountResolution: ccip_router.ResolutionType_Standard,
+								AccountResolution: ccip_router.ResolutionType_WithoutExtendedLookupTable,
 							},
 							config.RouterConfigPDA,
 							token1.AdminRegistryPDA,
@@ -762,12 +762,34 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 				testutils.SendAndFailWith(ctx, t, client, []solana.Instruction{ix}, token1PoolAdmin, config.DefaultCommitment, []string{ccip.AccountResolutionRequiresV2_CcipRouterError.String()})
 			})
 
+			t.Run("Setting a v2 interface that takes lookup table extras fails", func(t *testing.T) {
+				for _, resolution := range []ccip_router.ResolutionType{ccip_router.ResolutionType_NoResolution, ccip_router.ResolutionType_Standard} {
+					t.Run(resolution.String(), func(t *testing.T) {
+						ix, err := ccip_router.NewSetPoolInterfaceImplementationInstruction(
+							ccip_router.SetPoolInterfaceImplementationParams{
+								Mint:              token1.Mint,
+								InterfaceVersion:  2,
+								AccountResolution: resolution,
+							},
+							config.RouterConfigPDA,
+							token1.AdminRegistryPDA,
+							token1PoolAdmin.PublicKey(),
+							config.RouterEventAuthorityPDA,
+							config.CcipRouterProgram,
+						)
+						require.NoError(t, err)
+
+						testutils.SendAndFailWith(ctx, t, client, []solana.Instruction{ix}, token1PoolAdmin, config.DefaultCommitment, []string{ccip.PoolV2RequiresWithoutExtendedLookupTable_CcipRouterError.String()})
+					})
+				}
+			})
+
 			t.Run("Setting up token account resolution by a random user fails", func(t *testing.T) {
 				instruction, err := ccip_router.NewSetPoolInterfaceImplementationInstruction(
 					ccip_router.SetPoolInterfaceImplementationParams{
 						Mint:              token1.Mint,
 						InterfaceVersion:  2,
-						AccountResolution: ccip_router.ResolutionType_Standard,
+						AccountResolution: ccip_router.ResolutionType_WithoutExtendedLookupTable,
 					},
 					config.RouterConfigPDA,
 					token1.AdminRegistryPDA,
@@ -785,7 +807,7 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 					ccip_router.SetPoolInterfaceImplementationParams{
 						Mint:              token1.Mint,
 						InterfaceVersion:  2,
-						AccountResolution: ccip_router.ResolutionType_Standard,
+						AccountResolution: ccip_router.ResolutionType_WithoutExtendedLookupTable,
 					},
 					config.RouterConfigPDA,
 					token1.AdminRegistryPDA,
@@ -800,7 +822,7 @@ func TestTokenAdminRegistryConfig(t *testing.T) {
 				err = common.GetAccountDataBorshIntoAnchor(ctx, client, token1.AdminRegistryPDA, config.DefaultCommitment, &tokenAdminRegistry)
 				require.NoError(t, err)
 				require.True(t, tokenAdminRegistry.AccountResolutionEnabled)
-				require.False(t, tokenAdminRegistry.SkipLookupTableAdditionalEntries)
+				require.True(t, tokenAdminRegistry.SkipLookupTableAdditionalEntries)
 				require.Equal(t, uint8(2), tokenAdminRegistry.InterfaceVersion)
 			})
 

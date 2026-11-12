@@ -1825,16 +1825,15 @@ func (env *TestEnv) setupTokenAdminRegistries(ctx context.Context) {
 	t.Helper()
 
 	type poolReg struct {
-		pool       tokens.TokenPool
-		poolAdmin  solana.PrivateKey
-		resolution ccip_router.ResolutionType
+		pool      tokens.TokenPool
+		poolAdmin solana.PrivateKey
 	}
 	// token2 deliberately omitted: no admin registry in original test
 	pools := []poolReg{
-		{env.Token0, Token0Admin, ccip_router.ResolutionType_Standard},
-		{env.Token1, Token1Admin, ccip_router.ResolutionType_Standard},
-		{env.LinkPool, Admin, ccip_router.ResolutionType_Standard},
-		{env.UsdcPool, UsdcPoolAdmin, ccip_router.ResolutionType_WithoutExtendedLookupTable},
+		{env.Token0, Token0Admin},
+		{env.Token1, Token1Admin},
+		{env.LinkPool, Admin},
+		{env.UsdcPool, UsdcPoolAdmin},
 	}
 
 	for _, pr := range pools {
@@ -1861,10 +1860,11 @@ func (env *TestEnv) setupTokenAdminRegistries(ctx context.Context) {
 		require.NoError(t, err)
 		SendAndConfirm(ctx, t, env.Client, []solana.Instruction{ixSetPool}, pr.poolAdmin, config.DefaultCommitment)
 
-		// Set pool interface (account resolution)
+		// Set pool interface (account resolution). The router only takes WithoutExtendedLookupTable
+		// for a v2 pool.
 		ixInterface, err := ccip_router.NewSetPoolInterfaceImplementationInstruction(
 			ccip_router.SetPoolInterfaceImplementationParams{
-				Mint: pr.pool.Mint, InterfaceVersion: 2, AccountResolution: pr.resolution,
+				Mint: pr.pool.Mint, InterfaceVersion: 2, AccountResolution: ccip_router.ResolutionType_WithoutExtendedLookupTable,
 			},
 			config.RouterConfigPDA, pr.pool.AdminRegistryPDA, pr.poolAdmin.PublicKey(),
 			config.RouterEventAuthorityPDA, config.CcipRouterProgram,
