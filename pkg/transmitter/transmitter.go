@@ -66,9 +66,9 @@ func computeUnitLimit(msg protocol.Message) uint32 {
 //
 // Lifecycle:
 //   - NewSolanaContractTransmitter starts the underlying txm, which spawns its own background
-//     goroutines for broadcast/retry/confirmation.
-//   - Close closes the txm and is idempotent (guarded by closeOnce). After Close returns,
-//     ConvertAndWriteMessageToChain returns ErrTransmitterClosed.
+//     goroutines for broadcast/retry/confirmation, and the fee payer balance monitor.
+//   - Close closes the balance monitor and the txm and is idempotent (guarded by closeOnce).
+//     After Close returns, ConvertAndWriteMessageToChain returns ErrTransmitterClosed.
 type SolanaContractTransmitter struct {
 	lggr             logger.SugaredLogger
 	chainSelector    protocol.ChainSelector
