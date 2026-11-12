@@ -490,7 +490,7 @@ var SetPool = operations.NewOperation(
 			return sequences.OnChainOutput{}, err
 		}
 		var tokenAdminRegistryAccount ccip_router.TokenAdminRegistry
-		tokenAdminRegistryAccount, err = loadTokenAdminRegistry(b, chain, input.Router, input.TokenMint)
+		tokenAdminRegistryAccount, _, err = loadTokenAdminRegistry(b, chain, input.Router, input.TokenMint)
 		if err != nil && !errors.Is(err, rpc.ErrNotFound) {
 			return sequences.OnChainOutput{}, fmt.Errorf("failed to read token admin registry for mint %s: %w", input.TokenMint, err)
 		}
@@ -675,7 +675,8 @@ var SetPoolInterfaceImplementation = operations.NewOperation(
 		if err != nil {
 			return sequences.OnChainOutput{}, fmt.Errorf("invalid resolution type: %w", err)
 		}
-		tokenAdminRegistryAccount, err = loadTokenAdminRegistry(b, chain, input.Router, input.TokenMint)
+		var tokenAdminRegistryVersion uint8
+		tokenAdminRegistryAccount, tokenAdminRegistryVersion, err = loadTokenAdminRegistry(b, chain, input.Router, input.TokenMint)
 		if err != nil && !errors.Is(err, rpc.ErrNotFound) {
 			return sequences.OnChainOutput{}, fmt.Errorf("failed to read token admin registry for mint %s: %w", input.TokenMint, err)
 		}
@@ -686,9 +687,18 @@ var SetPoolInterfaceImplementation = operations.NewOperation(
 					"interfaceVersion", input.InterfaceVersion, "implementsAccountResolution", input.ImplementsAccountResolution)
 				return sequences.OnChainOutput{}, nil
 			}
+			if err = requireLatestLayoutForResolution(input.TokenMint, tokenAdminRegistryVersion, *resolutionType); err != nil {
+				return sequences.OnChainOutput{}, err
+			}
 			if !tokenAdminRegistryAccount.Administrator.IsZero() {
 				currentAdmin = tokenAdminRegistryAccount.Administrator
 			}
+		} else if *resolutionType == ccip_router.ResolutionType_WithoutExtendedLookupTable {
+			// The registry is created later in the same batch (a propose + accept + set flow through MCMS), so there is
+			// no layout to check: it gets whichever one the Router writes when it creates it.
+			b.Logger.Warnw("Token admin registry does not exist yet, so its layout can't be checked before setting "+
+				"WithoutExtendedLookupTable; this is only safe on a Router that supports the latest layout",
+				"mint", input.TokenMint, "latestVersion", LatestTokenAdminRegistryVersion)
 		}
 
 		eventAuthorityPDA, _, err := state.FindEventAuthorityPDA(input.Router)
@@ -752,7 +762,7 @@ var RegisterTokenAdminRegistry = operations.NewOperation(
 		}
 		var pendingAdmin solana.PublicKey
 		var tokenAdminRegistryAccount ccip_router.TokenAdminRegistry
-		tokenAdminRegistryAccount, err = loadTokenAdminRegistry(b, chain, input.Router, input.TokenMint)
+		tokenAdminRegistryAccount, _, err = loadTokenAdminRegistry(b, chain, input.Router, input.TokenMint)
 		if err != nil && !errors.Is(err, rpc.ErrNotFound) {
 			return TokenAdminRegistryOut{}, fmt.Errorf("failed to read token admin registry for mint %s: %w", input.TokenMint, err)
 		}
@@ -912,7 +922,7 @@ var AcceptTokenAdminRegistry = operations.NewOperation(
 		var pendingAdmin solana.PublicKey
 		var currentAdmin solana.PublicKey
 		var tokenAdminRegistryAccount ccip_router.TokenAdminRegistry
-		tokenAdminRegistryAccount, err = loadTokenAdminRegistry(b, chain, input.Router, input.TokenMint)
+		tokenAdminRegistryAccount, _, err = loadTokenAdminRegistry(b, chain, input.Router, input.TokenMint)
 		if err != nil && !errors.Is(err, rpc.ErrNotFound) {
 			return sequences.OnChainOutput{}, fmt.Errorf("failed to read token admin registry for mint %s: %w", input.TokenMint, err)
 		}
@@ -1009,7 +1019,7 @@ var TransferTokenAdminRegistry = operations.NewOperation(
 		}
 		var currentAdmin solana.PublicKey
 		var tokenAdminRegistryAccount ccip_router.TokenAdminRegistry
-		if tokenAdminRegistryAccount, err = loadTokenAdminRegistry(b, chain, input.Router, input.TokenMint); err != nil {
+		if tokenAdminRegistryAccount, _, err = loadTokenAdminRegistry(b, chain, input.Router, input.TokenMint); err != nil {
 			return TokenAdminRegistryOut{}, fmt.Errorf("failed to fetch token admin registry account: %w", err)
 		}
 		currentAdmin = tokenAdminRegistryAccount.Administrator

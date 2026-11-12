@@ -18,6 +18,7 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/ccip_router"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/state"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/tokens"
 	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/solcommon"
@@ -121,11 +122,16 @@ func (a *SolanaAdapter) ConfigureTokenForTransfersSequence() *operations.Sequenc
 				return sequences.OnChainOutput{}, fmt.Errorf("resolve pool ref for qualifier %q: %w", input.TokenRef.Qualifier, err)
 			}
 			if poolRef.Version.Compare(solcommon.Version2_0_0) >= 0 {
+				// WithoutExtendedLookupTable: 2.0 lanes skip the lookup table's additional entries and rely on the
+				// pool's resolver alone, while 1.6 lanes, which only read whether resolution is enabled, keep them.
+				// ManualRegistration appends a multisig mint authority to the table, and only 1.6 lanes need it
+				// there: on 2.0 the burn/mint resolver returns it, and a table entry would arrive ahead of the
+				// accounts the pool resolves and shift them. With no additional entries this is the same as Standard.
 				spiOut, spiErr := operations.ExecuteOperation(b, routerops.SetPoolInterfaceImplementation, chain, routerops.SetPoolInterfaceImplParams{
 					Router:                      solana.PublicKeyFromBytes(routerAddr),
 					TokenMint:                   solana.MustPublicKeyFromBase58(tokenAddr.Address),
 					InterfaceVersion:            2,
-					ImplementsAccountResolution: 1, // 1 = ResolutionType::Standard
+					ImplementsAccountResolution: uint8(ccip_router.ResolutionType_WithoutExtendedLookupTable),
 				})
 				if spiErr != nil {
 					return sequences.OnChainOutput{}, fmt.Errorf("failed to set pool interface implementation: %w", spiErr)
