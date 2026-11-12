@@ -172,12 +172,16 @@ In both cases, cleanup closes the buffer, and the executor retries the message. 
 
 `txm` handles broadcast, rebroadcast, and commitment tracking for each enqueued tx. The buffered path blocks the caller for the duration of the flow, and the caller's context controls cancellation.
 
-`NewSolanaContractTransmitter` starts `txm`. `Close()` is idempotent and does these steps:
+`NewSolanaContractTransmitter` starts `txm` and the balance monitor. `Close()` is idempotent and does these steps:
 
 1. Marks the transmitter closed, so that later `ConvertAndWriteMessageToChain` calls return `ErrTransmitterClosed`.
-2. Closes `txm`.
+2. Closes the balance monitor and `txm`.
 
 `Close()` does not track in-flight buffered submissions. The caller's context (the executor shutdown) cancels them. The Solana accessor's `Close()` calls `Close()`.
+
+## Balance monitoring
+
+The transmitter runs the `chainlink-solana` balance monitor for the transmitter key. Each minute, the monitor reads the key balance and records it in SOL as the beholder gauge `node_balance`, with the labels `account`, `chainID`, and `chainFamily="solana"`. Use this metric to alert before the fee payer runs out of SOL.
 
 ## Configuration
 
