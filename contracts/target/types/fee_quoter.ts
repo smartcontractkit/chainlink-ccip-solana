@@ -8,7 +8,7 @@ export type FeeQuoter = {
   "address": "FeeQPGkKDeRV1MgoYfMH6L8o3KeuYjwUZrgn4LRKfjHi",
   "metadata": {
     "name": "feeQuoter",
-    "version": "2.0.2",
+    "version": "2.1.0",
     "spec": "0.1.0",
     "description": "Created with Anchor"
   },

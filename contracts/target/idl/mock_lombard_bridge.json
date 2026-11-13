@@ -2,7 +2,7 @@
   "address": "Lomva5kTftuXE8992qRufkaeq3XrXV47qv3C1W9xW6Z",
   "metadata": {
     "name": "mock_lombard_bridge",
-    "version": "2.0.2",
+    "version": "2.1.0",
     "spec": "0.1.0",
     "description": "Minimal mock of the real Lombard `bridge` program's on-chain interface"
   },

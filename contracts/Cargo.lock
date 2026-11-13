@@ -289,7 +289,7 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "arbitrary_cpi_proxy"
-version = "2.0.2"
+version = "2.1.0"
 dependencies = [
  "anchor-lang",
 ]
@@ -318,7 +318,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
 name = "base-token-pool"
-version = "2.0.2"
+version = "2.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
@@ -444,7 +444,7 @@ checksum = "5d20789868f4b01b2f2caec9f5c4e0213b41e3e5702a50157d699ae31ced2fcb"
 
 [[package]]
 name = "burnmint-token-pool"
-version = "2.0.2"
+version = "2.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
@@ -520,7 +520,7 @@ dependencies = [
 
 [[package]]
 name = "ccip_common"
-version = "2.0.2"
+version = "2.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
@@ -534,7 +534,7 @@ dependencies = [
 
 [[package]]
 name = "ccip_offramp"
-version = "2.0.2"
+version = "2.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
@@ -560,7 +560,7 @@ dependencies = [
 
 [[package]]
 name = "ccip_router"
-version = "2.0.2"
+version = "2.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
@@ -584,7 +584,7 @@ dependencies = [
 
 [[package]]
 name = "cctp-token-pool"
-version = "2.0.2"
+version = "2.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
@@ -619,7 +619,7 @@ dependencies = [
 
 [[package]]
 name = "committee_verifier"
-version = "2.0.2"
+version = "2.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
@@ -874,7 +874,7 @@ checksum = "ca81e6b4777c89fd810c25a4be2b1bd93ea034fbe58e6a75216a34c6b82c539b"
 
 [[package]]
 name = "example_ccip_receiver"
-version = "2.0.2"
+version = "2.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
@@ -882,7 +882,7 @@ dependencies = [
 
 [[package]]
 name = "example_ccip_receiver_v2"
-version = "2.0.2"
+version = "2.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
@@ -892,7 +892,7 @@ dependencies = [
 
 [[package]]
 name = "example_ccip_sender"
-version = "2.0.2"
+version = "2.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
@@ -903,7 +903,7 @@ dependencies = [
 
 [[package]]
 name = "example_ccip_sender_v2"
-version = "2.0.2"
+version = "2.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
@@ -913,7 +913,7 @@ dependencies = [
 
 [[package]]
 name = "executor"
-version = "2.0.2"
+version = "2.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
@@ -931,7 +931,7 @@ checksum = "835a3dc7d1ec9e75e2b5fb4ba75396837112d2060b03f7d43bc1897c7f7211da"
 
 [[package]]
 name = "fee_quoter"
-version = "2.0.2"
+version = "2.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
@@ -1173,7 +1173,7 @@ dependencies = [
 
 [[package]]
 name = "lockrelease-token-pool"
-version = "2.0.2"
+version = "2.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
@@ -1193,7 +1193,7 @@ checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
 name = "lombard_token_pool"
-version = "2.0.2"
+version = "2.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
@@ -1236,7 +1236,7 @@ dependencies = [
 
 [[package]]
 name = "mock_lombard_bridge"
-version = "2.0.2"
+version = "2.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
@@ -1246,7 +1246,7 @@ dependencies = [
 
 [[package]]
 name = "mock_lombard_mailbox"
-version = "2.0.2"
+version = "2.1.0"
 dependencies = [
  "anchor-lang",
  "anchor_discriminator",
@@ -1520,7 +1520,7 @@ dependencies = [
 
 [[package]]
 name = "rmn_remote"
-version = "2.0.2"
+version = "2.1.0"
 dependencies = [
  "anchor-lang",
  "build_commit",
@@ -2797,7 +2797,7 @@ dependencies = [
 
 [[package]]
 name = "test_ccip_invalid_receiver"
-version = "2.0.2"
+version = "2.1.0"
 dependencies = [
  "anchor-lang",
  "example_ccip_receiver",
@@ -2805,7 +2805,7 @@ dependencies = [
 
 [[package]]
 name = "test_ccip_receiver"
-version = "2.0.2"
+version = "2.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
@@ -2815,7 +2815,7 @@ dependencies = [
 
 [[package]]
 name = "test_program"
-version = "2.0.2"
+version = "2.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",

@@ -8,7 +8,7 @@ export type BaseTokenPool = {
   "address": "DtHUwbNFN8RSeEBje4eH5gpqmheA9S86KaSWoqpQKzZu",
   "metadata": {
     "name": "baseTokenPool",
-    "version": "2.0.2",
+    "version": "2.1.0",
     "spec": "0.1.0",
     "description": "Created with Anchor"
   },

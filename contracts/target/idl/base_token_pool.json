@@ -2,7 +2,7 @@
   "address": "DtHUwbNFN8RSeEBje4eH5gpqmheA9S86KaSWoqpQKzZu",
   "metadata": {
     "name": "base_token_pool",
-    "version": "2.0.2",
+    "version": "2.1.0",
     "spec": "0.1.0",
     "description": "Created with Anchor"
   },
