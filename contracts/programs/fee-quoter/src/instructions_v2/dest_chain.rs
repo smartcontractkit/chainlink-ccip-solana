@@ -3,8 +3,9 @@ use anchor_lang::prelude::*;
 use ccip_common::seed;
 use ccip_common::types::{CrossChainGas, TimestampedPackedU224};
 use ccip_common::{
-    CommonCcipError, CHAIN_FAMILY_SELECTOR_APTOS, CHAIN_FAMILY_SELECTOR_EVM,
-    CHAIN_FAMILY_SELECTOR_SUI, CHAIN_FAMILY_SELECTOR_SVM, CHAIN_FAMILY_SELECTOR_TVM,
+    CommonCcipError, CHAIN_FAMILY_SELECTOR_APTOS, CHAIN_FAMILY_SELECTOR_CANTON,
+    CHAIN_FAMILY_SELECTOR_EVM, CHAIN_FAMILY_SELECTOR_SUI, CHAIN_FAMILY_SELECTOR_SVM,
+    CHAIN_FAMILY_SELECTOR_TVM,
 };
 
 use crate::context::{uninitialized, valid_version, ANCHOR_DISCRIMINATOR};
@@ -117,6 +118,7 @@ fn validate_dest_chain_config_v2(
         matches!(
             u32::from_be_bytes(config.chain_family_selector),
             CHAIN_FAMILY_SELECTOR_APTOS
+                | CHAIN_FAMILY_SELECTOR_CANTON
                 | CHAIN_FAMILY_SELECTOR_EVM
                 | CHAIN_FAMILY_SELECTOR_SUI
                 | CHAIN_FAMILY_SELECTOR_SVM
@@ -241,5 +243,12 @@ mod tests {
             validate_dest_chain_config_v2(1, &config).unwrap_err(),
             FeeQuoterError::NetworkFeeTooLarge.into()
         );
+    }
+
+    #[test]
+    fn validate_dest_chain_config_v2_accepts_canton() {
+        let mut config = sample_config();
+        config.chain_family_selector = CHAIN_FAMILY_SELECTOR_CANTON.to_be_bytes();
+        validate_dest_chain_config_v2(1, &config).unwrap();
     }
 }

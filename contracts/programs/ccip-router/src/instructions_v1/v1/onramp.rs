@@ -391,11 +391,12 @@ mod helpers {
     use anchor_lang::{system_program, Event};
     use ccip_common::{
         v1::{
-            validate_aptos_address, validate_evm_address, validate_sui_address,
-            validate_svm_address, validate_tvm_address,
+            validate_aptos_address, validate_canton_address, validate_evm_address,
+            validate_sui_address, validate_svm_address, validate_tvm_address,
         },
-        CommonCcipError, CHAIN_FAMILY_SELECTOR_APTOS, CHAIN_FAMILY_SELECTOR_EVM,
-        CHAIN_FAMILY_SELECTOR_SUI, CHAIN_FAMILY_SELECTOR_SVM, CHAIN_FAMILY_SELECTOR_TVM,
+        CommonCcipError, CHAIN_FAMILY_SELECTOR_APTOS, CHAIN_FAMILY_SELECTOR_CANTON,
+        CHAIN_FAMILY_SELECTOR_EVM, CHAIN_FAMILY_SELECTOR_SUI, CHAIN_FAMILY_SELECTOR_SVM,
+        CHAIN_FAMILY_SELECTOR_TVM,
     };
 
     use crate::event::events::PdaUpgraded;
@@ -653,6 +654,7 @@ mod helpers {
         let selector = u32::from_be_bytes(chain_family_selector);
         match selector {
             CHAIN_FAMILY_SELECTOR_APTOS => validate_aptos_address(dest_token_address),
+            CHAIN_FAMILY_SELECTOR_CANTON => validate_canton_address(dest_token_address),
             CHAIN_FAMILY_SELECTOR_EVM => validate_evm_address(dest_token_address),
             CHAIN_FAMILY_SELECTOR_SUI => validate_sui_address(dest_token_address, true),
             CHAIN_FAMILY_SELECTOR_SVM => validate_svm_address(dest_token_address, true),

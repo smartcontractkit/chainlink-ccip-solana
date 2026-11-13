@@ -666,6 +666,18 @@ pub fn validate_sui_address(
     Ok(())
 }
 
+/// A Canton address is a 32-byte hash (of a party ID for receivers, of an instance ID for
+/// contracts) and has no precompile space, so it only needs to be non-zero.
+pub fn validate_canton_address(address: &[u8]) -> Result<()> {
+    require_eq!(address.len(), 32, CommonCcipError::InvalidCantonAddress);
+    require!(
+        address.iter().any(|b| *b != 0),
+        CommonCcipError::InvalidCantonAddress
+    );
+
+    Ok(())
+}
+
 #[derive(Accounts)]
 #[instruction(
     token_sender: Pubkey,
@@ -1523,6 +1535,33 @@ mod tests {
         assert_eq!(
             validate_sui_address(&addr, true).unwrap_err(),
             CommonCcipError::InvalidSuiAddress.into()
+        );
+    }
+
+    // -----------------------------
+    // Canton address tests
+    // -----------------------------
+
+    #[test]
+    fn validate_canton_address_accepts_nonzero_32_bytes() {
+        let mut addr = [0u8; 32];
+        addr[31] = 1;
+        validate_canton_address(&addr).unwrap();
+    }
+
+    #[test]
+    fn validate_canton_address_rejects_zero_address() {
+        assert_eq!(
+            validate_canton_address(&[0u8; 32]).unwrap_err(),
+            CommonCcipError::InvalidCantonAddress.into()
+        );
+    }
+
+    #[test]
+    fn validate_canton_address_rejects_wrong_len() {
+        assert_eq!(
+            validate_canton_address(&[1u8; 20]).unwrap_err(),
+            CommonCcipError::InvalidCantonAddress.into()
         );
     }
 

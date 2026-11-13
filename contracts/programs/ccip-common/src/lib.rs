@@ -93,6 +93,9 @@ pub enum CommonCcipError {
 
     #[msg("Message requires more CCVs than account resolution can describe")]
     TooManyCcvs,
+
+    #[msg("Invalid Canton address")]
+    InvalidCantonAddress,
 }
 
 // Sentinel value used for CCV lists that signals default CCVs must be included.
@@ -124,6 +127,9 @@ pub const CHAIN_FAMILY_SELECTOR_SVM: u32 = 0x1e10bdc4;
 
 // byte4(keccak256("CCIP ChainFamilySelector TVM"));
 pub const CHAIN_FAMILY_SELECTOR_TVM: u32 = 0x647e2ba9;
+
+// bytes4(keccak256("CCIP ChainFamilySelector Canton"));
+pub const CHAIN_FAMILY_SELECTOR_CANTON: u32 = 0xdfafaf4b;
 
 // Duplicates the router ID to declare router accounts that must be visible from the common crate,
 // avoiding a circular dependency. This means this crate may only declare accounts that belong

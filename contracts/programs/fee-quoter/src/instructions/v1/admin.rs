@@ -2,8 +2,9 @@ use anchor_lang::prelude::*;
 
 use ccip_common::types::{CrossChainGas, TimestampedPackedU224};
 use ccip_common::{
-    CommonCcipError, CHAIN_FAMILY_SELECTOR_APTOS, CHAIN_FAMILY_SELECTOR_EVM,
-    CHAIN_FAMILY_SELECTOR_SUI, CHAIN_FAMILY_SELECTOR_SVM, CHAIN_FAMILY_SELECTOR_TVM,
+    CommonCcipError, CHAIN_FAMILY_SELECTOR_APTOS, CHAIN_FAMILY_SELECTOR_CANTON,
+    CHAIN_FAMILY_SELECTOR_EVM, CHAIN_FAMILY_SELECTOR_SUI, CHAIN_FAMILY_SELECTOR_SVM,
+    CHAIN_FAMILY_SELECTOR_TVM,
 };
 
 use crate::context::{
@@ -331,6 +332,7 @@ fn validate_dest_chain_config(dest_chain_selector: u64, config: &DestChainConfig
         matches!(
             u32::from_be_bytes(config.chain_family_selector),
             CHAIN_FAMILY_SELECTOR_APTOS
+                | CHAIN_FAMILY_SELECTOR_CANTON
                 | CHAIN_FAMILY_SELECTOR_EVM
                 | CHAIN_FAMILY_SELECTOR_SUI
                 | CHAIN_FAMILY_SELECTOR_SVM
@@ -370,6 +372,14 @@ mod tests {
     fn validate_dest_chain_config_accepts_aptos() {
         let mut dest_chain = sample_dest_chain();
         dest_chain.config.chain_family_selector = CHAIN_FAMILY_SELECTOR_APTOS.to_be_bytes();
+
+        validate_dest_chain_config(dest_chain.chain_selector, &dest_chain.config).unwrap();
+    }
+
+    #[test]
+    fn validate_dest_chain_config_accepts_canton() {
+        let mut dest_chain = sample_dest_chain();
+        dest_chain.config.chain_family_selector = CHAIN_FAMILY_SELECTOR_CANTON.to_be_bytes();
 
         validate_dest_chain_config(dest_chain.chain_selector, &dest_chain.config).unwrap();
     }
