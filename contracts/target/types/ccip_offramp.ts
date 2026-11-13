@@ -8,7 +8,7 @@ export type CcipOfframp = {
   "address": "off43sBHBsmWTU6VbfwKYCNwyJ4rSDhunYvz3QL7bF9",
   "metadata": {
     "name": "ccipOfframp",
-    "version": "2.0.1",
+    "version": "2.0.2",
     "spec": "0.1.0",
     "description": "Created with Anchor"
   },

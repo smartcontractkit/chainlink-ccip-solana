@@ -1,6 +1,6 @@
 {
   ".": "0.2.0",
   "deployment": "0.0.1",
-  "contracts": "2.0.1",
+  "contracts": "2.0.2",
   "contracts/gobindings/v2": "2.0.1"
 }

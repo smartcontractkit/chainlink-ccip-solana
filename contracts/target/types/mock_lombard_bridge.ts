@@ -8,7 +8,7 @@ export type MockLombardBridge = {
   "address": "Lomva5kTftuXE8992qRufkaeq3XrXV47qv3C1W9xW6Z",
   "metadata": {
     "name": "mockLombardBridge",
-    "version": "2.0.1",
+    "version": "2.0.2",
     "spec": "0.1.0",
     "description": "Minimal mock of the real Lombard `bridge` program's on-chain interface"
   },
