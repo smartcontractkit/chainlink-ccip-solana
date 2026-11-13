@@ -6,12 +6,13 @@ use ccip_common::extra_args::{
     SVM_EXTRA_ARGS_V1_TAG,
 };
 use ccip_common::v1::{
-    validate_aptos_address, validate_evm_address, validate_sui_address, validate_svm_address,
-    validate_tvm_address,
+    validate_aptos_address, validate_canton_address, validate_evm_address, validate_sui_address,
+    validate_svm_address, validate_tvm_address,
 };
 use ccip_common::{
-    CommonCcipError, CHAIN_FAMILY_SELECTOR_APTOS, CHAIN_FAMILY_SELECTOR_EVM,
-    CHAIN_FAMILY_SELECTOR_SUI, CHAIN_FAMILY_SELECTOR_SVM, CHAIN_FAMILY_SELECTOR_TVM,
+    CommonCcipError, CHAIN_FAMILY_SELECTOR_APTOS, CHAIN_FAMILY_SELECTOR_CANTON,
+    CHAIN_FAMILY_SELECTOR_EVM, CHAIN_FAMILY_SELECTOR_SUI, CHAIN_FAMILY_SELECTOR_SVM,
+    CHAIN_FAMILY_SELECTOR_TVM,
 };
 
 use crate::messages::{ProcessedExtraArgs, SVM2AnyMessage};
@@ -138,6 +139,7 @@ fn validate_dest_family_address(
     let selector = u32::from_be_bytes(chain_family_selector);
     match selector {
         CHAIN_FAMILY_SELECTOR_APTOS => validate_aptos_address(&msg.receiver),
+        CHAIN_FAMILY_SELECTOR_CANTON => validate_canton_address(&msg.receiver),
         CHAIN_FAMILY_SELECTOR_EVM => validate_evm_address(&msg.receiver),
         CHAIN_FAMILY_SELECTOR_SUI => {
             validate_sui_address(&msg.receiver, msg_extra_args.gas_limit > 0)

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -e
+set -euxo pipefail
 
 # Delete all .go files (anchor-go v1.0.0 generates all needed types directly)
 find ./contracts/gobindings/v2/latest -name "*.go" -type f -delete
