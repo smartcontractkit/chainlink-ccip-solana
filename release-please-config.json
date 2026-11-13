@@ -4,7 +4,7 @@
   "separate-pull-requests": true,
   "tag-separator": "/",
   "bump-minor-pre-major": true,
-  "pull-request-title-pattern": "chore: release ${component} ${version}",
+  "pull-request-title-pattern": "chore: release${component} ${version}",
   "bootstrap-sha": "3273844aea47bfd33739bba747e76d44be5dff66",
   "packages": {
     ".": {
@@ -26,6 +26,7 @@
     "contracts": {
       "release-type": "simple",
       "package-name": "contracts",
+      "component": "contracts",
       "extra-files": [
         {
           "type": "toml",
