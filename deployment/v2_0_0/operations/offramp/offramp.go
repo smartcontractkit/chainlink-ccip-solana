@@ -110,6 +110,15 @@ var Initialize = operations.NewOperation(
 		offRampEventAuthorityPDA, _, _ := state.FindEventAuthorityPDA(input.OffRamp)
 		rmnRemoteConfigPDA, _, _ := state.FindRMNRemoteConfigPDA(input.RMNRemote)
 		rmnRemoteCursesPDA, _, _ := state.FindRMNRemoteCursesPDA(input.RMNRemote)
+		// A re-run must not create another lookup table.
+		existing, err := common.GetInitializedAccount(b.GetContext(), chain.Client, offRampReferenceAddressesPDA, input.OffRamp, cldf_solana.SolDefaultCommitment, ccip_offramp.ParseAccount_ReferenceAddresses)
+		if err != nil {
+			return sequences.OnChainOutput{}, fmt.Errorf("check offramp initialization: %w", err)
+		}
+		if existing != nil {
+			b.Logger.Infof("OffRamp %s is already initialized, skipping", input.OffRamp)
+			return sequences.OnChainOutput{}, nil
+		}
 		table, err := common.SetupLookupTable(
 			b.GetContext(),
 			chain.Client,

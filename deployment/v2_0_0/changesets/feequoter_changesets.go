@@ -243,3 +243,102 @@ func ensurePriceUpdater(b cldf_ops.Bundle, chain cldf_solana.Chain, feeQuoter, u
 	}
 	return out.BatchOps, nil
 }
+
+// SetBillingTokenChangesetInput adds a billing (fee) token to a deployed FeeQuoter, or updates
+// its price and premium when it is already registered.
+type SetBillingTokenChangesetInput struct {
+	ChainSelector uint64 `json:"chainSelector"`
+	Mint          string `json:"mint"`
+	// UsdPerToken is a decimal integer, in 18-decimals USD per 1e18 smallest token units.
+	UsdPerToken                string `json:"usdPerToken"`
+	PremiumMultiplierWeiPerEth uint64 `json:"premiumMultiplierWeiPerEth"`
+	// Timestamp is the price time in unix seconds. Required with MCMS so the proposal is
+	// deterministic; otherwise zero means now.
+	Timestamp int64      `json:"timestamp"`
+	MCMS      mcms.Input `json:"mcms"`
+}
+
+func SetBillingTokenChangeset() cldf.ChangeSetV2[SetBillingTokenChangesetInput] {
+	return cldf.CreateChangeSet(setBillingTokenApply, setBillingTokenVerify)
+}
+
+func setBillingTokenVerify(env cldf.Environment, input SetBillingTokenChangesetInput) error {
+	if err := cldf.IsValidChainSelector(input.ChainSelector); err != nil {
+		return fmt.Errorf("invalid chain selector %d: %w", input.ChainSelector, err)
+	}
+	if _, ok := env.BlockChains.SolanaChains()[input.ChainSelector]; !ok {
+		return fmt.Errorf("chain with selector %d is not a Solana chain", input.ChainSelector)
+	}
+	if _, err := solana.PublicKeyFromBase58(input.Mint); err != nil {
+		return fmt.Errorf("invalid mint %q: %w", input.Mint, err)
+	}
+	price, ok := new(big.Int).SetString(input.UsdPerToken, 10)
+	if !ok || price.Sign() <= 0 {
+		return fmt.Errorf("usdPerToken %q must be a positive decimal integer", input.UsdPerToken)
+	}
+	if input.Timestamp < 0 {
+		return fmt.Errorf("timestamp %d must not be negative", input.Timestamp)
+	}
+	if input.MCMS != (mcms.Input{}) && input.Timestamp == 0 {
+		return errors.New("timestamp is required with an mcms input, so the proposal is deterministic")
+	}
+	if err := validateMCMSInput(env.Logger, input.MCMS); err != nil {
+		return fmt.Errorf("invalid MCMS configuration: %w", err)
+	}
+	return nil
+}
+
+func setBillingTokenApply(e cldf.Environment, input SetBillingTokenChangesetInput) (cldf.ChangesetOutput, error) {
+	chain := e.BlockChains.SolanaChains()[input.ChainSelector]
+	adapter := &sequences.SolanaAdapter{}
+
+	fqAddrBytes, err := adapter.GetFQAddress(e.DataStore, input.ChainSelector)
+	if err != nil {
+		return cldf.ChangesetOutput{}, fmt.Errorf("resolve fee quoter from datastore: %w", err)
+	}
+	feeQuoter := solana.PublicKeyFromBytes(fqAddrBytes)
+	routerBytes, err := adapter.GetRouterAddress(e.DataStore, input.ChainSelector)
+	if err != nil {
+		return cldf.ChangesetOutput{}, fmt.Errorf("resolve router from datastore: %w", err)
+	}
+	router := solana.PublicKeyFromBytes(routerBytes)
+
+	mint := solana.MustPublicKeyFromBase58(input.Mint)
+	mintInfo, err := chain.Client.GetAccountInfo(e.OperationsBundle.GetContext(), mint)
+	if err != nil || mintInfo == nil || mintInfo.Value == nil {
+		return cldf.ChangesetOutput{}, fmt.Errorf("read mint %s: %w", mint, errors.Join(err, errors.New("account not found")))
+	}
+	price, _ := new(big.Int).SetString(input.UsdPerToken, 10)
+	opInput := fqops.AddBillingTokenConfigInput{
+		FeeQuoter:                  feeQuoter,
+		Router:                     router,
+		Mint:                       mint,
+		TokenProgram:               mintInfo.Value.Owner, // the mint's owner is its token program
+		UsdPerToken:                price,
+		PremiumMultiplierWeiPerEth: input.PremiumMultiplierWeiPerEth,
+		Timestamp:                  input.Timestamp,
+	}
+
+	exists, err := fqops.BillingTokenExists(e.OperationsBundle.GetContext(), chain, feeQuoter, mint)
+	if err != nil {
+		return cldf.ChangesetOutput{}, err
+	}
+	op := fqops.AddBillingTokenConfig
+	if exists {
+		op = fqops.UpdateBillingTokenConfig
+	}
+	report, err := cldf_ops.ExecuteOperation(e.OperationsBundle, op, chain, opInput)
+	if err != nil {
+		return cldf.ChangesetOutput{}, fmt.Errorf("set billing token %s: %w", mint, err)
+	}
+
+	batchOps := report.Output.BatchOps
+	if err := requireMCMSForBatchOps(e.Logger, input.MCMS, batchOps); err != nil {
+		return cldf.ChangesetOutput{}, err
+	}
+	return changesets.
+		NewOutputBuilder(e, changesets.GetRegistry()).
+		WithReports([]cldf_ops.Report[any, any]{report.ToGenericReport()}).
+		WithBatchOps(batchOps).
+		Build(input.MCMS)
+}

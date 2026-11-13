@@ -27,3 +27,23 @@ func TestDeployContractIfNotInDatastoreReusesSameMajorRef(t *testing.T) {
 		_, _ = DeployContractIfNotInDatastore(b, cldf_solana.Chain{}, []datastore.AddressRef{{Type: "Router", Address: "x"}}, "Router", Version2_0_0, "", "ccip_router")
 	})
 }
+
+func TestDeployContractIfNotInDatastoreIgnoresOtherChains(t *testing.T) {
+	b := operations.NewBundle(context.Background, logger.Test(t), operations.NewMemoryReporter())
+	other := datastore.AddressRef{ChainSelector: 42, Type: "Router", Version: semver.MustParse("2.0.0"), Address: "other-chain"}
+
+	got, err := DeployContractIfNotInDatastore(b, cldf_solana.Chain{}, []datastore.AddressRef{other}, "Router", Version2_0_0, "", "ccip_router")
+	require.Error(t, err)
+	require.NotEqual(t, "other-chain", got.Address)
+}
+
+func TestDecodeUpgradeableLoaderStateRejectsShortProgramData(t *testing.T) {
+	for n := 4; n < 13; n++ {
+		data := make([]byte, n)
+		data[0] = 3 // ProgramData
+		require.NotPanics(t, func() {
+			_, err := decodeUpgradeableLoaderState(data)
+			require.Error(t, err, "len %d", n)
+		})
+	}
+}

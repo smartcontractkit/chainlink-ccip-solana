@@ -71,6 +71,10 @@ func DeployContractIfNotInDatastore(
 	var existing *datastore.AddressRef
 	for i := range input {
 		ref := input[i]
+		// The datastore spans chains.
+		if ref.ChainSelector != chain.Selector {
+			continue
+		}
 		if ref.Type != datastore.ContractType(contractType) || !RefVersionMatches(ref.Version, contractVersion) {
 			continue
 		}
@@ -209,6 +213,10 @@ func decodeUpgradeableLoaderState(data []byte) (*UpgradeableLoaderState, error) 
 			ProgramData: solana.PublicKeyFromBytes(data[4:36]),
 		}
 	case 3: // ProgramData
+		// type (4) + slot (8) + authority option (1)
+		if len(data) < 13 {
+			return nil, errors.New("program data account too short")
+		}
 		slot := binary.LittleEndian.Uint64(data[4:12])
 		opt := data[12]
 		var auth *solana.PublicKey
