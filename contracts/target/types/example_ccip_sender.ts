@@ -8,7 +8,7 @@ export type ExampleCcipSender = {
   "address": "E67f8sC5GbpeKCm3595t7sYVzd2k5frcqZAZZ1v4QECo",
   "metadata": {
     "name": "exampleCcipSender",
-    "version": "2.0.2",
+    "version": "2.1.0",
     "spec": "0.1.0",
     "description": "Created with Anchor"
   },

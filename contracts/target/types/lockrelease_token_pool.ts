@@ -8,7 +8,7 @@ export type LockreleaseTokenPool = {
   "address": "8eqh8wppT9c5rw4ERqNCffvU6cNFJWff9WmkcYtmGiqC",
   "metadata": {
     "name": "lockreleaseTokenPool",
-    "version": "2.0.2",
+    "version": "2.1.0",
     "spec": "0.1.0",
     "description": "Created with Anchor"
   },

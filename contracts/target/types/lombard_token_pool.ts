@@ -8,7 +8,7 @@ export type LombardTokenPool = {
   "address": "Lomb8TTCwJKEhZrJ1J8UbsCRjNSf7NNQUEr4qo3dkSk",
   "metadata": {
     "name": "lombardTokenPool",
-    "version": "2.0.2",
+    "version": "2.1.0",
     "spec": "0.1.0",
     "description": "Lombard LBTC Token Pool - CCIP 1.6/2.0 with an embedded Lombard CCV"
   },

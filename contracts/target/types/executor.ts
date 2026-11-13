@@ -8,7 +8,7 @@ export type Executor = {
   "address": "Exex3nkLcxMFASH75gudot5ZSQXUMRc8BrYaYHTDJrt4",
   "metadata": {
     "name": "executor",
-    "version": "2.0.2",
+    "version": "2.1.0",
     "spec": "0.1.0",
     "description": "CCIP Executor"
   },

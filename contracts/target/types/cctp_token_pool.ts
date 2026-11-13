@@ -8,7 +8,7 @@ export type CctpTokenPool = {
   "address": "CCiTPESGEevd7TBU8EGBKrcxuRq7jx3YtW6tPidnscaZ",
   "metadata": {
     "name": "cctpTokenPool",
-    "version": "2.0.2",
+    "version": "2.1.0",
     "spec": "0.1.0",
     "description": "USDC Token Pool for CCIP utilizing CCTP"
   },
