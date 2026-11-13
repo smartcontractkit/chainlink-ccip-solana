@@ -40,7 +40,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/test_ccip_invalid_receiver"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/test_ccip_receiver"
-	solcommonutils "github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/common"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/state"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/tokens"
 	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/solcommon"
@@ -492,7 +491,7 @@ var DeployChainContracts = operations.NewSequence(
 		if _, err = operations.ExecuteOperation(b, executorops.Initialize, chain, executorops.Params{
 			Executor:              executorAddress,
 			MaxCcvsPerMsg:         defaultExecutorCfg.MaxCCVsPerMsg,
-			FeeAggregator:         chain.DeployerKey.PublicKey(),                    // TODO: move all config to the defaultExecutorCfg
+			FeeAggregator:         chain.Deployer().PublicKey(),                     // TODO: move all config to the defaultExecutorCfg
 			AllowedFinalityConfig: executor.FinalityConfig{Flags: 0, BlockDepth: 1}, // TODO: move all config to the defaultExecutorCfg
 			CcvAllowlistEnabled:   defaultExecutorCfg.DynamicConfig.CcvAllowlistEnabled,
 		}); err != nil {
@@ -537,7 +536,7 @@ var DeployChainContracts = operations.NewSequence(
 				ata.tokenProgram,
 				ata.mint,
 				ata.authority,
-				chain.DeployerKey.PublicKey(),
+				chain.Deployer().PublicKey(),
 			)
 			if ataErr != nil {
 				return ccvadapters.DeployChainContractsOutput{}, fmt.Errorf("failed to create the instruction to create associated token account for Executor vault ATA (mint: %s, ccv: %s, ata/vaultAta: %s): %w", ata.mint.String(), executorAddress.String(), ata.ata.String(), ataErr)
@@ -605,7 +604,7 @@ var DeployChainContracts = operations.NewSequence(
 			return ccvadapters.DeployChainContractsOutput{}, fmt.Errorf("failed to create ccipSend LUT entries: %w", err)
 		}
 
-		ccipSendLUTAddr, err := solcommonutils.SetupLookupTable(b.GetContext(), chain.Client, *chain.DeployerKey, ccipSendLUTEntries)
+		ccipSendLUTAddr, err := solcommon.SetupLookupTable(b.GetContext(), chain, ccipSendLUTEntries)
 		if err != nil {
 			return ccvadapters.DeployChainContractsOutput{}, fmt.Errorf("create ccipSend lookup table: %w", err)
 		}

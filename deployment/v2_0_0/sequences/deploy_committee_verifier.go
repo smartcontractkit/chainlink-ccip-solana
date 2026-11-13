@@ -186,7 +186,7 @@ var DeployCommitteeVerifier = cldf_ops.NewSequence(
 				ata.tokenProgram,
 				ata.mint,
 				ata.authority,
-				solChain.DeployerKey.PublicKey(),
+				solChain.Deployer().PublicKey(),
 			)
 			if ataErr != nil {
 				return seq_core.OnChainOutput{}, fmt.Errorf("failed to create the instruction to create associated token account for CCV vault ATA (mint: %s, ccv: %s, ata/vaultAta: %s): %w", ata.mint.String(), verifierAddr.String(), ata.ata.String(), ataErr)

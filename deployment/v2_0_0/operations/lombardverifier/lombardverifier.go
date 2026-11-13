@@ -143,7 +143,7 @@ var Initialize = operations.NewOperation(
 	"Initializes Lombard's embedded verifier state",
 	func(b operations.Bundle, chain cldf_solana.Chain, input Params) (sequences.OnChainOutput, error) {
 		solcommon.SetProgramID(&lombard_token_pool.ProgramID, lombard_token_pool.ParseInstructionWithoutAccounts, input.LombardVerifier)
-		if chain.DeployerKey == nil {
+		if chain.Deployer() == nil {
 			return sequences.OnChainOutput{}, errors.New("missing Solana deployer key")
 		}
 		if input.LombardVerifier.IsZero() {
@@ -172,7 +172,7 @@ var Initialize = operations.NewOperation(
 			return sequences.OnChainOutput{}, fmt.Errorf("failed to derive verifier storage locations PDA: %w", err)
 		}
 
-		authority := chain.DeployerKey.PublicKey()
+		authority := chain.Deployer().PublicKey()
 		instruction, err := lombard_token_pool.NewInitializeVerifierInstruction(
 			configPDA,
 			storageLocationsPDA,
@@ -251,7 +251,7 @@ var CreateAndSetLookupTable = operations.NewOperation("lombard-verifier:create-a
 	"Creates and registers a Lombard verifier remote chain's own address lookup table",
 	func(b operations.Bundle, chain cldf_solana.Chain, input LookupTableParams) (sequences.OnChainOutput, error) {
 		solcommon.SetProgramID(&lombard_token_pool.ProgramID, lombard_token_pool.ParseInstructionWithoutAccounts, input.LombardVerifier)
-		if chain.DeployerKey == nil {
+		if chain.Deployer() == nil {
 			return sequences.OnChainOutput{}, errors.New("missing Solana deployer key")
 		}
 
@@ -310,7 +310,7 @@ var CreateAndSetLookupTable = operations.NewOperation("lombard-verifier:create-a
 )
 
 func extendLookupTable(ctx context.Context, chain cldf_solana.Chain, verifier solana.PublicKey, remote uint64, table solana.PublicKey, entries []solana.PublicKey) (sequences.OnChainOutput, error) {
-	if chain.DeployerKey == nil {
+	if chain.Deployer() == nil {
 		return sequences.OnChainOutput{}, errors.New("missing Solana deployer key")
 	}
 	if table.IsZero() {
@@ -472,7 +472,7 @@ var SetFeeAggregator = operations.NewOperation(
 	"Configures Lombard verifier's fee aggregator",
 	func(b operations.Bundle, chain cldf_solana.Chain, input SetFeeAggregatorParams) (sequences.OnChainOutput, error) {
 		solcommon.SetProgramID(&lombard_token_pool.ProgramID, lombard_token_pool.ParseInstructionWithoutAccounts, input.LombardVerifier)
-		if chain.DeployerKey == nil {
+		if chain.Deployer() == nil {
 			return sequences.OnChainOutput{}, errors.New("missing Solana deployer key")
 		}
 		if input.FeeAggregator.IsZero() {
@@ -505,7 +505,7 @@ var SetAllowedFinalityConfig = operations.NewOperation(
 	"Configures Lombard verifier's allowed finality",
 	func(b operations.Bundle, chain cldf_solana.Chain, input SetAllowedFinalityConfigParams) (sequences.OnChainOutput, error) {
 		solcommon.SetProgramID(&lombard_token_pool.ProgramID, lombard_token_pool.ParseInstructionWithoutAccounts, input.LombardVerifier)
-		if chain.DeployerKey == nil {
+		if chain.Deployer() == nil {
 			return sequences.OnChainOutput{}, errors.New("missing Solana deployer key")
 		}
 
@@ -535,7 +535,7 @@ var SetAllowlistAdmin = operations.NewOperation(
 	"Configures Lombard verifier's allowlist admin",
 	func(b operations.Bundle, chain cldf_solana.Chain, input SetAllowlistAdminParams) (sequences.OnChainOutput, error) {
 		solcommon.SetProgramID(&lombard_token_pool.ProgramID, lombard_token_pool.ParseInstructionWithoutAccounts, input.LombardVerifier)
-		if chain.DeployerKey == nil {
+		if chain.Deployer() == nil {
 			return sequences.OnChainOutput{}, errors.New("missing Solana deployer key")
 		}
 		if input.AllowlistAdmin.IsZero() {
@@ -573,7 +573,7 @@ var SetStorageLocations = operations.NewOperation(
 	"Configures Lombard verifier's storage locations",
 	func(b operations.Bundle, chain cldf_solana.Chain, input SetStorageLocationsParams) (sequences.OnChainOutput, error) {
 		solcommon.SetProgramID(&lombard_token_pool.ProgramID, lombard_token_pool.ParseInstructionWithoutAccounts, input.LombardVerifier)
-		if chain.DeployerKey == nil {
+		if chain.Deployer() == nil {
 			return sequences.OnChainOutput{}, errors.New("missing Solana deployer key")
 		}
 
@@ -616,7 +616,7 @@ var SetChainConfig = operations.NewOperation(
 	"Configures a Lombard verifier remote chain",
 	func(b operations.Bundle, chain cldf_solana.Chain, input SetChainConfigParams) (sequences.OnChainOutput, error) {
 		solcommon.SetProgramID(&lombard_token_pool.ProgramID, lombard_token_pool.ParseInstructionWithoutAccounts, input.LombardVerifier)
-		if chain.DeployerKey == nil {
+		if chain.Deployer() == nil {
 			return sequences.OnChainOutput{}, errors.New("missing Solana deployer key")
 		}
 
@@ -677,7 +677,7 @@ var SetPath = operations.NewOperation(
 	"Configures Lombard verifier's GMP routing path for a remote chain",
 	func(b operations.Bundle, chain cldf_solana.Chain, input SetPathParams) (sequences.OnChainOutput, error) {
 		solcommon.SetProgramID(&lombard_token_pool.ProgramID, lombard_token_pool.ParseInstructionWithoutAccounts, input.LombardVerifier)
-		if chain.DeployerKey == nil {
+		if chain.Deployer() == nil {
 			return sequences.OnChainOutput{}, errors.New("missing Solana deployer key")
 		}
 
@@ -715,7 +715,7 @@ var RemovePath = operations.NewOperation(
 	"Clears Lombard verifier's GMP routing path for a remote chain",
 	func(b operations.Bundle, chain cldf_solana.Chain, input RemovePathParams) (sequences.OnChainOutput, error) {
 		solcommon.SetProgramID(&lombard_token_pool.ProgramID, lombard_token_pool.ParseInstructionWithoutAccounts, input.LombardVerifier)
-		if chain.DeployerKey == nil {
+		if chain.Deployer() == nil {
 			return sequences.OnChainOutput{}, errors.New("missing Solana deployer key")
 		}
 
@@ -753,7 +753,7 @@ var SetAllowlist = operations.NewOperation(
 	"Sets the Lombard verifier sender allowlist for a destination chain",
 	func(b operations.Bundle, chain cldf_solana.Chain, input SetAllowlistParams) (sequences.OnChainOutput, error) {
 		solcommon.SetProgramID(&lombard_token_pool.ProgramID, lombard_token_pool.ParseInstructionWithoutAccounts, input.LombardVerifier)
-		if chain.DeployerKey == nil {
+		if chain.Deployer() == nil {
 			return sequences.OnChainOutput{}, errors.New("missing Solana deployer key")
 		}
 
@@ -777,7 +777,7 @@ var SetAllowlist = operations.NewOperation(
 		if err != nil {
 			return sequences.OnChainOutput{}, err
 		}
-		authority, err := allowlist.Signer(current, owner, admin, chain.DeployerKey.PublicKey())
+		authority, err := allowlist.Signer(current, owner, admin, chain.Deployer().PublicKey())
 		if err != nil {
 			return sequences.OnChainOutput{}, fmt.Errorf("remote chain %d on Lombard verifier %s: %w", input.DestChainSelector, input.LombardVerifier, err)
 		}
@@ -814,7 +814,7 @@ var SetSupportedTokens = operations.NewOperation(
 	"Configures Lombard verifier's supported local tokens",
 	func(b operations.Bundle, chain cldf_solana.Chain, input SetSupportedTokensParams) (sequences.OnChainOutput, error) {
 		solcommon.SetProgramID(&lombard_token_pool.ProgramID, lombard_token_pool.ParseInstructionWithoutAccounts, input.LombardVerifier)
-		if chain.DeployerKey == nil {
+		if chain.Deployer() == nil {
 			return sequences.OnChainOutput{}, errors.New("missing Solana deployer key")
 		}
 
@@ -846,7 +846,7 @@ var SetRemoteAdapters = operations.NewOperation(
 	"Configures Lombard verifier's remote token adapters for a remote chain",
 	func(b operations.Bundle, chain cldf_solana.Chain, input SetRemoteAdaptersParams) (sequences.OnChainOutput, error) {
 		solcommon.SetProgramID(&lombard_token_pool.ProgramID, lombard_token_pool.ParseInstructionWithoutAccounts, input.LombardVerifier)
-		if chain.DeployerKey == nil {
+		if chain.Deployer() == nil {
 			return sequences.OnChainOutput{}, errors.New("missing Solana deployer key")
 		}
 

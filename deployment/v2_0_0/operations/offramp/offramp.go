@@ -110,10 +110,9 @@ var Initialize = operations.NewOperation(
 		offRampEventAuthorityPDA, _, _ := state.FindEventAuthorityPDA(input.OffRamp)
 		rmnRemoteConfigPDA, _, _ := state.FindRMNRemoteConfigPDA(input.RMNRemote)
 		rmnRemoteCursesPDA, _, _ := state.FindRMNRemoteCursesPDA(input.RMNRemote)
-		table, err := common.SetupLookupTable(
+		table, err := solcommon.SetupLookupTable(
 			b.GetContext(),
-			chain.Client,
-			*chain.DeployerKey,
+			chain,
 			[]solana.PublicKey{
 				// system
 				solana.SystemProgramID,

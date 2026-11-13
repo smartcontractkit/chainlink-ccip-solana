@@ -33,7 +33,7 @@ var TransferTokens = operations.NewOperation(
 	Version,
 	"TEST/controlled environment only: transfer SPL tokens from the deployer's ATA to a recipient",
 	func(b operations.Bundle, chain cldf_solana.Chain, input TransferTokensParams) (sequences.OnChainOutput, error) {
-		deployer := chain.DeployerKey.PublicKey()
+		deployer := chain.Deployer().PublicKey()
 		if input.Recipient == deployer {
 			return sequences.OnChainOutput{}, errors.New("recipient is the deployer; nothing to transfer")
 		}
@@ -90,7 +90,7 @@ var TransferTokens = operations.NewOperation(
 )
 
 func ensureTokenAccount(chain cldf_solana.Chain, tokenProgram, mint, owner solana.PublicKey) error {
-	ixn, _, err := soltokens.CreateAssociatedTokenAccount(tokenProgram, mint, owner, chain.DeployerKey.PublicKey())
+	ixn, _, err := soltokens.CreateAssociatedTokenAccount(tokenProgram, mint, owner, chain.Deployer().PublicKey())
 	if err != nil {
 		return err
 	}

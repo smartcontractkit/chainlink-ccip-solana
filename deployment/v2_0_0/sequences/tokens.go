@@ -862,7 +862,7 @@ func (a *SolanaAdapter) DeployTokenPoolForToken() *operations.Sequence[tokenapi.
 					ata.tokenProgram,
 					ata.mint,
 					ata.authority,
-					chain.DeployerKey.PublicKey(),
+					chain.Deployer().PublicKey(),
 				)
 				if ataErr != nil {
 					return sequences.OnChainOutput{}, fmt.Errorf("failed to create the instruction to create associated token account for tokenpool (mint: %s, pool: %s, ata/vaultAta: %s): %w", tokenMint.String(), tokenPool.String(), ata.ata.String(), ataErr)
@@ -878,12 +878,12 @@ func (a *SolanaAdapter) DeployTokenPoolForToken() *operations.Sequence[tokenapi.
 			}
 			// make pool mint_authority for token, if necessary
 			if input.PoolType == common_utils.BurnMintTokenPool.String() && tokenMint != solana.WrappedSol {
-				if mintAuthority.String() == chain.DeployerKey.PublicKey().String() {
+				if mintAuthority.String() == chain.Deployer().PublicKey().String() {
 					ixn, err := tokens.SetTokenMintAuthority(
 						tokenProgramID,
 						poolSigner,
 						tokenMint,
-						chain.DeployerKey.PublicKey(),
+						chain.Deployer().PublicKey(),
 					)
 					if err != nil {
 						return sequences.OnChainOutput{}, fmt.Errorf("failed to generate instructions: %w", err)
@@ -895,12 +895,12 @@ func (a *SolanaAdapter) DeployTokenPoolForToken() *operations.Sequence[tokenapi.
 				} else {
 					b.Logger.Warnw("Token's mint authority is not with deployer key, skipping setting poolSigner as mint authority",
 						"poolType", input.PoolType, "tokenMint", tokenMint,
-						"deployer", chain.DeployerKey.PublicKey().String(), "poolSigner", poolSigner.String())
+						"deployer", chain.Deployer().PublicKey().String(), "poolSigner", poolSigner.String())
 				}
 			} else {
 				b.Logger.Warnw("PoolType is not a BurnMintTokenPool, skipping setting poolSigner as mint authority",
 					"poolType", input.PoolType, "tokenMint", tokenMint,
-					"deployer", chain.DeployerKey.PublicKey().String(), "poolSigner", poolSigner.String())
+					"deployer", chain.Deployer().PublicKey().String(), "poolSigner", poolSigner.String())
 			}
 
 			return result, nil

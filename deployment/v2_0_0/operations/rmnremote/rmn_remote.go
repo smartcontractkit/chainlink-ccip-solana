@@ -177,7 +177,7 @@ var Curse = operations.NewOperation(
 			ins = append(ins, ix)
 		}
 		batches := make([]types.BatchOperation, 0)
-		if authority != chain.DeployerKey.PublicKey() {
+		if authority != chain.Deployer().PublicKey() {
 			b, err := solcommon.BuildMCMSBatchOperation(
 				chain.Selector,
 				ins,
@@ -230,7 +230,7 @@ var Uncurse = operations.NewOperation(
 			ins = append(ins, ix)
 		}
 		batches := make([]types.BatchOperation, 0)
-		if authority != chain.DeployerKey.PublicKey() {
+		if authority != chain.Deployer().PublicKey() {
 			b, err := solcommon.BuildMCMSBatchOperation(
 				chain.Selector,
 				ins,

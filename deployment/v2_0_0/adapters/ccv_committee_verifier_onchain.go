@@ -145,7 +145,7 @@ func (a *SolanaCommitteeVerifierOnchainAdapter) ApplySignatureConfigs(
 	if !ok {
 		return nil, fmt.Errorf("solana chain %d not found in environment", destChainSelector)
 	}
-	if chain.DeployerKey == nil {
+	if chain.Deployer() == nil {
 		return nil, fmt.Errorf("missing Solana deployer key for chain %d", destChainSelector)
 	}
 
@@ -211,7 +211,7 @@ func (a *SolanaCommitteeVerifierOnchainAdapter) SetAllowedFinalityConfig(
 	if !ok {
 		return nil, fmt.Errorf("solana chain %d not found in environment", chainSelector)
 	}
-	if chain.DeployerKey == nil {
+	if chain.Deployer() == nil {
 		return nil, fmt.Errorf("missing Solana deployer key for chain %d", chainSelector)
 	}
 
@@ -266,7 +266,7 @@ func (a *SolanaCommitteeVerifierOnchainAdapter) ApplyAllowlistUpdates(
 	if !ok {
 		return nil, fmt.Errorf("solana chain %d not found in environment", chainSelector)
 	}
-	if chain.DeployerKey == nil {
+	if chain.Deployer() == nil {
 		return nil, fmt.Errorf("missing Solana deployer key for chain %d", chainSelector)
 	}
 

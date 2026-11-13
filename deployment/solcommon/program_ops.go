@@ -303,7 +303,7 @@ func UpgradeProgram(
 		return nil, err
 	}
 
-	ixn := SetUpgradeAuthority(programBuffer, chain.DeployerKey.PublicKey(), upgradeAuthority, true)
+	ixn := SetUpgradeAuthority(programBuffer, chain.Deployer().PublicKey(), upgradeAuthority, true)
 	if err = chain.Confirm([]solana.Instruction{ixn}); err != nil {
 		return nil, fmt.Errorf("failed to confirm setUpgradeAuthority: %w", err)
 	}
@@ -311,7 +311,7 @@ func UpgradeProgram(
 	upgradeIx, err := generateUpgradeIxn(
 		programID,
 		programBuffer,
-		chain.DeployerKey.PublicKey(),
+		chain.Deployer().PublicKey(),
 		upgradeAuthority,
 	)
 	if err != nil {
@@ -324,7 +324,7 @@ func UpgradeProgram(
 	}
 	closeIx, err := generateCloseBufferIxn(
 		programBuffer,
-		chain.DeployerKey.PublicKey(),
+		chain.Deployer().PublicKey(),
 		upgradeAuthority,
 	)
 	if err != nil {
@@ -335,7 +335,7 @@ func UpgradeProgram(
 	extendIxn, err := generateExtendIxn(
 		chain,
 		programID,
-		chain.DeployerKey.PublicKey(),
+		chain.Deployer().PublicKey(),
 		bufferSize,
 	)
 	if err != nil {

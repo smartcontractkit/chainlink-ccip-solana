@@ -97,13 +97,16 @@ func PublishIDL(
 		return nil, err
 	}
 
-	buffer := idlBufferKey(chain, programID)
+	buffer, err := idlBufferKey(b.GetContext(), chain, programID)
+	if err != nil {
+		return nil, err
+	}
 
 	plan, err := metadata.PlanPublish(metadata.PublishConfig{
 		Program:     programID,
 		ProgramData: programData,
 		Authority:   authority,
-		Payer:       chain.DeployerKey.PublicKey(),
+		Payer:       chain.Deployer().PublicKey(),
 		Buffer:      buffer.PublicKey(),
 		RentExemptFor: func(space int) (uint64, error) {
 			return chain.Client.GetMinimumBalanceForRentExemption(
@@ -129,7 +132,7 @@ func PublishIDL(
 		return nil, nil
 	}
 
-	if authority.Equals(chain.DeployerKey.PublicKey()) {
+	if authority.Equals(chain.Deployer().PublicKey()) {
 		// One instruction per transaction: Initialize can carry the whole
 		// document, which leaves no room to batch.
 		for _, ix := range governed {
@@ -200,7 +203,7 @@ func uploadToBuffer(
 			"program", programName, "buffer", buffer.PublicKey())
 		prepare = append([]solana.Instruction{
 			metadata.CloseInstruction(buffer.PublicKey(), buffer.PublicKey(),
-				solana.PublicKey{}, solana.PublicKey{}, chain.DeployerKey.PublicKey()),
+				solana.PublicKey{}, solana.PublicKey{}, chain.Deployer().PublicKey()),
 		}, prepare...)
 	}
 
@@ -226,7 +229,7 @@ func uploadToBuffer(
 // an interrupted run can reclaim it, and a buffer held open while a proposal
 // waits for its timelock is not a permanent loss of rent. The deployer key is
 // in the seed so two deployers never collide on the same buffer.
-func idlBufferKey(chain cldf_solana.Chain, programID solana.PublicKey) solana.PrivateKey {
+func idlBufferKey(ctx context.Context, chain cldf_solana.Chain, programID solana.PublicKey) (solana.PrivateKey, error) {
 	// The seed is the deployer's secret key, not its public key. Seeded from
 	// public values this whole keypair is recomputable by anyone, who could
 	// then sign Write or Close against the buffer in the window between the
@@ -234,10 +237,27 @@ func idlBufferKey(chain cldf_solana.Chain, programID solana.PublicKey) solana.Pr
 	// have governance commit an IDL of their choosing. Using the secret keeps
 	// the address reachable by the same deployer on a later run, which is what
 	// makes an interrupted publish recoverable, without making it guessable.
-	seed := sha256.Sum256(fmt.Appendf(nil, "ccip-idl-buffer/%x/%s/%s",
-		*chain.DeployerKey, programID, metadata.SeedIDL))
+	if chain.DeployerKey != nil {
+		seed := sha256.Sum256(fmt.Appendf(nil, "ccip-idl-buffer/%x/%s/%s",
+			*chain.DeployerKey, programID, metadata.SeedIDL))
 
-	return solana.PrivateKey(ed25519.NewKeyFromSeed(seed[:]))
+		return solana.PrivateKey(ed25519.NewKeyFromSeed(seed[:])), nil
+	}
+
+	// A remote deployer (e.g. KMS) has no secret key to read, so seed from its
+	// signature instead. Ed25519 signatures are deterministic, so only the
+	// deployer can produce the seed and it produces the same one every run.
+	deployer := chain.Deployer()
+	if deployer == nil {
+		return nil, errors.New("missing Solana deployer key")
+	}
+	sig, err := deployer.Sign(ctx, fmt.Appendf(nil, "ccip-idl-buffer/%s/%s", programID, metadata.SeedIDL))
+	if err != nil {
+		return nil, fmt.Errorf("derive IDL buffer key: %w", err)
+	}
+	seed := sha256.Sum256(sig[:])
+
+	return solana.PrivateKey(ed25519.NewKeyFromSeed(seed[:])), nil
 }
 
 // metadataAccountState is what a derived metadata address currently holds.

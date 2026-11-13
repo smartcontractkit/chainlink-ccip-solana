@@ -172,7 +172,7 @@ var DeployLombardChain = cldf_ops.NewSequence(
 		if err != nil {
 			return seq_core.OnChainOutput{}, fmt.Errorf("derive lombard token pool signer address: %w", err)
 		}
-		ataIxn, _, err := tokens.CreateAssociatedTokenAccount(tokenProgramID, token, poolSigner, solChain.DeployerKey.PublicKey())
+		ataIxn, _, err := tokens.CreateAssociatedTokenAccount(tokenProgramID, token, poolSigner, solChain.Deployer().PublicKey())
 		if err != nil {
 			return seq_core.OnChainOutput{}, fmt.Errorf("build create ATA instruction for lombard pool token account: %w", err)
 		}

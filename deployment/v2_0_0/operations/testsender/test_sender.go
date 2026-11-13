@@ -425,7 +425,7 @@ var InitCcipSenderATA = operations.NewOperation(
 			case !errors.Is(getErr, rpc.ErrNotFound):
 				return sequences.OnChainOutput{}, fmt.Errorf("fetch ccip_sender ATA %s: %w", ata, getErr)
 			}
-			ix, _, err = tokens.CreateAssociatedTokenAccount(tokenProgram, input.Mint, ccipSenderPDA, chain.DeployerKey.PublicKey())
+			ix, _, err = tokens.CreateAssociatedTokenAccount(tokenProgram, input.Mint, ccipSenderPDA, chain.Deployer().PublicKey())
 		} else {
 			solcommon.SetProgramID(&example_ccip_sender_v2.ProgramID, example_ccip_sender_v2.ParseInstructionWithoutAccounts, input.Sender)
 			statePDA, pdaErr := FindStatePDA(input.Sender)
@@ -437,7 +437,7 @@ var InitCcipSenderATA = operations.NewOperation(
 				ata,
 				input.Mint,
 				ccipSenderPDA,
-				chain.DeployerKey.PublicKey(),
+				chain.Deployer().PublicKey(),
 				tokenProgram,
 				solana.SPLAssociatedTokenAccountProgramID,
 				solana.SystemProgramID,
@@ -478,7 +478,7 @@ var FundCcipSender = operations.NewOperation(
 		if balance.Value >= input.Lamports {
 			return sequences.OnChainOutput{}, nil
 		}
-		ix, err := system.NewTransferInstruction(input.Lamports-balance.Value, chain.DeployerKey.PublicKey(), ccipSenderPDA).ValidateAndBuild()
+		ix, err := system.NewTransferInstruction(input.Lamports-balance.Value, chain.Deployer().PublicKey(), ccipSenderPDA).ValidateAndBuild()
 		if err != nil {
 			return sequences.OnChainOutput{}, fmt.Errorf("build ccip_sender PDA funding instruction: %w", err)
 		}

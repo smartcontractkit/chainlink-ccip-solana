@@ -260,7 +260,8 @@ func TestPublishIDLEndToEnd(t *testing.T) {
 	require.Equal(t, want, got, "the published idl must match the artifact")
 
 	// The buffer is closed on the direct path, so its rent came back.
-	buffer := idlBufferKey(chain, programID)
+	buffer, err := idlBufferKey(t.Context(), chain, programID)
+	require.NoError(t, err)
 	leftover, err := readMetadataAccount(client, buffer.PublicKey())
 	require.NoError(t, err)
 	require.False(t, leftover.Initialized, "the buffer should be closed once the document has landed")

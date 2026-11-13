@@ -33,7 +33,7 @@ var MintTokens = operations.NewOperation(
 	Version,
 	"TEST/controlled environment only: mint SPL supply to a recipient ATA when the deployer is the mint authority",
 	func(b operations.Bundle, chain cldf_solana.Chain, input MintTokensParams) (sequences.OnChainOutput, error) {
-		deployer := chain.DeployerKey.PublicKey()
+		deployer := chain.Deployer().PublicKey()
 		if input.Amount == 0 {
 			return sequences.OnChainOutput{}, errors.New("amount must be non-zero")
 		}

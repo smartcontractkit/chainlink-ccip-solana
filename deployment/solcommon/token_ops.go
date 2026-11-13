@@ -96,7 +96,7 @@ func MintTokens(chain cldf_solana.Chain, tokenProgramID, mint solana.PublicKey, 
 		toAddressBase58 := solana.MustPublicKeyFromBase58(toAddress)
 		// get associated token account for toAddress
 		ata, _, _ := soltokens.FindAssociatedTokenAddress(tokenProgramID, mint, toAddressBase58)
-		mintToI, err := soltokens.MintTo(amount, tokenProgramID, mint, ata, chain.DeployerKey.PublicKey())
+		mintToI, err := soltokens.MintTo(amount, tokenProgramID, mint, ata, chain.Deployer().PublicKey())
 		if err != nil {
 			return err
 		}
@@ -112,7 +112,7 @@ func DisableFreezeAuthority(ctx context.Context, chain cldf_solana.Chain, tokenM
 		ix, err := token.NewSetAuthorityInstructionBuilder().
 			SetAuthorityType(token.AuthorityFreezeAccount).
 			SetSubjectAccount(mint).
-			SetAuthorityAccount(chain.DeployerKey.PublicKey()).
+			SetAuthorityAccount(chain.Deployer().PublicKey()).
 			ValidateAndBuild()
 		if err != nil {
 			return fmt.Errorf("failed to build set authority instruction for mint %s: %w", mint.String(), err)

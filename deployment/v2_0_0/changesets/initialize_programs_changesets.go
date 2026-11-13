@@ -122,7 +122,7 @@ func initializeExecutorApply(e cldf.Environment, input InitializeExecutorChanges
 	if initialized {
 		return cldf.ChangesetOutput{}, nil
 	}
-	feeAggregator := chain.DeployerKey.PublicKey()
+	feeAggregator := chain.Deployer().PublicKey()
 	if input.FeeAggregator != "" {
 		feeAggregator, err = solana.PublicKeyFromBase58(input.FeeAggregator)
 		if err != nil {
@@ -421,7 +421,7 @@ func resolveInitializerProgram(env cldf.Environment, chainSelector uint64, contr
 	if !exists {
 		return cldf_solana.Chain{}, solana.PublicKey{}, fmt.Errorf("solana chain %d does not exist", chainSelector)
 	}
-	if chain.DeployerKey == nil {
+	if chain.Deployer() == nil {
 		return cldf_solana.Chain{}, solana.PublicKey{}, fmt.Errorf("solana deployer key is required for chain %d", chainSelector)
 	}
 	address, err := resolveInitializerRef(env, chainSelector, contractType, version, qualifier)

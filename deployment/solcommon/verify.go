@@ -314,7 +314,7 @@ func RegisterBuild(
 		return nil, err
 	}
 
-	if authority.Equals(chain.DeployerKey.PublicKey()) {
+	if authority.Equals(chain.Deployer().PublicKey()) {
 		if err = chain.Confirm([]solana.Instruction{ix}); err != nil {
 			return nil, fmt.Errorf("register verified build for %s: %w", programName, err)
 		}

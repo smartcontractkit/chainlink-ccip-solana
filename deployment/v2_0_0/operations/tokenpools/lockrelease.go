@@ -526,14 +526,14 @@ type ProvideLiquidityInput struct {
 // TEST/controlled environment only — operational tooling, not a protocol
 // contract op (EVM parity: rebalancer-gated liquidity is only ever called raw
 // from test code, never through MCMS). Liquidity is rebalancer-gated, so the
-// signer (chain.DeployerKey) must BE the on-chain rebalancer; the set-rebalancer
+// signer (the chain deployer) must BE the on-chain rebalancer; the set-rebalancer
 // step is deployer-signed too and refuses the MCMS path.
 var ProvideLiquidityLockRelease = operations.NewOperation(
 	"lockrelease:provide-liquidity",
 	LockReleaseVersion,
 	"TEST/controlled environment only: deposit deployer-held tokens into a LockRelease pool",
 	func(b operations.Bundle, chain cldf_solana.Chain, input ProvideLiquidityInput) (sequences.OnChainOutput, error) {
-		deployer := chain.DeployerKey.PublicKey()
+		deployer := chain.Deployer().PublicKey()
 
 		if !input.Rebalancer.IsZero() {
 			setOut, err := operations.ExecuteOperation(b, SetRebalancerLockRelease, chain, TokenPoolSetRebalancerInput{
