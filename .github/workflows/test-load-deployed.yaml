@@ -109,7 +109,7 @@ jobs:
 
       - name: Materialize deployed environment config
         env:
-          DEPLOYED_ENV_CONFIG: ${{ secrets[format('DEPLOYED_ENV_CONFIG_{0}', matrix.target_environment)] }}
+          DEPLOYED_ENV_CONFIG: ${{ matrix.target_environment == 'PRIVATE_STAGING' && secrets.DEPLOYED_ENV_CONFIG_PRIVATE_STAGING || '' }}
         run: |
           set -eu
           test -n "$DEPLOYED_ENV_CONFIG"

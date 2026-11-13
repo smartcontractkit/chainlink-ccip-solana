@@ -57,7 +57,10 @@ async function latestV1_6Tag(): Promise<{ tag: string; sha: string }> {
       return bv - av
     })
   if (matches.length === 0) throw new Error(`No solana-v1.6.* tag found in ${REPO}`)
-  return { tag: matches[0].name, sha: matches[0].commit.sha }
+  const { name: tag, commit: { sha } } = matches[0]
+  // The SHA goes into download URLs and .commit, so reject anything but a full commit hash.
+  if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error(`Unexpected commit SHA for ${tag}: ${sha}`)
+  return { tag, sha }
 }
 
 async function downloadIdl(sha: string, name: string): Promise<void> {
@@ -76,7 +79,12 @@ async function downloadIdl(sha: string, name: string): Promise<void> {
 }
 
 async function main() {
-  const pinned = fs.existsSync(COMMIT_FILE) ? fs.readFileSync(COMMIT_FILE, 'utf8').trim() : ''
+  let pinned = ''
+  try {
+    pinned = fs.readFileSync(COMMIT_FILE, 'utf8').trim()
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+  }
   const { tag, sha } = await latestV1_6Tag()
 
   if (pinned === sha) {
