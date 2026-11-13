@@ -21,7 +21,7 @@ func ConfirmOrBatch(chain cldf_solana.Chain, signer solana.PublicKey, ixns []sol
 	if len(ixns) == 0 {
 		return sequences.OnChainOutput{}, nil
 	}
-	if signer != chain.DeployerKey.PublicKey() {
+	if signer != chain.Deployer().PublicKey() {
 		batch, err := BuildMCMSBatchOperation(chain.Selector, ixns, program.String(), contractType)
 		if err != nil {
 			return sequences.OnChainOutput{}, fmt.Errorf("failed to build MCMS batch for %s instructions on %s: %w", contractType, program, err)
@@ -57,7 +57,7 @@ func ConfigAuthority[T any](ctx context.Context, chain cldf_solana.Chain, progra
 		return solana.PublicKey{}, fmt.Errorf("failed to read config of program %s: %w", program, err)
 	}
 	if config == nil {
-		return chain.DeployerKey.PublicKey(), nil
+		return chain.Deployer().PublicKey(), nil
 	}
 	return pick(config), nil
 }

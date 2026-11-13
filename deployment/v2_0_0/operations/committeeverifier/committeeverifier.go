@@ -142,7 +142,7 @@ var Initialize = operations.NewOperation(
 	"Initializes the CommitteeVerifier contract",
 	func(b operations.Bundle, chain cldf_solana.Chain, input Params) (sequences.OnChainOutput, error) {
 		solcommon.SetProgramID(&committee_verifier.ProgramID, committee_verifier.ParseInstructionWithoutAccounts, input.CommitteeVerifier)
-		if chain.DeployerKey == nil {
+		if chain.Deployer() == nil {
 			return sequences.OnChainOutput{}, errors.New("missing Solana deployer key")
 		}
 		if input.CommitteeVerifier.IsZero() {
@@ -196,7 +196,7 @@ var SetFeeAggregator = operations.NewOperation(
 	"Configures CommitteeVerifier fee aggregator",
 	func(b operations.Bundle, chain cldf_solana.Chain, input SetFeeAggregatorParams) (sequences.OnChainOutput, error) {
 		solcommon.SetProgramID(&committee_verifier.ProgramID, committee_verifier.ParseInstructionWithoutAccounts, input.CommitteeVerifier)
-		if chain.DeployerKey == nil {
+		if chain.Deployer() == nil {
 			return sequences.OnChainOutput{}, errors.New("missing Solana deployer key")
 		}
 		if input.FeeAggregator.IsZero() {
@@ -231,7 +231,7 @@ var SetAllowlistAdmin = operations.NewOperation(
 	"Configures CommitteeVerifier allowlist admin",
 	func(b operations.Bundle, chain cldf_solana.Chain, input SetAllowlistAdminParams) (sequences.OnChainOutput, error) {
 		solcommon.SetProgramID(&committee_verifier.ProgramID, committee_verifier.ParseInstructionWithoutAccounts, input.CommitteeVerifier)
-		if chain.DeployerKey == nil {
+		if chain.Deployer() == nil {
 			return sequences.OnChainOutput{}, errors.New("missing Solana deployer key")
 		}
 		if input.AllowlistAdmin.IsZero() {
@@ -265,7 +265,7 @@ var SetAllowedFinalityConfig = operations.NewOperation(
 	"Configures CommitteeVerifier allowed finality",
 	func(b operations.Bundle, chain cldf_solana.Chain, input SetAllowedFinalityConfigParams) (sequences.OnChainOutput, error) {
 		solcommon.SetProgramID(&committee_verifier.ProgramID, committee_verifier.ParseInstructionWithoutAccounts, input.CommitteeVerifier)
-		if chain.DeployerKey == nil {
+		if chain.Deployer() == nil {
 			return sequences.OnChainOutput{}, errors.New("missing Solana deployer key")
 		}
 
@@ -302,7 +302,7 @@ var SetStorageLocations = operations.NewOperation(
 	"Configures CommitteeVerifier storage locations",
 	func(b operations.Bundle, chain cldf_solana.Chain, input SetStorageLocationsParams) (sequences.OnChainOutput, error) {
 		solcommon.SetProgramID(&committee_verifier.ProgramID, committee_verifier.ParseInstructionWithoutAccounts, input.CommitteeVerifier)
-		if chain.DeployerKey == nil {
+		if chain.Deployer() == nil {
 			return sequences.OnChainOutput{}, errors.New("missing Solana deployer key")
 		}
 
@@ -351,7 +351,7 @@ var SetChainConfig = operations.NewOperation(
 	"Configures a CommitteeVerifier remote chain",
 	func(b operations.Bundle, chain cldf_solana.Chain, input SetChainConfigParams) (sequences.OnChainOutput, error) {
 		solcommon.SetProgramID(&committee_verifier.ProgramID, committee_verifier.ParseInstructionWithoutAccounts, input.CommitteeVerifier)
-		if chain.DeployerKey == nil {
+		if chain.Deployer() == nil {
 			return sequences.OnChainOutput{}, errors.New("missing Solana deployer key")
 		}
 
@@ -403,7 +403,7 @@ var SetSignerConfig = operations.NewOperation(
 	"Configures a CommitteeVerifier remote chain signer set",
 	func(b operations.Bundle, chain cldf_solana.Chain, input SetSignerConfigParams) (sequences.OnChainOutput, error) {
 		solcommon.SetProgramID(&committee_verifier.ProgramID, committee_verifier.ParseInstructionWithoutAccounts, input.CommitteeVerifier)
-		if chain.DeployerKey == nil {
+		if chain.Deployer() == nil {
 			return sequences.OnChainOutput{}, errors.New("missing Solana deployer key")
 		}
 
@@ -437,7 +437,7 @@ var RemoveSignerConfig = operations.NewOperation(
 	"Clears a CommitteeVerifier remote chain signer set",
 	func(b operations.Bundle, chain cldf_solana.Chain, input RemoveSignerConfigParams) (sequences.OnChainOutput, error) {
 		solcommon.SetProgramID(&committee_verifier.ProgramID, committee_verifier.ParseInstructionWithoutAccounts, input.CommitteeVerifier)
-		if chain.DeployerKey == nil {
+		if chain.Deployer() == nil {
 			return sequences.OnChainOutput{}, errors.New("missing Solana deployer key")
 		}
 
@@ -472,7 +472,7 @@ var SetAllowlist = operations.NewOperation(
 	"Sets the CommitteeVerifier sender allowlist for a destination chain",
 	func(b operations.Bundle, chain cldf_solana.Chain, input SetAllowlistParams) (sequences.OnChainOutput, error) {
 		solcommon.SetProgramID(&committee_verifier.ProgramID, committee_verifier.ParseInstructionWithoutAccounts, input.CommitteeVerifier)
-		if chain.DeployerKey == nil {
+		if chain.Deployer() == nil {
 			return sequences.OnChainOutput{}, errors.New("missing Solana deployer key")
 		}
 
@@ -496,7 +496,7 @@ var SetAllowlist = operations.NewOperation(
 		if err != nil {
 			return sequences.OnChainOutput{}, err
 		}
-		authority, err := allowlist.Signer(current, owner, admin, chain.DeployerKey.PublicKey())
+		authority, err := allowlist.Signer(current, owner, admin, chain.Deployer().PublicKey())
 		if err != nil {
 			return sequences.OnChainOutput{}, fmt.Errorf("remote chain %d on CommitteeVerifier %s: %w", input.DestChainSelector, input.CommitteeVerifier, err)
 		}

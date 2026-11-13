@@ -30,7 +30,7 @@ func FundFromAddressIxs(solChain cldf_solana.Chain, from solana.PublicKey, accou
 
 // FundFromDeployerKey transfers SOL from the deployer to each provided account and waits for confirmations.
 func FundFromDeployerKey(solChain cldf_solana.Chain, accounts []solana.PublicKey, amount uint64) error {
-	ixs, err := FundFromAddressIxs(solChain, solChain.DeployerKey.PublicKey(), accounts, amount*solana.LAMPORTS_PER_SOL)
+	ixs, err := FundFromAddressIxs(solChain, solChain.Deployer().PublicKey(), accounts, amount*solana.LAMPORTS_PER_SOL)
 	if err != nil {
 		return fmt.Errorf("failed to create transfer instructions: %w", err)
 	}
