@@ -5,6 +5,7 @@
   "tag-separator": "/",
   "bump-minor-pre-major": true,
   "pull-request-title-pattern": "chore: release${component} ${version}",
+  "group-pull-request-title-pattern": "chore${scope}: release contracts libraries",
   "bootstrap-sha": "3273844aea47bfd33739bba747e76d44be5dff66",
   "packages": {
     ".": {
