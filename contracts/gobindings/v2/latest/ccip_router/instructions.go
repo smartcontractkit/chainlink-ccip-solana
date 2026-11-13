@@ -766,7 +766,6 @@ func NewGetFeeV2Instruction(
 		// registry PDA derived from the transferred token before using it.
 		accounts__.Append(solanago.NewAccountMeta(tokenAdminRegistryAccount, false, false))
 		// Account 3 "fee_quoter": Read-only, Non-signer, Required
-		//
 		accounts__.Append(solanago.NewAccountMeta(feeQuoterAccount, false, false))
 		// Account 4 "fee_quoter_config": Read-only, Non-signer, Required
 		accounts__.Append(solanago.NewAccountMeta(feeQuoterConfigAccount, false, false))

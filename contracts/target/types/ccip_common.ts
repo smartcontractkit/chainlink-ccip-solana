@@ -229,6 +229,11 @@ export type CcipCommon = {
       "code": 10032,
       "name": "tooManyCcvs",
       "msg": "Message requires more CCVs than account resolution can describe"
+    },
+    {
+      "code": 10033,
+      "name": "invalidCantonAddress",
+      "msg": "Invalid Canton address"
     }
   ],
   "types": [
