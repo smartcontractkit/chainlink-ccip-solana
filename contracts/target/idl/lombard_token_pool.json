@@ -2,7 +2,7 @@
   "address": "Lomb8TTCwJKEhZrJ1J8UbsCRjNSf7NNQUEr4qo3dkSk",
   "metadata": {
     "name": "lombard_token_pool",
-    "version": "2.0.1",
+    "version": "2.0.2",
     "spec": "0.1.0",
     "description": "Lombard LBTC Token Pool - CCIP 1.6/2.0 with an embedded Lombard CCV"
   },

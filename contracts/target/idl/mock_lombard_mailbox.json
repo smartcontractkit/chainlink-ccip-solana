@@ -2,7 +2,7 @@
   "address": "Lomsq4ZNkZQGysC1pQc2NqNiAbXQm6C8nLmKcUoESEA",
   "metadata": {
     "name": "mock_lombard_mailbox",
-    "version": "2.0.1",
+    "version": "2.0.2",
     "spec": "0.1.0",
     "description": "Deliberately minimal mock of the real Lombard `mailbox` program's on-chain interface, used only by the devenv end-to-end test to exercise lombard-token-pool's bridge/mailbox CPIs. Never deployed for real."
   },
