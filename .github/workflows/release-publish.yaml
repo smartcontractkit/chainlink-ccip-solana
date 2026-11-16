@@ -72,6 +72,9 @@ jobs:
           - module: executor
             repository: chainlink-ccip-solana-executor
             dockerfile: cmd/executor/Dockerfile
+          - module: token verifier
+            repository: chainlink-ccip-solana-token-verifier
+            dockerfile: cmd/tokenverifier/Dockerfile
     permissions:
       contents: read
       id-token: write
