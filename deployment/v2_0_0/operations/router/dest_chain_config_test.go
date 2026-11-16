@@ -10,7 +10,7 @@ import (
 
 func TestTargetDestChainConfig(t *testing.T) {
 	current := ccip_router.DestChainConfigCcipV2{
-		BaseExecutionGasCost:    ccip_router.CrossChainGas{V0: 200_000},		MessageNetworkFee:       ccip_router.UsdCents{V0: 50},
+		BaseExecutionGasCost: ccip_router.CrossChainGas{V0: 200_000}, MessageNetworkFee: ccip_router.UsdCents{V0: 50},
 		TokenTransferNetworkFee: ccip_router.UsdCents{V0: 150},
 		MaxFeePerMessage:        ccip_router.UsdCents{V0: 1000},
 		TokenReceiverAllowed:    true,

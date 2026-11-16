@@ -3,11 +3,11 @@ package changesets
 import (
 	"fmt"
 
+	"github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/utils/mcms"
 	cldf "github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	cldf_ops "github.com/smartcontractkit/chainlink-deployments-framework/operations"
-	"github.com/smartcontractkit/chainlink-ccip/deployment/utils/mcms"
 
-	"github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/sequences"
 )
 
@@ -15,14 +15,14 @@ import (
 // chain's existing 2.0 lanes. A nil field keeps each lane's current value; a non-nil field
 // replaces it.
 type UpdateDestChainConfigChangesetInput struct {
-	ChainSelector        uint64   `json:"chainSelector"`
-	RemoteChainSelectors []uint64 `json:"remoteChainSelectors"`
-	BaseExecutionGasCost            *uint32 `json:"baseExecutionGasCost"`
-	MessageNetworkFeeUSDCents       *uint16 `json:"messageNetworkFeeUSDCents"`
-	TokenTransferNetworkFeeUSDCents *uint16 `json:"tokenTransferNetworkFeeUSDCents"`
-	MaxFeePerMessageUSDCents        *uint16 `json:"maxFeePerMessageUSDCents"`
-	TokenReceiverAllowed            *bool   `json:"tokenReceiverAllowed"`
-	MCMS                   mcms.Input `json:"mcms"`
+	ChainSelector                   uint64     `json:"chainSelector"`
+	RemoteChainSelectors            []uint64   `json:"remoteChainSelectors"`
+	BaseExecutionGasCost            *uint32    `json:"baseExecutionGasCost"`
+	MessageNetworkFeeUSDCents       *uint16    `json:"messageNetworkFeeUSDCents"`
+	TokenTransferNetworkFeeUSDCents *uint16    `json:"tokenTransferNetworkFeeUSDCents"`
+	MaxFeePerMessageUSDCents        *uint16    `json:"maxFeePerMessageUSDCents"`
+	TokenReceiverAllowed            *bool      `json:"tokenReceiverAllowed"`
+	MCMS                            mcms.Input `json:"mcms"`
 }
 
 // UpdateDestChainConfigChangeset applies the requested changes to the Router config of existing
