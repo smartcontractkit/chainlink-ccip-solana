@@ -16,6 +16,10 @@ type Config struct {
 	ChainID    string
 	Nodes      []*solconfig.Node
 	RPCTimeout time.Duration
+
+	// HistoryMonitorPeriod enables the per-node RPC history monitor when set.
+	// Zero disables the monitor.
+	HistoryMonitorPeriod time.Duration
 }
 
 // AccountReader fixes account encoding to base64 while preserving the caller's

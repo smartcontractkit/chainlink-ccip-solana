@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/config"
@@ -26,6 +28,12 @@ type rpcRequest struct {
 
 type rpcStub struct {
 	chainID string
+
+	// firstAvailCount counts getFirstAvailableBlock requests when set.
+	firstAvailCount *atomic.Int64
+	// blockFirstAvail makes getFirstAvailableBlock block until the request
+	// context is done.
+	blockFirstAvail bool
 }
 
 func (s *rpcStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -43,6 +51,15 @@ func (s *rpcStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		result = uint64(42)
 	case "getVersion":
 		result = map[string]any{"solana-core": "test"}
+	case "getFirstAvailableBlock":
+		if s.firstAvailCount != nil {
+			s.firstAvailCount.Add(1)
+		}
+		if s.blockFirstAvail {
+			<-r.Context().Done()
+			return
+		}
+		result = uint64(0)
 	default:
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -126,4 +143,123 @@ func TestClient_Lifecycle(t *testing.T) {
 
 	_, err = client.GetSlot(t.Context(), rpc.CommitmentFinalized)
 	require.Error(t, err)
+}
+
+func requireNoHistorySeries(t *testing.T, chainID string) {
+	t.Helper()
+	families, err := prometheus.DefaultGatherer.Gather()
+	require.NoError(t, err)
+	for _, mf := range families {
+		if mf.GetName() != "solana_rpc_history_last_success_timestamp_seconds" {
+			continue
+		}
+		for _, m := range mf.GetMetric() {
+			for _, label := range m.GetLabel() {
+				if label.GetName() == "chainID" && label.GetValue() == chainID {
+					t.Fatalf("history monitor seeded a series while disabled")
+				}
+			}
+		}
+	}
+}
+
+func TestNewClient_HistoryMonitorDisabled(t *testing.T) {
+	t.Parallel()
+
+	chainID := solana.Hash{2}.String()
+	firstAvailCount := new(atomic.Int64)
+	server := httptest.NewServer(&rpcStub{chainID: chainID, firstAvailCount: firstAvailCount})
+	t.Cleanup(server.Close)
+
+	client, err := solanarpc.NewClient(t.Context(), solanarpc.Config{
+		ChainID: chainID,
+		Nodes: []*solconfig.Node{{
+			Name: new("primary"),
+			URL:  config.MustParseURL(server.URL),
+		}},
+		RPCTimeout: time.Second,
+	}, logger.Nop())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+
+	requireNoHistorySeries(t, chainID)
+	require.Zero(t, firstAvailCount.Load())
+}
+
+func TestClient_HistoryMonitorRunsAndStops(t *testing.T) {
+	t.Parallel()
+
+	chainID := solana.Hash{3}.String()
+	firstAvailCount := new(atomic.Int64)
+	server := httptest.NewServer(&rpcStub{chainID: chainID, firstAvailCount: firstAvailCount})
+	t.Cleanup(server.Close)
+
+	client, err := solanarpc.NewClient(t.Context(), solanarpc.Config{
+		ChainID: chainID,
+		Nodes: []*solconfig.Node{{
+			Name: new("primary"),
+			URL:  config.MustParseURL(server.URL),
+		}},
+		RPCTimeout:           10 * time.Second,
+		HistoryMonitorPeriod: 50 * time.Millisecond,
+	}, logger.Nop())
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		return firstAvailCount.Load() > 0
+	}, 5*time.Second, 10*time.Millisecond)
+
+	require.NoError(t, client.Close())
+
+	afterClose := firstAvailCount.Load()
+	time.Sleep(300 * time.Millisecond)
+	require.Equal(t, afterClose, firstAvailCount.Load())
+}
+
+func TestClient_HistoryMonitorCloseCancelsActiveMeasurement(t *testing.T) {
+	t.Parallel()
+
+	chainID := solana.Hash{4}.String()
+	firstAvailCount := new(atomic.Int64)
+	server := httptest.NewServer(&rpcStub{
+		chainID:         chainID,
+		firstAvailCount: firstAvailCount,
+		blockFirstAvail: true,
+	})
+	t.Cleanup(server.Close)
+
+	client, err := solanarpc.NewClient(t.Context(), solanarpc.Config{
+		ChainID: chainID,
+		Nodes: []*solconfig.Node{{
+			Name: new("primary"),
+			URL:  config.MustParseURL(server.URL),
+		}},
+		RPCTimeout:           10 * time.Second,
+		HistoryMonitorPeriod: 50 * time.Millisecond,
+	}, logger.Nop())
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		return firstAvailCount.Load() == 1
+	}, 5*time.Second, 10*time.Millisecond)
+
+	require.NoError(t, client.Close())
+
+	afterClose := firstAvailCount.Load()
+	time.Sleep(300 * time.Millisecond)
+	require.Equal(t, afterClose, firstAvailCount.Load())
+}
+
+func TestNewClient_StartFailureClosesStartedMonitor(t *testing.T) {
+	t.Parallel()
+
+	client, err := solanarpc.NewClient(t.Context(), solanarpc.Config{
+		ChainID:              solana.Hash{5}.String(),
+		RPCTimeout:           time.Second,
+		HistoryMonitorPeriod: time.Minute,
+	}, logger.Nop())
+	require.Nil(t, client)
+	require.ErrorContains(t, err, "start multinode: failed to start service MultiNode: no available nodes")
+	// A started monitor closes cleanly: its close must not surface as an error.
+	require.NotContains(t, err.Error(), "HistoryMonitor has not been started")
 }

@@ -244,9 +244,10 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 
 	// Each accessor owns a newly constructed RPC client.
 	client, err := solanarpc.NewClient(ctx, solanarpc.Config{
-		ChainID:    settings.chainID,
-		Nodes:      settings.nodes,
-		RPCTimeout: settings.rpcTimeout,
+		ChainID:              settings.chainID,
+		Nodes:                settings.nodes,
+		RPCTimeout:           settings.rpcTimeout,
+		HistoryMonitorPeriod: time.Minute,
 	}, f.lggr)
 	if err != nil {
 		return nil, fmt.Errorf("create RPC transport for chain %d: %w", chainSelector, err)
