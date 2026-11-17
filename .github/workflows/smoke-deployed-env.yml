@@ -53,7 +53,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   build-e2e:
@@ -116,8 +115,6 @@ jobs:
         inputs.target_environment == 'CCV_PROD_TESTNET' && secrets.DEPLOYED_ENV_CONFIG_CCV_PROD_TESTNET || '') }}
       E2E_EVM_PRIVATE_KEY: ${{ secrets.E2E_EVM_PRIVATE_KEY }}
       E2E_SOLANA_PRIVATE_KEY: ${{ secrets.E2E_SOLANA_PRIVATE_KEY }}
-      TS_OAUTH_CLIENT_ID_CI: ${{ secrets.TS_OAUTH_CLIENT_ID_CI }}
-      TS_AUDIENCE_CI: ${{ secrets.TS_AUDIENCE_CI }}
 
   sol2evm:
     needs: build-e2e
@@ -142,5 +139,3 @@ jobs:
         inputs.target_environment == 'CCV_PROD_TESTNET' && secrets.DEPLOYED_ENV_CONFIG_CCV_PROD_TESTNET || '') }}
       E2E_EVM_PRIVATE_KEY: ${{ secrets.E2E_EVM_PRIVATE_KEY }}
       E2E_SOLANA_PRIVATE_KEY: ${{ secrets.E2E_SOLANA_PRIVATE_KEY }}
-      TS_OAUTH_CLIENT_ID_CI: ${{ secrets.TS_OAUTH_CLIENT_ID_CI }}
-      TS_AUDIENCE_CI: ${{ secrets.TS_AUDIENCE_CI }}
