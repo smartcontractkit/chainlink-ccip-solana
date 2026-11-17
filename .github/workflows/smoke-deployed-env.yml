@@ -107,7 +107,6 @@ jobs:
       test_cases: ${{ github.event_name == 'workflow_dispatch' && inputs.test_cases || 'all' }}
       # CCV_* manifests carry Sepolia only. Force it on the Fuji-pinned legs.
       target_evm_selector: ${{ startsWith(inputs.target_environment || 'PRIVATE_STAGING', 'CCV_') && '16015286601757825753' || '' }}
-      use_test_router: ${{ inputs.target_environment == 'CCV_PROD_TESTNET' }}
     secrets:
       DEPLOYED_ENV_CONFIG: ${{ format('{0}{1}{2}',
         (inputs.target_environment || 'PRIVATE_STAGING') == 'PRIVATE_STAGING' && secrets.DEPLOYED_ENV_CONFIG_PRIVATE_STAGING || '',
