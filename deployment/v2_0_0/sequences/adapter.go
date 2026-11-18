@@ -36,7 +36,7 @@ var (
 
 // Minimum unique NOPs per committee and executor pool entry for a chain in a production environment.
 const (
-	minMainnetChainNOPs = 16
+	minMainnetChainNOPs = 9
 	// Prod testnet runs 16 verifiers and 4 executors. ValidateNOPsTopology cannot tell a committee
 	// entry from an executor pool entry, so this minimum applies to both.
 	minTestnetChainNOPs = 4
