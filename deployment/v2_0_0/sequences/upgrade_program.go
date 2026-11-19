@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/gagliardetto/solana-go"
@@ -419,13 +420,24 @@ var VerifyBuild = cldf_ops.NewSequence(
 	},
 )
 
+// remoteVerificationFailed is what solana-verify prints when the remote build fails or does not match. The command
+// still exits 0 in that case.
+const remoteVerificationFailed = "has not been verified"
+
 func submitRemoteVerification(ctx context.Context, chain cldf_solana.Chain, programID, authority solana.PublicKey) (string, error) {
-	return runCommand(ctx, "solana-verify", []string{
+	output, err := runCommand(ctx, "solana-verify", []string{
 		"remote", "submit-job",
 		"--url", chain.URL,
 		"--uploader", authority.String(),
 		"--program-id", programID.String(),
 	}, chain.ProgramsPath)
+	if err != nil {
+		return output, err
+	}
+	if strings.Contains(output, remoteVerificationFailed) {
+		return output, errors.New("remote verification failed")
+	}
+	return output, nil
 }
 
 // checkUpgradeAuthority rejects an upgrade whose authority this run cannot sign for, before anything is

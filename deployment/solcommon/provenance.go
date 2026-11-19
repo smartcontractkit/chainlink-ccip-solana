@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/gagliardetto/solana-go"
 )
@@ -94,9 +95,19 @@ func ReadProvenance(programsPath string) (Provenance, bool, error) {
 	return p, true, nil
 }
 
+// ContractsMountPath is the directory of the Cargo workspace in this repository. The release builds from it, and a
+// verifier that clones the repository builds from its root unless the record says otherwise.
+const ContractsMountPath = "contracts"
+
 // BuildRecordFor turns provenance into the registry record for one program.
+// Releases published before buildArgs carried --mount-path are given ContractsMountPath.
 func (p Provenance) BuildRecordFor(programID, authority solana.PublicKey, programName string, deploySlot uint64) BuildRecord {
-	args := append([]string{"--library-name", programName}, p.BuildArgs...)
+	var args []string
+	if !slices.Contains(p.BuildArgs, "--mount-path") {
+		args = append(args, "--mount-path", ContractsMountPath)
+	}
+	args = append(args, "--library-name", programName)
+	args = append(args, p.BuildArgs...)
 	return BuildRecord{
 		ProgramID:  programID,
 		Authority:  authority,
