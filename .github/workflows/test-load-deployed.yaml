@@ -23,6 +23,7 @@ on:
         required: true
         options:
           - PRIVATE_STAGING
+          - CCV_PROD_TESTNET
       LOAD_TEST_RPS:
         description: "Requests per second (default: 1)"
         type: string
@@ -63,7 +64,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
   pull-requests: write
 
 jobs:
@@ -90,13 +90,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Connect to Tailscale
-        uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4.1.2
-        with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID_CI }}
-          audience: ${{ secrets.TS_AUDIENCE_CI }}
-          tags: tag:chainlink-ccip-solana-gha
-
       - name: Install Go
         uses: smartcontractkit/.github/actions/setup-golang@setup-golang/v1
         with:
@@ -109,7 +102,7 @@ jobs:
 
       - name: Materialize deployed environment config
         env:
-          DEPLOYED_ENV_CONFIG: ${{ matrix.target_environment == 'PRIVATE_STAGING' && secrets.DEPLOYED_ENV_CONFIG_PRIVATE_STAGING || '' }}
+          DEPLOYED_ENV_CONFIG: ${{ matrix.target_environment == 'PRIVATE_STAGING' && secrets.DEPLOYED_ENV_CONFIG_PRIVATE_STAGING || matrix.target_environment == 'CCV_PROD_TESTNET' && secrets.DEPLOYED_ENV_CONFIG_CCV_PROD_TESTNET || '' }}
         run: |
           set -eu
           test -n "$DEPLOYED_ENV_CONFIG"
@@ -121,8 +114,8 @@ jobs:
         id: load_tests
         env:
           LOAD_TEST_OUT_FILE: ${{ runner.temp }}/env-${{ matrix.target_environment }}.deployed.toml
-          # avalanche-testnet-fuji
-          TARGET_EVM_SELECTOR: '14767482510784806043'
+          # CCV_* manifests carry Sepolia only; private staging pins Fuji.
+          TARGET_EVM_SELECTOR: ${{ startsWith(matrix.target_environment, 'CCV_') && '16015286601757825753' || '14767482510784806043' }}
           LOAD_TEST_METRICS_DIR: ${{ runner.temp }}
           LOAD_TEST_RPS: ${{ inputs.LOAD_TEST_RPS || vars.LOAD_TEST_RPS }}
           LOAD_TEST_DURATION: ${{ inputs.LOAD_TEST_DURATION || vars.LOAD_TEST_DURATION }}
@@ -154,7 +147,7 @@ jobs:
           chmod +x .github/scripts/render-load-metrics.sh
           .github/scripts/render-load-metrics.sh \
             "${{ runner.temp }}" \
-            "staging" \
+            "${{ matrix.target_environment }}" \
             "$RUN_URL" \
             "${{ matrix.target_environment }}" >> "$GITHUB_STEP_SUMMARY"
 
@@ -162,7 +155,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: ccip-load-metrics-staging
+          name: ccip-load-metrics-${{ matrix.target_environment }}
           path: ${{ runner.temp }}/load-metrics-*.json
           retention-days: 7
           if-no-files-found: ignore

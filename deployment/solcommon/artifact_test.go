@@ -260,9 +260,25 @@ func TestProvenanceRejectsUnusableManifests(t *testing.T) {
 func TestBuildRecordDefaultsArgsToLibraryName(t *testing.T) {
 	p := Provenance{Commit: "b74d7c75a1b2", Release: "v2.0.0"}
 	rec := p.BuildRecordFor(verifyTestProgram, verifyTestProgram, "ccip_router", 42)
-	require.Equal(t, []string{"--library-name", "ccip_router"}, rec.Args)
+	require.Equal(t, []string{"--mount-path", "contracts", "--library-name", "ccip_router"}, rec.Args)
 	require.Equal(t, uint64(42), rec.DeploySlot)
 	require.Equal(t, DefaultRepoURL, rec.GitURL)
+}
+
+// The v2.1.0 release recorded only the arch flag, so OtterSec built from the repository root, found no Cargo.lock
+// and rejected every program.
+func TestBuildRecordAddsMountPath(t *testing.T) {
+	p := Provenance{Commit: "b74d7c75a1b2", BuildArgs: []string{"--cargo-build-sbf-args=--arch v3"}}
+	rec := p.BuildRecordFor(verifyTestProgram, verifyTestProgram, "ccip_router", 42)
+	require.Equal(t, []string{
+		"--mount-path", "contracts", "--library-name", "ccip_router", "--cargo-build-sbf-args=--arch v3",
+	}, rec.Args)
+
+	p.BuildArgs = []string{"--mount-path", "other", "--cargo-build-sbf-args=--arch v3"}
+	rec = p.BuildRecordFor(verifyTestProgram, verifyTestProgram, "ccip_router", 42)
+	require.Equal(t, []string{
+		"--library-name", "ccip_router", "--mount-path", "other", "--cargo-build-sbf-args=--arch v3",
+	}, rec.Args)
 }
 
 // TestIDLFoundInSiblingIDLDir covers the layout a locally built tree has:

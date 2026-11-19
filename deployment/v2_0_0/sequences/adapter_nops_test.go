@@ -24,9 +24,9 @@ func TestValidateNOPsTopologyPerEnvironment(t *testing.T) {
 		executors  int
 		wantErrSub string
 	}{
-		{"prod_mainnet 16 verifiers 16 executors", "prod_mainnet", mainnet, 16, 16, ""},
-		{"prod_mainnet 15 verifiers", "prod_mainnet", mainnet, 15, 16, `committee "default"`},
-		{"prod_mainnet 15 executors", "prod_mainnet", mainnet, 16, 15, `executor pool "default"`},
+		{"prod_mainnet 9 verifiers 9 executors", "prod_mainnet", mainnet, 9, 9, ""},
+		{"prod_mainnet 8 verifiers", "prod_mainnet", mainnet, 8, 9, `committee "default"`},
+		{"prod_mainnet 8 executors", "prod_mainnet", mainnet, 9, 8, `executor pool "default"`},
 		{"prod_testnet 16 verifiers 4 executors", "prod_testnet", devnet, 16, 4, ""},
 		{"prod_testnet 3 executors", "prod_testnet", devnet, 16, 3, `executor pool "default"`},
 		{"prod_testnet 3 verifiers", "prod_testnet", devnet, 3, 4, `committee "default"`},

@@ -45,6 +45,24 @@ func TestSubmitRemoteVerification(t *testing.T) {
 	}
 }
 
+// solana-verify exits 0 when the remote build fails, so the output is the only signal.
+func TestSubmitRemoteVerificationFailed(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "solana-verify")
+	script := "#!/bin/sh\necho 'Program 1111 has not been verified. ❌'\n"
+	//nolint:gosec // G306: the fake solana-verify must keep the executable bit
+	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	chain := cldf_solana.Chain{URL: "https://rpc.example", ProgramsPath: dir}
+	_, err := submitRemoteVerification(context.Background(), chain, solana.PublicKey{1}, solana.PublicKey{2})
+	if err == nil || !strings.Contains(err.Error(), "remote verification failed") {
+		t.Fatalf("err = %v, want remote verification failed", err)
+	}
+}
+
 // writeProgramArtifact drops a program binary that embeds the given program ID
 // and declares the given SBPF version into programsPath.
 func writeProgramArtifact(t *testing.T, programsPath string, programID solana.PublicKey, arch byte) {
