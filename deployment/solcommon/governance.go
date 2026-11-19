@@ -2,14 +2,13 @@ package solcommon
 
 import (
 	"fmt"
-	"math/big"
 
 	"github.com/gagliardetto/solana-go"
 
+	"github.com/smartcontractkit/chainlink-ccip/chains/solana/governance"
 	"github.com/smartcontractkit/chainlink-ccip/chains/solana/utils/state"
 	common_utils "github.com/smartcontractkit/chainlink-ccip/deployment/utils"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/utils/datastore"
-	cldf_solana "github.com/smartcontractkit/chainlink-deployments-framework/chain/solana"
 	cldf_datastore "github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	cldf_deployment "github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	mcms_solana "github.com/smartcontractkit/mcms/sdk/solana"
@@ -17,27 +16,23 @@ import (
 )
 
 const (
-	TimelockProgramType         cldf_deployment.ContractType = "RBACTimelockProgram"
-	McmProgramType              cldf_deployment.ContractType = "ManyChainMultiSigProgram"
-	AccessControllerProgramType cldf_deployment.ContractType = "AccessControllerProgram"
+	TimelockProgramType         cldf_deployment.ContractType = cldf_deployment.ContractType(governance.TimelockProgramType)
+	McmProgramType              cldf_deployment.ContractType = cldf_deployment.ContractType(governance.McmProgramType)
+	AccessControllerProgramType cldf_deployment.ContractType = cldf_deployment.ContractType(governance.AccessControllerProgramType)
 	// special type for Solana that encodes PDA seed usage
-	ProposerSeed     cldf_deployment.ContractType = "ProposerSeed"
-	CancellerSeed    cldf_deployment.ContractType = "CancellerSeed"
-	BypasserSeed     cldf_deployment.ContractType = "BypasserSeed"
-	RBACTimelockSeed cldf_deployment.ContractType = "RBACTimelockSeed"
+	ProposerSeed     cldf_deployment.ContractType = cldf_deployment.ContractType(governance.ProposerSeed)
+	CancellerSeed    cldf_deployment.ContractType = cldf_deployment.ContractType(governance.CancellerSeed)
+	BypasserSeed     cldf_deployment.ContractType = cldf_deployment.ContractType(governance.BypasserSeed)
+	RBACTimelockSeed cldf_deployment.ContractType = cldf_deployment.ContractType(governance.RBACTimelockSeed)
 	// access controller accounts
-	ProposerAccessControllerAccount  cldf_deployment.ContractType = "ProposerAccessControllerAccount"
-	ExecutorAccessControllerAccount  cldf_deployment.ContractType = "ExecutorAccessControllerAccount"
-	CancellerAccessControllerAccount cldf_deployment.ContractType = "CancellerAccessControllerAccount"
-	BypasserAccessControllerAccount  cldf_deployment.ContractType = "BypasserAccessControllerAccount"
+	ProposerAccessControllerAccount  cldf_deployment.ContractType = cldf_deployment.ContractType(governance.ProposerAccessControllerAccount)
+	ExecutorAccessControllerAccount  cldf_deployment.ContractType = cldf_deployment.ContractType(governance.ExecutorAccessControllerAccount)
+	CancellerAccessControllerAccount cldf_deployment.ContractType = cldf_deployment.ContractType(governance.CancellerAccessControllerAccount)
+	BypasserAccessControllerAccount  cldf_deployment.ContractType = cldf_deployment.ContractType(governance.BypasserAccessControllerAccount)
 )
 
 // TransferOwnershipParams contains common parameters for transferring ownership of a program.
-type TransferOwnershipParams struct {
-	Program      solana.PublicKey
-	CurrentOwner solana.PublicKey
-	NewOwner     solana.PublicKey
-}
+type TransferOwnershipParams = governance.TransferOwnershipParams
 
 // MCMSQualifierOrDefault defaults an empty qualifier to the CLLCCIP MCMS
 // instance. An empty qualifier matches every instance in GetAddressRef, which
@@ -147,112 +142,5 @@ func BuildMCMSBatchOperation(
 	ixns []solana.Instruction,
 	programID string,
 	contractType string) (types.BatchOperation, error) {
-	txns := make([]types.Transaction, 0, len(ixns))
-	for _, ixn := range ixns {
-		data, err := ixn.Data()
-		if err != nil {
-			return types.BatchOperation{}, fmt.Errorf("failed to extract data: %w", err)
-		}
-		for _, account := range ixn.Accounts() {
-			if account.IsSigner {
-				account.IsSigner = false
-			}
-		}
-		tx, err := mcms_solana.NewTransaction(
-			programID,
-			data,
-			big.NewInt(0),  // e.g. value
-			ixn.Accounts(), // pass along needed accounts
-			contractType,   // some string identifying the target
-			[]string{},     // any relevant metadata
-		)
-		if err != nil {
-			return types.BatchOperation{}, fmt.Errorf("failed to create transaction: %w", err)
-		}
-		txns = append(txns, tx)
-	}
-	return types.BatchOperation{
-		ChainSelector: types.ChainSelector(chainSelector),
-		Transactions:  txns,
-	}, nil
-}
-
-func GetAllMCMS(
-	chain cldf_solana.Chain,
-	qualifier string,
-	existingAddresses []cldf_datastore.AddressRef) []cldf_datastore.AddressRef {
-	accessControllerProgram := datastore.GetAddressRef(
-		existingAddresses,
-		chain.ChainSelector(),
-		AccessControllerProgramType,
-		common_utils.Version_1_6_0,
-		"",
-	)
-	proposerAccount := datastore.GetAddressRef(
-		existingAddresses,
-		chain.ChainSelector(),
-		ProposerAccessControllerAccount,
-		common_utils.Version_1_6_0,
-		qualifier,
-	)
-	executorAccount := datastore.GetAddressRef(
-		existingAddresses,
-		chain.ChainSelector(),
-		ExecutorAccessControllerAccount,
-		common_utils.Version_1_6_0,
-		qualifier,
-	)
-	cancellerAccount := datastore.GetAddressRef(
-		existingAddresses,
-		chain.ChainSelector(),
-		CancellerAccessControllerAccount,
-		common_utils.Version_1_6_0,
-		qualifier,
-	)
-	bypasserAccount := datastore.GetAddressRef(
-		existingAddresses,
-		chain.ChainSelector(),
-		BypasserAccessControllerAccount,
-		common_utils.Version_1_6_0,
-		qualifier,
-	)
-	timelockProgram := datastore.GetAddressRef(
-		existingAddresses,
-		chain.ChainSelector(),
-		common_utils.RBACTimelock,
-		common_utils.Version_1_6_0,
-		qualifier,
-	)
-	proposerMCMSAccount := datastore.GetAddressRef(
-		existingAddresses,
-		chain.ChainSelector(),
-		common_utils.ProposerManyChainMultisig,
-		common_utils.Version_1_6_0,
-		qualifier,
-	)
-	cancellerMCMSAccount := datastore.GetAddressRef(
-		existingAddresses,
-		chain.ChainSelector(),
-		common_utils.CancellerManyChainMultisig,
-		common_utils.Version_1_6_0,
-		qualifier,
-	)
-	bypasserMCMSAccount := datastore.GetAddressRef(
-		existingAddresses,
-		chain.ChainSelector(),
-		common_utils.BypasserManyChainMultisig,
-		common_utils.Version_1_6_0,
-		qualifier,
-	)
-	return []cldf_datastore.AddressRef{
-		accessControllerProgram,
-		proposerAccount,
-		executorAccount,
-		cancellerAccount,
-		bypasserAccount,
-		timelockProgram,
-		proposerMCMSAccount,
-		cancellerMCMSAccount,
-		bypasserMCMSAccount,
-	}
+	return governance.BuildMCMSBatchOperation(chainSelector, ixns, programID, contractType)
 }
