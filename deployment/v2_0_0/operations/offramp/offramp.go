@@ -119,10 +119,9 @@ var Initialize = operations.NewOperation(
 			b.Logger.Infof("OffRamp %s is already initialized, skipping", input.OffRamp)
 			return sequences.OnChainOutput{}, nil
 		}
-		table, err := common.SetupLookupTable(
+		table, err := solcommon.SetupLookupTable(
 			b.GetContext(),
-			chain.Client,
-			*chain.DeployerKey,
+			chain,
 			[]solana.PublicKey{
 				// system
 				solana.SystemProgramID,

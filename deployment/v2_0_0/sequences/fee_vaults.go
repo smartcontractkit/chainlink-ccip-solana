@@ -92,7 +92,7 @@ func ensureFeeVaults(ctx context.Context, chain cldf_solana.Chain, issuer solana
 		if exists {
 			continue
 		}
-		ixn, _, err := tokens.CreateAssociatedTokenAccount(ft.program, ft.mint, vault, chain.DeployerKey.PublicKey())
+		ixn, _, err := tokens.CreateAssociatedTokenAccount(ft.program, ft.mint, vault, chain.Deployer().PublicKey())
 		if err != nil {
 			return fmt.Errorf("failed to build fee vault account of %s for %s: %w", issuer, ft.mint, err)
 		}

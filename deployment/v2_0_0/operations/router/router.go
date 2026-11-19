@@ -792,7 +792,7 @@ var RegisterTokenAdminRegistry = operations.NewOperation(
 		// we need to override the admin if there is a pending admin
 		if !pendingAdmin.IsZero() {
 			// we need to register via ccip admin if the mint authority is not the deployer
-			if tokenMintAuthority != chain.DeployerKey.PublicKey() {
+			if tokenMintAuthority != chain.Deployer().PublicKey() {
 				tmp, ixErr := ccip_router.NewCcipAdminOverridePendingAdministratorInstruction(
 					input.Admin, // admin of the tokenAdminRegistry PDA
 					routerConfigPDA,
@@ -809,7 +809,7 @@ var RegisterTokenAdminRegistry = operations.NewOperation(
 					return TokenAdminRegistryOut{}, fmt.Errorf("failed to extract data payload from override pending admin instruction: %w", ixErr)
 				}
 				ixn = solana.NewInstruction(input.Router, tmp.Accounts(), ixData)
-				if ccipAdmin != chain.DeployerKey.PublicKey() {
+				if ccipAdmin != chain.Deployer().PublicKey() {
 					needProposal = true
 				}
 			} else {
@@ -830,14 +830,14 @@ var RegisterTokenAdminRegistry = operations.NewOperation(
 					return TokenAdminRegistryOut{}, fmt.Errorf("failed to extract data payload from override pending admin instruction: %w", ixErr)
 				}
 				ixn = solana.NewInstruction(input.Router, tmp.Accounts(), ixData)
-				if tokenMintAuthority != chain.DeployerKey.PublicKey() {
+				if tokenMintAuthority != chain.Deployer().PublicKey() {
 					needProposal = true
 				}
 			}
 		} else {
 			// no pending admin, normal registration
 			// we need to register via ccip admin if the mint authority is not the deployer
-			if tokenMintAuthority != chain.DeployerKey.PublicKey() {
+			if tokenMintAuthority != chain.Deployer().PublicKey() {
 				tmp, ixErr := ccip_router.NewCcipAdminProposeAdministratorInstruction(
 					input.Admin, // admin of the tokenAdminRegistry PDA
 					routerConfigPDA,
@@ -854,7 +854,7 @@ var RegisterTokenAdminRegistry = operations.NewOperation(
 					return TokenAdminRegistryOut{}, fmt.Errorf("failed to extract data payload from propose administrator instruction: %w", ixErr)
 				}
 				ixn = solana.NewInstruction(input.Router, tmp.Accounts(), ixData)
-				if ccipAdmin != chain.DeployerKey.PublicKey() {
+				if ccipAdmin != chain.Deployer().PublicKey() {
 					needProposal = true
 				}
 			} else {
@@ -875,7 +875,7 @@ var RegisterTokenAdminRegistry = operations.NewOperation(
 					return TokenAdminRegistryOut{}, fmt.Errorf("failed to extract data payload from propose administrator instruction: %w", ixErr)
 				}
 				ixn = solana.NewInstruction(input.Router, tmp.Accounts(), ixData)
-				if tokenMintAuthority != chain.DeployerKey.PublicKey() {
+				if tokenMintAuthority != chain.Deployer().PublicKey() {
 					needProposal = true
 				}
 			}
@@ -960,9 +960,9 @@ var AcceptTokenAdminRegistry = operations.NewOperation(
 				return sequences.OnChainOutput{}, fmt.Errorf("no pending admin found for token admin registry, expected timelock signer %s but got %s", timelockDesc, input.Admin.String())
 			}
 			pendingAdmin = input.Admin
-		} else if !isTimelock(pendingAdmin) && pendingAdmin != chain.DeployerKey.PublicKey() {
+		} else if !isTimelock(pendingAdmin) && pendingAdmin != chain.Deployer().PublicKey() {
 			// we can only sign as either the deployer or timelock
-			return sequences.OnChainOutput{}, fmt.Errorf("pending admin %s does not match timelock signer %s or deployer %s", pendingAdmin.String(), timelockDesc, chain.DeployerKey.PublicKey().String())
+			return sequences.OnChainOutput{}, fmt.Errorf("pending admin %s does not match timelock signer %s or deployer %s", pendingAdmin.String(), timelockDesc, chain.Deployer().PublicKey().String())
 		}
 		// sign as the pending admin to accept
 		// when there is no pending admin, we assume the authority is timelock
@@ -982,7 +982,7 @@ var AcceptTokenAdminRegistry = operations.NewOperation(
 		ixn := solana.NewInstruction(input.Router, tempIx.Accounts(), ixData)
 		// pending admin unset = we're proposing and accepting in the same batch, so timelock must be the signer
 		// pending admin set = we need a proposal if the admin is not the deployer
-		if pendingAdmin.IsZero() || pendingAdmin != chain.DeployerKey.PublicKey() {
+		if pendingAdmin.IsZero() || pendingAdmin != chain.Deployer().PublicKey() {
 			var batches types.BatchOperation
 			batches, err = solcommon.BuildMCMSBatchOperation(
 				chain.Selector,

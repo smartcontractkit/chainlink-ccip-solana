@@ -110,7 +110,7 @@ func loadTokenAdminRegistry(b operations.Bundle, chain cldf_solana.Chain, router
 	if err != nil {
 		return ccip_router.TokenAdminRegistry{}, 0, fmt.Errorf("failed to derive router config PDA: %w", err)
 	}
-	raw, err := ccip_router.NewUpgradeTokenAdminRegistryInstruction(configPDA, pda, mint, chain.DeployerKey.PublicKey(), solana.SystemProgramID)
+	raw, err := ccip_router.NewUpgradeTokenAdminRegistryInstruction(configPDA, pda, mint, chain.Deployer().PublicKey(), solana.SystemProgramID)
 	if err != nil {
 		return ccip_router.TokenAdminRegistry{}, 0, fmt.Errorf("failed to build upgrade token admin registry instruction: %w", err)
 	}

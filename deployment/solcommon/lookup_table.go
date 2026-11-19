@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 
 	"github.com/gagliardetto/solana-go"
 	addresslookuptable "github.com/gagliardetto/solana-go/programs/address-lookup-table"
@@ -69,7 +70,8 @@ func ReadLookupTable(ctx context.Context, chain cldf_solana.Chain, table solana.
 
 // ExtendLookupTable idempotently extends a deployer-owned lookup table.
 func ExtendLookupTable(chain cldf_solana.Chain, table solana.PublicKey, entries []solana.PublicKey) error {
-	if chain.DeployerKey == nil {
+	deployer := chain.Deployer()
+	if deployer == nil {
 		return errors.New("missing Solana deployer key")
 	}
 	state, err := ReadLookupTable(context.Background(), chain, table)
@@ -93,21 +95,16 @@ func ExtendLookupTable(chain cldf_solana.Chain, table solana.PublicKey, entries 
 	if len(state.Addresses)+len(missing) > 256 {
 		return fmt.Errorf("lookup table %s exceeds 256 entries", table)
 	}
-	if state.Authority == nil || *state.Authority != chain.DeployerKey.PublicKey() {
+	if state.Authority == nil || *state.Authority != deployer.PublicKey() {
 		return fmt.Errorf("lookup table %s is not owned by the deployer", table)
 	}
-	for start := 0; start < len(missing); start += 20 {
-		ix := common.NewExtendLookupTableInstruction(table, chain.DeployerKey.PublicKey(), chain.DeployerKey.PublicKey(), missing[start:min(start+20, len(missing))])
-		if err := chain.Confirm([]solana.Instruction{ix}); err != nil {
-			return fmt.Errorf("extend lookup table %s: %w", table, err)
-		}
-	}
-	return nil
+	return AppendLookupTableEntries(chain, table, missing)
 }
 
 // PreparedLookupTable reuses a recorded table or creates one with the deployer.
 func PreparedLookupTable(ctx context.Context, chain cldf_solana.Chain, table solana.PublicKey) (solana.PublicKey, error) {
-	if chain.DeployerKey == nil {
+	deployer := chain.Deployer()
+	if deployer == nil {
 		return solana.PublicKey{}, errors.New("missing Solana deployer key")
 	}
 	if !table.IsZero() {
@@ -115,10 +112,66 @@ func PreparedLookupTable(ctx context.Context, chain cldf_solana.Chain, table sol
 		if err != nil {
 			return solana.PublicKey{}, err
 		}
-		if state.Authority == nil || *state.Authority != chain.DeployerKey.PublicKey() {
+		if state.Authority == nil || *state.Authority != deployer.PublicKey() {
 			return solana.PublicKey{}, fmt.Errorf("lookup table %s is not owned by the deployer", table)
 		}
 		return table, nil
 	}
-	return common.CreateLookupTable(ctx, chain.Client, *chain.DeployerKey)
+	return CreateLookupTable(ctx, chain)
+}
+
+// CreateLookupTable creates an empty lookup table owned and funded by the deployer.
+func CreateLookupTable(ctx context.Context, chain cldf_solana.Chain) (solana.PublicKey, error) {
+	deployer := chain.Deployer()
+	if deployer == nil {
+		return solana.PublicKey{}, errors.New("missing Solana deployer key")
+	}
+	slot, err := chain.Client.GetSlot(ctx, rpc.CommitmentFinalized)
+	if err != nil {
+		return solana.PublicKey{}, fmt.Errorf("get slot: %w", err)
+	}
+	// Using the most recent slot sometimes results in errors when submitting the transaction.
+	table, ix, err := common.NewCreateLookupTableInstruction(deployer.PublicKey(), deployer.PublicKey(), slot-1)
+	if err != nil {
+		return solana.PublicKey{}, err
+	}
+	if err = chain.Confirm([]solana.Instruction{ix}); err != nil {
+		return solana.PublicKey{}, fmt.Errorf("create lookup table: %w", err)
+	}
+	return table, nil
+}
+
+// AppendLookupTableEntries appends entries to a deployer-owned lookup table without checking
+// for duplicates. Use ExtendLookupTable to only add missing entries.
+func AppendLookupTableEntries(chain cldf_solana.Chain, table solana.PublicKey, entries []solana.PublicKey) error {
+	deployer := chain.Deployer()
+	if deployer == nil {
+		return errors.New("missing Solana deployer key")
+	}
+	// Each address costs 32 bytes of instruction data, so larger lists are split to fit in a
+	// transaction.
+	for chunk := range slices.Chunk(entries, 20) {
+		ix := common.NewExtendLookupTableInstruction(table, deployer.PublicKey(), deployer.PublicKey(), chunk)
+		if err := chain.Confirm([]solana.Instruction{ix}); err != nil {
+			return fmt.Errorf("extend lookup table %s: %w", table, err)
+		}
+	}
+	return nil
+}
+
+// SetupLookupTable creates a deployer-owned lookup table holding entries, and waits until it can
+// be used.
+func SetupLookupTable(ctx context.Context, chain cldf_solana.Chain, entries []solana.PublicKey) (solana.PublicKey, error) {
+	table, err := CreateLookupTable(ctx, chain)
+	if err != nil {
+		return solana.PublicKey{}, err
+	}
+	if err = AppendLookupTableEntries(chain, table, entries); err != nil {
+		return solana.PublicKey{}, err
+	}
+	// Lookup tables have to warm up for a slot before they can be used.
+	if err = common.AwaitSlotChange(ctx, chain.Client); err != nil {
+		return solana.PublicKey{}, fmt.Errorf("await slot change after creating lookup table %s: %w", table, err)
+	}
+	return table, nil
 }

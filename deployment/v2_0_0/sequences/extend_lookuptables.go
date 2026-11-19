@@ -64,7 +64,7 @@ var ExtendCcipSendLut = cldf_ops.NewSequence(
 		}
 		entries := staticEntries
 		if lookupTable.IsZero() {
-			lookupTable, err = common.SetupLookupTable(b.GetContext(), chain.Client, *chain.DeployerKey, staticEntries)
+			lookupTable, err = solcommon.SetupLookupTable(b.GetContext(), chain, staticEntries)
 			if err != nil {
 				return seq_core.OnChainOutput{}, fmt.Errorf("create ccip_send lookup table: %w", err)
 			}

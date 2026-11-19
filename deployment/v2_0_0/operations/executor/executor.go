@@ -75,7 +75,7 @@ var Initialize = operations.NewOperation(
 	"Initializes the Executor contract",
 	func(b operations.Bundle, chain cldf_solana.Chain, input Params) (sequences.OnChainOutput, error) {
 		solcommon.SetProgramID(&executor.ProgramID, executor.ParseInstructionWithoutAccounts, input.Executor)
-		if chain.DeployerKey == nil {
+		if chain.Deployer() == nil {
 			return sequences.OnChainOutput{}, errors.New("missing Solana deployer key")
 		}
 		if input.Executor.IsZero() {
@@ -179,7 +179,7 @@ var SetChainConfig = operations.NewOperation(
 	"Configures the Executor for remote chain",
 	func(b operations.Bundle, chain cldf_solana.Chain, input SetChainConfigParams) (sequences.OnChainOutput, error) {
 		solcommon.SetProgramID(&executor.ProgramID, executor.ParseInstructionWithoutAccounts, input.Executor)
-		if chain.DeployerKey == nil {
+		if chain.Deployer() == nil {
 			return sequences.OnChainOutput{}, errors.New("missing Solana deployer key")
 		}
 		if input.Executor.IsZero() {
