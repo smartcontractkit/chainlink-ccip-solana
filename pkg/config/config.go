@@ -17,9 +17,10 @@ import (
 )
 
 const (
-	SolanaConfigPathEnv      = "SOLANA_CONFIG_PATH"
-	DefaultSolanaConfigPath  = "/config/solana-config.toml"
-	DefaultRPCRequestTimeout = 30 * time.Second
+	SolanaConfigPathEnv         = "SOLANA_CONFIG_PATH"
+	DefaultSolanaConfigPath     = "/config/solana-config.toml"
+	DefaultRPCRequestTimeout    = 30 * time.Second
+	DefaultHistoryMonitorPeriod = time.Minute
 )
 
 // Config holds NOP-owned Solana chain config (Canton pattern). Everything for one
@@ -42,6 +43,9 @@ type ChainConfig struct {
 	// RPCRequestTimeout bounds a single RPC request made by the MultiNode clients.
 	// If zero, defaults to 30s.
 	RPCRequestTimeout config.Duration `toml:"rpc_request_timeout,omitempty"`
+	// HistoryMonitorPeriod is the interval between per-node history checks.
+	// If zero, defaults to 1m.
+	HistoryMonitorPeriod config.Duration `toml:"history_monitor_period,omitempty"`
 	// Reader tunes the logpoller used by source and destination readers.
 	Reader sourcereader.ReaderConfig `toml:"reader,omitempty"`
 	// DestinationReader tunes the execution attempt poller used by destination readers.

@@ -49,12 +49,13 @@ type remoteJDConfigs struct {
 
 // localConfig holds NOP-owned RPC and tuning for one chain.
 type localConfig struct {
-	chainID           string
-	nodes             []*solconfig.Node
-	rpcTimeout        time.Duration
-	logPoller         logpoller.Config
-	destinationReader destinationreader.Config
-	transmitter       transmitter.Config
+	chainID              string
+	nodes                []*solconfig.Node
+	rpcTimeout           time.Duration
+	historyMonitorPeriod time.Duration
+	logPoller            logpoller.Config
+	destinationReader    destinationreader.Config
+	transmitter          transmitter.Config
 }
 
 // factory implements chainaccess.AccessorFactory for Solana.
@@ -139,13 +140,19 @@ func loadLocalChainConfigs(lggr logger.Logger) (map[protocol.ChainSelector]local
 			rpcTimeout = ccip.DefaultRPCRequestTimeout
 		}
 
+		historyMonitorPeriod := chain.HistoryMonitorPeriod.Duration()
+		if historyMonitorPeriod == 0 {
+			historyMonitorPeriod = ccip.DefaultHistoryMonitorPeriod
+		}
+
 		configs[selector] = localConfig{
-			chainID:           chainID,
-			nodes:             chain.Nodes,
-			rpcTimeout:        rpcTimeout,
-			logPoller:         lpConfig,
-			destinationReader: drConfig,
-			transmitter:       chain.Transmitter.WithDefaults(),
+			chainID:              chainID,
+			nodes:                chain.Nodes,
+			rpcTimeout:           rpcTimeout,
+			historyMonitorPeriod: historyMonitorPeriod,
+			logPoller:            lpConfig,
+			destinationReader:    drConfig,
+			transmitter:          chain.Transmitter.WithDefaults(),
 		}
 	}
 	if len(configs) == 0 {
@@ -247,7 +254,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 		ChainID:              settings.chainID,
 		Nodes:                settings.nodes,
 		RPCTimeout:           settings.rpcTimeout,
-		HistoryMonitorPeriod: time.Minute,
+		HistoryMonitorPeriod: settings.historyMonitorPeriod,
 	}, f.lggr)
 	if err != nil {
 		return nil, fmt.Errorf("create RPC transport for chain %d: %w", chainSelector, err)
