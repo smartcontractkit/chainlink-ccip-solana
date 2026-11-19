@@ -67,9 +67,6 @@ type programEntry struct {
 	// programPerVersion marks programs where each version is its own program with its own ref (OffRamp,
 	// test sender/receiver). Others keep one address across versions, so an upgrade updates the ref version.
 	programPerVersion bool
-	// fixedRefVersion keeps the ref at `version` whatever version the release or IDL declares. The v1 test
-	// programs ship in 2.x releases but are the 1.x line; a 2.x ref would collide with the v2 ones.
-	fixedRefVersion bool
 }
 
 // ProgramRefInfo is how the datastore refs of a program type are keyed.
@@ -79,8 +76,6 @@ type ProgramRefInfo struct {
 	Version           *semver.Version
 	DefaultQualifier  string
 	ProgramPerVersion bool
-	// FixedRefVersion means the ref is always at Version, regardless of the release or IDL version.
-	FixedRefVersion bool
 }
 
 // ProgramRefInfoFor returns false for a type without an upgrade implementation.
@@ -95,7 +90,6 @@ func ProgramRefInfoFor(programType ProgramUpgradeType) (ProgramRefInfo, bool) {
 		Version:           entry.version,
 		DefaultQualifier:  entry.qualifier,
 		ProgramPerVersion: entry.programPerVersion,
-		FixedRefVersion:   entry.fixedRefVersion,
 	}, true
 }
 
@@ -193,7 +187,6 @@ var programRegistry = map[ProgramUpgradeType]programEntry{
 		programName:       testreceiver.LegacyProgramName,
 		upgrade:           testreceiver.UpgradeLegacy,
 		programPerVersion: true,
-		fixedRefVersion:   true,
 	},
 	UpgradeTypeTestSenderV2: {
 		contractType:      datastore.ContractType(testsender.ContractType),
@@ -210,7 +203,6 @@ var programRegistry = map[ProgramUpgradeType]programEntry{
 		programName:       testsender.LegacyProgramName,
 		upgrade:           testsender.UpgradeLegacy,
 		programPerVersion: true,
-		fixedRefVersion:   true,
 	},
 }
 
