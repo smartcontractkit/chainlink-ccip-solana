@@ -364,7 +364,8 @@ func programsPath(e cldf.Environment, chainSelector uint64) string {
 }
 
 // programRefVersion is the ref version after the upgrade: the release's version, or for a local build
-// the version its IDL declares (the registry default without an IDL).
+// the version its IDL declares (the registry default without an IDL). A program-per-version program whose
+// registry version is on another major than the release keeps its registry version.
 func programRefVersion(programType sequences.ProgramUpgradeType, pipelineVersion, programsPath string) (*semver.Version, error) {
 	info, supported := sequences.ProgramRefInfoFor(programType)
 	if !supported {
@@ -375,7 +376,15 @@ func programRefVersion(programType sequences.ProgramUpgradeType, pipelineVersion
 		return nil, err
 	}
 	if !local {
-		return solcommon.ReleaseVersion(release)
+		releaseVersion, releaseErr := solcommon.ReleaseVersion(release)
+		if releaseErr != nil {
+			return nil, releaseErr
+		}
+		// A program of its own line (the v1 test programs, 1.x) ships in releases of another major.
+		if info.ProgramPerVersion && !solcommon.RefVersionMatches(releaseVersion, info.Version) {
+			return info.Version, nil
+		}
+		return releaseVersion, nil
 	}
 	if programsPath != "" {
 		if artifact, inspectErr := solcommon.InspectArtifact(programsPath, info.ProgramName); inspectErr == nil && artifact.IDLPath != "" {

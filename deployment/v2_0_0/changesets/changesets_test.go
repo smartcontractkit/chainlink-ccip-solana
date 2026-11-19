@@ -178,12 +178,14 @@ func TestProgramRefVersion(t *testing.T) {
 		version     string
 		want        *semver.Version
 	}{
-		"local build: 2.0.0":                         {sequences.UpgradeTypeRouter, "local", v200},
-		"local build: the v1 test sender is 1.0.0":   {sequences.UpgradeTypeTestSenderLegacy, "local", v100},
-		"local build: the v1 test receiver is 1.0.0": {sequences.UpgradeTypeTestReceiverLegacy, "local", v100},
-		"local build: the v2 test sender is 2.0.0":   {sequences.UpgradeTypeTestSenderV2, "local", v200},
-		"a release version":                          {sequences.UpgradeTypeCCTPTokenPool, "v2.0.1", v201},
-		"a contracts release tag":                    {sequences.UpgradeTypeOffRamp, "contracts/v2.0.1", v201},
+		"local build: 2.0.0":                              {sequences.UpgradeTypeRouter, "local", v200},
+		"local build: the v1 test sender is 1.0.0":        {sequences.UpgradeTypeTestSenderLegacy, "local", v100},
+		"local build: the v1 test receiver is 1.0.0":      {sequences.UpgradeTypeTestReceiverLegacy, "local", v100},
+		"local build: the v2 test sender is 2.0.0":        {sequences.UpgradeTypeTestSenderV2, "local", v200},
+		"a release version":                               {sequences.UpgradeTypeCCTPTokenPool, "v2.0.1", v201},
+		"a 2.x release: the v1 test sender stays 1.0.0":   {sequences.UpgradeTypeTestSenderLegacy, "v2.1.0", v100},
+		"a 2.x release: the v1 test receiver stays 1.0.0": {sequences.UpgradeTypeTestReceiverLegacy, "contracts/v2.1.0", v100},
+		"a contracts release tag":                         {sequences.UpgradeTypeOffRamp, "contracts/v2.0.1", v201},
 	} {
 		t.Run(name, func(t *testing.T) {
 			got, err := programRefVersion(tc.programType, tc.version, "")
