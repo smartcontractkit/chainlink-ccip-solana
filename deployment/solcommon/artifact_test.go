@@ -260,7 +260,9 @@ func TestProvenanceRejectsUnusableManifests(t *testing.T) {
 func TestBuildRecordDefaultsArgsToLibraryName(t *testing.T) {
 	p := Provenance{Commit: "b74d7c75a1b2", Release: "v2.0.0"}
 	rec := p.BuildRecordFor(verifyTestProgram, verifyTestProgram, "ccip_router", 42)
-	require.Equal(t, []string{"--mount-path", "contracts", "--library-name", "ccip_router"}, rec.Args)
+	require.Equal(t, []string{
+		"--mount-path", "contracts", "--base-image", LegacyBaseImage, "--library-name", "ccip_router",
+	}, rec.Args)
 	require.Equal(t, uint64(42), rec.DeploySlot)
 	require.Equal(t, DefaultRepoURL, rec.GitURL)
 }
@@ -268,23 +270,44 @@ func TestBuildRecordDefaultsArgsToLibraryName(t *testing.T) {
 // The v2.1.0 release recorded only the arch flag, so OtterSec built from the repository root, found no Cargo.lock
 // and rejected every program.
 func TestBuildRecordAddsMountPath(t *testing.T) {
-	p := Provenance{Commit: "b74d7c75a1b2", BuildArgs: []string{"--cargo-build-sbf-args=--arch v3"}}
+	const image = "example/image:1.0.0"
+	p := Provenance{Commit: "b74d7c75a1b2", BuildArgs: []string{"--base-image", image, "--cargo-build-sbf-args=--arch v3"}}
 	rec := p.BuildRecordFor(verifyTestProgram, verifyTestProgram, "ccip_router", 42)
 	require.Equal(t, []string{
-		"--mount-path", "contracts", "--library-name", "ccip_router", "--cargo-build-sbf-args=--arch v3",
+		"--mount-path", "contracts", "--library-name", "ccip_router", "--base-image", image,
+		"--cargo-build-sbf-args=--arch v3",
 	}, rec.Args)
 
-	p.BuildArgs = []string{"--mount-path", "other", "--cargo-build-sbf-args=--arch v3"}
+	p.BuildArgs = []string{"--mount-path", "other", "--base-image", image, "--cargo-build-sbf-args=--arch v3"}
 	rec = p.BuildRecordFor(verifyTestProgram, verifyTestProgram, "ccip_router", 42)
 	require.Equal(t, []string{
-		"--library-name", "ccip_router", "--mount-path", "other", "--cargo-build-sbf-args=--arch v3",
+		"--library-name", "ccip_router", "--mount-path", "other", "--base-image", image,
+		"--cargo-build-sbf-args=--arch v3",
 	}, rec.Args)
 }
 
-// Releases record the build image: with --mount-path contracts the verifier mounts the repository root and cannot
-// resolve the image from contracts/Cargo.toml, so it falls back to Cargo.lock and picks an image that cannot build.
+// With --mount-path contracts the verifier mounts the repository root, misses [workspace.metadata.cli] in
+// contracts/Cargo.toml, falls back to solana-program 3.0.0 from Cargo.lock and picks an image whose cargo cannot parse
+// edition 2024 crates. Releases up to v2.1.0 do not record the image, so the record supplies the one they were built
+// with.
+func TestBuildRecordAddsBaseImage(t *testing.T) {
+	// The provenance.json shipped with contracts/v2.1.0.
+	p := Provenance{
+		Release:         "contracts/v2.1.0",
+		Commit:          "eb216bf476c25845cd2dda0033822b1fa238e496",
+		BuildArgs:       []string{"--cargo-build-sbf-args=--arch v3"},
+		VerifierVersion: "0.5.2",
+	}
+	rec := p.BuildRecordFor(verifyTestProgram, verifyTestProgram, "ccip_router", 42)
+	require.Equal(t, []string{
+		"--mount-path", "contracts", "--base-image", "solanafoundation/solana-verifiable-build:4.3.0",
+		"--library-name", "ccip_router", "--cargo-build-sbf-args=--arch v3",
+	}, rec.Args)
+}
+
+// Releases after v2.1.0 record their image, which is kept as is.
 func TestBuildRecordKeepsBaseImage(t *testing.T) {
-	const image = "solanafoundation/solana-verifiable-build:4.3.0"
+	const image = "solanafoundation/solana-verifiable-build:9.9.9"
 	p := Provenance{Commit: "b74d7c75a1b2", BuildArgs: []string{
 		"--mount-path", "contracts", "--base-image", image, "--cargo-build-sbf-args=--arch v3",
 	}}
