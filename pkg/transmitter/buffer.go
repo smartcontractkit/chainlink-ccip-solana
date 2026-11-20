@@ -328,7 +328,7 @@ func (b *bufferedExecution) writeChunks(ctx context.Context, rawInputs []byte, c
 			// original landed. If the buffer is already complete, proceed to execution.
 			complete, checkErr := b.isBufferComplete(ctx)
 			if checkErr == nil && complete {
-				b.lggr().Infow("buffered flow: chunk write failed but buffer is complete, proceeding to execution",
+				b.lggr().Debugw("buffered flow: chunk write failed but buffer is complete, proceeding to execution",
 					"failedTxID", tx.id, "bufferPDA", b.bufferPDA)
 				return nil
 			}
