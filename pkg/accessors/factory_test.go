@@ -47,7 +47,7 @@ func testSolLocalSetting(t *testing.T) (protocol.ChainSelector, string, localCon
 		chainID:              "ccip-solana-factory-test",
 		nodes:                mustNodes(t, "http://127.0.0.1:9"),
 		rpcTimeout:           ccip.DefaultRPCRequestTimeout,
-		historyMonitorPeriod: ccip.DefaultHistoryMonitorPeriod,
+		historyMonitorPeriod: solanarpc.DefaultHistoryMonitorPeriod,
 	}
 }
 
@@ -548,5 +548,5 @@ url = "http://127.0.0.1:9"
 
 	configs, err := loadLocalChainConfigs(logger.Nop())
 	require.NoError(t, err)
-	require.Equal(t, ccip.DefaultHistoryMonitorPeriod, configs[sel].historyMonitorPeriod)
+	require.Equal(t, solanarpc.DefaultHistoryMonitorPeriod, configs[sel].historyMonitorPeriod)
 }

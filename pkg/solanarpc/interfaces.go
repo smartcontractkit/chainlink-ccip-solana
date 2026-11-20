@@ -12,13 +12,16 @@ import (
 	solconfig "github.com/smartcontractkit/chainlink-solana/pkg/solana/config"
 )
 
+// DefaultHistoryMonitorPeriod is the default interval between per-node history checks.
+const DefaultHistoryMonitorPeriod = time.Minute
+
 type Config struct {
 	ChainID    string
 	Nodes      []*solconfig.Node
 	RPCTimeout time.Duration
 
-	// HistoryMonitorPeriod enables the per-node RPC history monitor when set.
-	// Zero disables the monitor.
+	// HistoryMonitorPeriod is the interval between per-node history checks.
+	// Zero uses DefaultHistoryMonitorPeriod.
 	HistoryMonitorPeriod time.Duration
 }
 

@@ -10,7 +10,6 @@ import (
 
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/config"
@@ -145,26 +144,10 @@ func TestClient_Lifecycle(t *testing.T) {
 	require.Error(t, err)
 }
 
-func requireNoHistorySeries(t *testing.T, chainID string) {
-	t.Helper()
-	families, err := prometheus.DefaultGatherer.Gather()
-	require.NoError(t, err)
-	for _, mf := range families {
-		if mf.GetName() != "solana_rpc_history_last_success_timestamp_seconds" {
-			continue
-		}
-		for _, m := range mf.GetMetric() {
-			for _, label := range m.GetLabel() {
-				if label.GetName() == "chainID" && label.GetValue() == chainID {
-					t.Fatalf("history monitor seeded a series while disabled")
-				}
-			}
-		}
-	}
-}
-
-func TestNewClient_HistoryMonitorDisabled(t *testing.T) {
+func TestNewClient_HistoryMonitorEnabledByDefault(t *testing.T) {
 	t.Parallel()
+
+	require.Equal(t, time.Minute, solanarpc.DefaultHistoryMonitorPeriod)
 
 	chainID := solana.Hash{2}.String()
 	firstAvailCount := new(atomic.Int64)
@@ -182,8 +165,9 @@ func TestNewClient_HistoryMonitorDisabled(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
 
-	requireNoHistorySeries(t, chainID)
-	require.Zero(t, firstAvailCount.Load())
+	require.Eventually(t, func() bool {
+		return firstAvailCount.Load() > 0
+	}, 5*time.Second, 10*time.Millisecond)
 }
 
 func TestClient_HistoryMonitorRunsAndStops(t *testing.T) {

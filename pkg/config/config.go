@@ -17,10 +17,9 @@ import (
 )
 
 const (
-	SolanaConfigPathEnv         = "SOLANA_CONFIG_PATH"
-	DefaultSolanaConfigPath     = "/config/solana-config.toml"
-	DefaultRPCRequestTimeout    = 30 * time.Second
-	DefaultHistoryMonitorPeriod = time.Minute
+	SolanaConfigPathEnv      = "SOLANA_CONFIG_PATH"
+	DefaultSolanaConfigPath  = "/config/solana-config.toml"
+	DefaultRPCRequestTimeout = 30 * time.Second
 )
 
 // Config holds NOP-owned Solana chain config (Canton pattern). Everything for one

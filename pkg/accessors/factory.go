@@ -142,7 +142,7 @@ func loadLocalChainConfigs(lggr logger.Logger) (map[protocol.ChainSelector]local
 
 		historyMonitorPeriod := chain.HistoryMonitorPeriod.Duration()
 		if historyMonitorPeriod == 0 {
-			historyMonitorPeriod = ccip.DefaultHistoryMonitorPeriod
+			historyMonitorPeriod = solanarpc.DefaultHistoryMonitorPeriod
 		}
 
 		configs[selector] = localConfig{

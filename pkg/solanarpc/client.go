@@ -36,6 +36,10 @@ var (
 
 // NewClient constructs and starts a client. The caller owns its lifecycle.
 func NewClient(ctx context.Context, cfg Config, lggr logger.Logger) (*Client, error) {
+	if cfg.HistoryMonitorPeriod == 0 {
+		cfg.HistoryMonitorPeriod = DefaultHistoryMonitorPeriod
+	}
+
 	tomlCfg := solconfig.Defaults()
 	tomlCfg.ChainID = &cfg.ChainID
 	tomlCfg.SetDefaults()
@@ -97,13 +101,10 @@ func NewClient(ctx context.Context, cfg Config, lggr logger.Logger) (*Client, er
 		0,
 	)
 
-	var historyMonitor services.Service
-	if cfg.HistoryMonitorPeriod > 0 {
-		historyMonitor, err = monitor.NewHistoryMonitor(lggr, cfg.ChainID, cfg.HistoryMonitorPeriod, monitorNodes)
-		if err != nil {
-			closeCreated()
-			return nil, fmt.Errorf("create history monitor: %w", err)
-		}
+	historyMonitor, err := monitor.NewHistoryMonitor(lggr, cfg.ChainID, cfg.HistoryMonitorPeriod, monitorNodes)
+	if err != nil {
+		closeCreated()
+		return nil, fmt.Errorf("create history monitor: %w", err)
 	}
 
 	client := &Client{historyMonitor: historyMonitor, multiNode: multiNode, txSender: txSender}
@@ -118,10 +119,8 @@ func NewClient(ctx context.Context, cfg Config, lggr logger.Logger) (*Client, er
 }
 
 func (c *Client) start(ctx context.Context) error {
-	if c.historyMonitor != nil {
-		if err := c.historyMonitor.Start(ctx); err != nil {
-			return fmt.Errorf("start history monitor: %w", err)
-		}
+	if err := c.historyMonitor.Start(ctx); err != nil {
+		return fmt.Errorf("start history monitor: %w", err)
 	}
 	if err := c.multiNode.Start(ctx); err != nil {
 		return fmt.Errorf("start multinode: %w", err)
@@ -133,10 +132,7 @@ func (c *Client) start(ctx context.Context) error {
 }
 
 func (c *Client) Close() error {
-	if c.historyMonitor != nil {
-		return errors.Join(c.historyMonitor.Close(), c.txSender.Close(), c.multiNode.Close())
-	}
-	return errors.Join(c.txSender.Close(), c.multiNode.Close())
+	return errors.Join(c.historyMonitor.Close(), c.txSender.Close(), c.multiNode.Close())
 }
 
 func (c *Client) Select(ctx context.Context) (solclient.ReaderWriter, error) {
