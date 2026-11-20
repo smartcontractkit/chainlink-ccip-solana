@@ -281,6 +281,20 @@ func TestBuildRecordAddsMountPath(t *testing.T) {
 	}, rec.Args)
 }
 
+// Releases record the build image: with --mount-path contracts the verifier mounts the repository root and cannot
+// resolve the image from contracts/Cargo.toml, so it falls back to Cargo.lock and picks an image that cannot build.
+func TestBuildRecordKeepsBaseImage(t *testing.T) {
+	const image = "solanafoundation/solana-verifiable-build:4.3.0"
+	p := Provenance{Commit: "b74d7c75a1b2", BuildArgs: []string{
+		"--mount-path", "contracts", "--base-image", image, "--cargo-build-sbf-args=--arch v3",
+	}}
+	rec := p.BuildRecordFor(verifyTestProgram, verifyTestProgram, "ccip_router", 42)
+	require.Equal(t, []string{
+		"--library-name", "ccip_router", "--mount-path", "contracts", "--base-image", image,
+		"--cargo-build-sbf-args=--arch v3",
+	}, rec.Args)
+}
+
 // TestIDLFoundInSiblingIDLDir covers the layout a locally built tree has:
 // `anchor build` writes binaries to target/deploy and IDLs to target/idl, and
 // devenv points ProgramsPath at the former. Looking only next to the .so found
