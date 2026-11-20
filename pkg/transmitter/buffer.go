@@ -332,7 +332,7 @@ func (b *bufferedExecution) writeChunks(ctx context.Context, rawInputs []byte, c
 					"failedTxID", tx.id, "bufferPDA", b.bufferPDA)
 				return nil
 			}
-			return fmt.Errorf("wait for finalized buffer tx %s: %w (completeness check: %v)", tx.id, err, checkErr)
+			return fmt.Errorf("wait for finalized buffer tx %s: %w (completeness check: %w)", tx.id, err, checkErr)
 		}
 	}
 	return nil
