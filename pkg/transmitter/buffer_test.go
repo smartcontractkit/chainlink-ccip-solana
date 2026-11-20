@@ -379,3 +379,71 @@ func TestCleanupOrder(t *testing.T) {
 	require.Greater(t, fake.height, closeLastValid, "cleanup returned while the close could still land")
 	require.Empty(t, b.inFlightTxs)
 }
+
+// bufferAccount encodes a Buffer account: Anchor discriminator followed by the borsh body.
+func bufferAccount(t *testing.T, bitmap uint64, numChunks uint8) []byte {
+	t.Helper()
+	body, err := ccip_offramp.Buffer{ChunkBitmap: bitmap, NumChunks: numChunks}.Marshal()
+	require.NoError(t, err)
+	return append(ccip_offramp.Account_Buffer[:], body...)
+}
+
+// writeChunksRPC answers get-account-info from a fixed set; a missing address yields nil Value,
+// like a closed account. GetLatestBlockhash delegates to disambiguate blockhashRPC vs RPCClient.
+type writeChunksRPC struct {
+	RPCClient
+	*blockhashRPC
+	accounts map[solana.PublicKey]*rpc.GetAccountInfoResult
+}
+
+func (f *writeChunksRPC) GetLatestBlockhash(ctx context.Context) (*rpc.GetLatestBlockhashResult, error) {
+	return f.blockhashRPC.GetLatestBlockhash(ctx)
+}
+
+func (f *writeChunksRPC) GetAccountInfoWithOpts(_ context.Context, addr solana.PublicKey, _ *rpc.GetAccountInfoOpts) (*rpc.GetAccountInfoResult, error) {
+	if acc, ok := f.accounts[addr]; ok {
+		return acc, nil
+	}
+	return &rpc.GetAccountInfoResult{}, nil
+}
+
+func TestWriteChunks_ProceedsOnCompleteBuffer(t *testing.T) {
+	t.Parallel()
+
+	// All writes report Failed, as when a duplicate chunk write fails 9016 on-chain.
+	run := func(t *testing.T, data []byte) error {
+		t.Helper()
+		pda := solana.NewWallet().PublicKey()
+		fake := &writeChunksRPC{
+			blockhashRPC: &blockhashRPC{},
+			accounts:     map[solana.PublicKey]*rpc.GetAccountInfoResult{pda: {Value: &rpc.Account{Data: rpc.DataBytesOrJSONFromBytes(data)}}},
+		}
+		txm := txmmocks.NewTxManager(t)
+		txm.EXPECT().Enqueue(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		txm.EXPECT().GetTransactionStatus(mock.Anything, mock.Anything).Return(commontypes.Failed, nil)
+		b := &bufferedExecution{
+			t: &SolanaContractTransmitter{
+				lggr:      logger.Sugared(logger.Nop()),
+				rpcClient: fake,
+				txm:       txm,
+				cfg: Config{BufferedConfig: BufferedConfig{
+					TxStatusPollInterval: *config.MustNewDuration(time.Millisecond),
+					BufferedFlowTimeout:  *config.MustNewDuration(time.Minute),
+				}},
+			},
+			bufferPDA: pda,
+		}
+		return b.writeChunks(t.Context(), []byte{1, 2}, [][]byte{{1}, {2}})
+	}
+
+	t.Run("complete buffer proceeds to execution", func(t *testing.T) {
+		t.Parallel()
+		require.NoError(t, run(t, bufferAccount(t, 0b11, 2)))
+	})
+
+	t.Run("incomplete buffer still fails", func(t *testing.T) {
+		t.Parallel()
+		err := run(t, bufferAccount(t, 0b01, 2))
+		require.ErrorContains(t, err, "wait for finalized buffer tx")
+	})
+}
