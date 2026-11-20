@@ -325,14 +325,13 @@ func (b *bufferedExecution) writeChunks(ctx context.Context, rawInputs []byte, c
 	for _, tx := range b.inFlightTxs {
 		if err := b.t.waitForFinalized(ctx, tx.id); err != nil {
 			// A failed wait may mean a duplicate chunk write failed 9016 BufferAlreadyContainsChunk on-chain after the
-			// original landed. If the buffer is already complete, proceed to execution.
+			// original landed. If the buffer is already complete, do not fail the flow
 			complete, checkErr := b.isBufferComplete(ctx)
-			if checkErr == nil && complete {
-				b.lggr().Debugw("buffered flow: chunk write failed but buffer is complete, proceeding to execution",
-					"failedTxID", tx.id, "bufferPDA", b.bufferPDA)
-				return nil
+			if checkErr != nil || !complete {
+				return fmt.Errorf("wait for finalized buffer tx %s: %w (completeness check: %w)", tx.id, err, checkErr)
 			}
-			return fmt.Errorf("wait for finalized buffer tx %s: %w (completeness check: %w)", tx.id, err, checkErr)
+			b.lggr().Debugw("buffered flow: chunk write failed but buffer is complete, proceeding to execution",
+				"failedTxID", tx.id, "bufferPDA", b.bufferPDA)
 		}
 	}
 	return nil
