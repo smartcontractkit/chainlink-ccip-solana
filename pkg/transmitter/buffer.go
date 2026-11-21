@@ -322,16 +322,29 @@ func (b *bufferedExecution) writeChunks(ctx context.Context, rawInputs []byte, c
 	b.lggr().Infow("buffered flow: enqueued and waiting for buffer txs to finalize", "txCount", len(b.inFlightTxs), "bufferPDA", b.bufferPDA)
 
 	// b.inFlight holds only the chunk writes here, because writeChunks is the first step that enqueues.
+	recovered := false // recovered from unreliable RPC
 	for _, tx := range b.inFlightTxs {
 		if err := b.t.waitForFinalized(ctx, tx.id); err != nil {
-			// A failed wait may mean a duplicate chunk write failed 9016 BufferAlreadyContainsChunk on-chain after the
-			// original landed. If the buffer is already complete, do not fail the flow
+			// Sometimes with unreliable RPC, a failed wait may mean a duplicate chunk write failed 9016 BufferAlreadyContainsChunk
+			// on-chain after the original landed. If the buffer is already complete, do not fail the flow
 			complete, checkErr := b.isBufferComplete(ctx)
-			if checkErr != nil || !complete {
+			if checkErr != nil {
 				return fmt.Errorf("wait for finalized buffer tx %s: %w (completeness check: %w)", tx.id, err, checkErr)
 			}
-			b.lggr().Debugw("buffered flow: chunk write failed but buffer is complete, proceeding to execution",
+			if !complete {
+				return fmt.Errorf("wait for finalized buffer tx %s: %w", tx.id, err)
+			}
+			recovered = true
+			b.lggr().Debugw("buffered flow: chunk write failed but buffer is complete, continuing",
 				"failedTxID", tx.id, "bufferPDA", b.bufferPDA)
+		}
+	}
+
+	// A failed write can still land and recreate the closed buffer PDA after execution, so drain first.
+	if recovered {
+		b.waitUntilNoTxCanLand(ctx, "drain failed writes before execution")
+		if len(b.inFlightTxs) > 0 {
+			return fmt.Errorf("failed buffer writes can still land: %+v", b.inFlightTxs)
 		}
 	}
 	return nil

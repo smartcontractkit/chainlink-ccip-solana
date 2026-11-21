@@ -407,6 +407,11 @@ func (f *writeChunksRPC) GetAccountInfoWithOpts(_ context.Context, addr solana.P
 	return &rpc.GetAccountInfoResult{}, nil
 }
 
+// MaxUint64: past every blockhash this fake hands out, so the post-recovery drain finishes at once.
+func (f *writeChunksRPC) GetLatestBlockHeight(context.Context) (uint64, error) {
+	return math.MaxUint64, nil
+}
+
 func TestWriteChunks_ProceedsOnCompleteBuffer(t *testing.T) {
 	t.Parallel()
 
@@ -445,5 +450,79 @@ func TestWriteChunks_ProceedsOnCompleteBuffer(t *testing.T) {
 		t.Parallel()
 		err := run(t, bufferAccount(t, 0b01, 2))
 		require.ErrorContains(t, err, "wait for finalized buffer tx")
+	})
+}
+
+// drainRPC fakes the chain for the recovered-failure drain: every blockhash carries the same
+// lastValid, each height poll advances the chain by one block, and the buffer reads complete.
+type drainRPC struct {
+	RPCClient
+	lastValid uint64
+	height    uint64
+	account   *rpc.GetAccountInfoResult
+}
+
+func (f *drainRPC) GetLatestBlockhash(context.Context) (*rpc.GetLatestBlockhashResult, error) {
+	return &rpc.GetLatestBlockhashResult{Value: &rpc.LatestBlockhashResult{
+		Blockhash:            solana.Hash{1},
+		LastValidBlockHeight: f.lastValid,
+	}}, nil
+}
+
+func (f *drainRPC) GetLatestBlockHeight(context.Context) (uint64, error) {
+	f.height++
+	return f.height, nil
+}
+
+func (f *drainRPC) GetAccountInfoWithOpts(context.Context, solana.PublicKey, *rpc.GetAccountInfoOpts) (*rpc.GetAccountInfoResult, error) {
+	return f.account, nil
+}
+
+// TestWriteChunks_DrainsRecoveredFailures pins that a recovered failure still waits for the
+// failed writes to become unlandable: a write landing after execution would recreate the
+// buffer PDA that execute_v2 closes.
+func TestWriteChunks_DrainsRecoveredFailures(t *testing.T) {
+	t.Parallel()
+
+	run := func(t *testing.T, ctx context.Context, lastValid uint64) (*drainRPC, *bufferedExecution, error) {
+		pda := solana.NewWallet().PublicKey()
+		fake := &drainRPC{
+			lastValid: lastValid,
+			account:   &rpc.GetAccountInfoResult{Value: &rpc.Account{Data: rpc.DataBytesOrJSONFromBytes(bufferAccount(t, 0b11, 2))}},
+		}
+		txm := txmmocks.NewTxManager(t)
+		txm.EXPECT().Enqueue(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		txm.EXPECT().GetTransactionStatus(mock.Anything, mock.Anything).Return(commontypes.Failed, nil)
+		b := &bufferedExecution{
+			t: &SolanaContractTransmitter{
+				lggr:      logger.Sugared(logger.Nop()),
+				rpcClient: fake,
+				txm:       txm,
+				cfg: Config{BufferedConfig: BufferedConfig{
+					TxStatusPollInterval: *config.MustNewDuration(time.Millisecond),
+					BufferedFlowTimeout:  *config.MustNewDuration(time.Minute),
+				}},
+			},
+			bufferPDA: pda,
+		}
+		return fake, b, b.writeChunks(ctx, []byte{1, 2}, [][]byte{{1}, {2}})
+	}
+
+	t.Run("waits until the failed writes can no longer land", func(t *testing.T) {
+		t.Parallel()
+		const lastValid = 3
+		fake, _, err := run(t, t.Context(), lastValid)
+		require.NoError(t, err)
+		require.Equal(t, uint64(lastValid+1), fake.height, "returned while a failed write could still land")
+	})
+
+	t.Run("flow timeout fails the run while failed writes can still land", func(t *testing.T) {
+		t.Parallel()
+		ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+		defer cancel()
+		fake, b, err := run(t, ctx, math.MaxUint64)
+		require.ErrorContains(t, err, "can still land")
+		require.Len(t, b.inFlightTxs, 2)
+		require.Positive(t, fake.height)
 	})
 }
