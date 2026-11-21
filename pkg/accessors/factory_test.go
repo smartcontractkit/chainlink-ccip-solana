@@ -44,9 +44,10 @@ func testSolLocalSetting(t *testing.T) (protocol.ChainSelector, string, localCon
 	t.Helper()
 	sel := testSolSelector()
 	return sel, chainselector.Format(sel), localConfig{
-		chainID:    "ccip-solana-factory-test",
-		nodes:      mustNodes(t, "http://127.0.0.1:9"),
-		rpcTimeout: ccip.DefaultRPCRequestTimeout,
+		chainID:              "ccip-solana-factory-test",
+		nodes:                mustNodes(t, "http://127.0.0.1:9"),
+		rpcTimeout:           ccip.DefaultRPCRequestTimeout,
+		historyMonitorPeriod: solanarpc.DefaultHistoryMonitorPeriod,
 	}
 }
 
@@ -532,4 +533,20 @@ url = "http://127.0.0.1:10"
 	t.Setenv(ccip.SolanaConfigPathEnv, path)
 	_, err := CreateAccessorFactory(logger.Nop(), chainaccess.GenericConfig{})
 	require.ErrorContains(t, err, "non-canonical decimal string")
+}
+
+func TestLoadLocalChainConfigsHistoryMonitorPeriodDefault(t *testing.T) {
+	sel, strSel, _ := testSolLocalSetting(t)
+	path := filepath.Join(t.TempDir(), "solana-config.toml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+[chains."`+strSel+`"]
+[[chains."`+strSel+`".nodes]]
+name = "primary"
+url = "http://127.0.0.1:9"
+`), 0o600))
+	t.Setenv(ccip.SolanaConfigPathEnv, path)
+
+	configs, err := loadLocalChainConfigs(logger.Nop())
+	require.NoError(t, err)
+	require.Equal(t, solanarpc.DefaultHistoryMonitorPeriod, configs[sel].historyMonitorPeriod)
 }

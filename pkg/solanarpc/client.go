@@ -10,16 +10,19 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/services"
 	"github.com/smartcontractkit/chainlink-framework/metrics"
 	mn "github.com/smartcontractkit/chainlink-framework/multinode"
 	solclient "github.com/smartcontractkit/chainlink-solana/pkg/solana/client"
 	solconfig "github.com/smartcontractkit/chainlink-solana/pkg/solana/config"
+	"github.com/smartcontractkit/chainlink-solana/pkg/solana/monitor"
 )
 
 // Client is one chain's multinode RPC and transaction transport.
 type Client struct {
-	multiNode *mn.MultiNode[mn.StringID, *solclient.MultiNodeClient]
-	txSender  *mn.TransactionSender[*solana.Transaction, solana.Signature, mn.StringID, *solclient.MultiNodeClient]
+	historyMonitor services.Service
+	multiNode      *mn.MultiNode[mn.StringID, *solclient.MultiNodeClient]
+	txSender       *mn.TransactionSender[*solana.Transaction, solana.Signature, mn.StringID, *solclient.MultiNodeClient]
 }
 
 var (
@@ -33,6 +36,10 @@ var (
 
 // NewClient constructs and starts a client. The caller owns its lifecycle.
 func NewClient(ctx context.Context, cfg Config, lggr logger.Logger) (*Client, error) {
+	if cfg.HistoryMonitorPeriod == 0 {
+		cfg.HistoryMonitorPeriod = DefaultHistoryMonitorPeriod
+	}
+
 	tomlCfg := solconfig.Defaults()
 	tomlCfg.ChainID = &cfg.ChainID
 	tomlCfg.SetDefaults()
@@ -53,6 +60,7 @@ func NewClient(ctx context.Context, cfg Config, lggr logger.Logger) (*Client, er
 	var (
 		nodes          []mn.Node[mn.StringID, *solclient.MultiNodeClient]
 		createdClients []*solclient.MultiNodeClient
+		monitorNodes   []monitor.NodeHistory
 	)
 
 	closeCreated := func() {
@@ -71,6 +79,7 @@ func NewClient(ctx context.Context, cfg Config, lggr logger.Logger) (*Client, er
 			return nil, fmt.Errorf("create multinode client for %s: %w", name, err)
 		}
 		createdClients = append(createdClients, rpcClient)
+		monitorNodes = append(monitorNodes, monitor.NodeHistory{Name: name, Client: rpcClient})
 		node := mn.NewNode[mn.StringID, *solclient.Head, *solclient.MultiNodeClient](
 			mnCfg, mnCfg, lggr, multiNodeMetrics, nil, nodeCfg.URL.URL(), name,
 			i, mn.StringID(cfg.ChainID), *nodeCfg.Order, rpcClient, chainsel.FamilySolana, *nodeCfg.IsLoadBalancedRPC,
@@ -92,7 +101,13 @@ func NewClient(ctx context.Context, cfg Config, lggr logger.Logger) (*Client, er
 		0,
 	)
 
-	client := &Client{multiNode: multiNode, txSender: txSender}
+	historyMonitor, err := monitor.NewHistoryMonitor(lggr, cfg.ChainID, cfg.HistoryMonitorPeriod, monitorNodes)
+	if err != nil {
+		closeCreated()
+		return nil, fmt.Errorf("create history monitor: %w", err)
+	}
+
+	client := &Client{historyMonitor: historyMonitor, multiNode: multiNode, txSender: txSender}
 	if err = client.start(ctx); err != nil {
 		if closeErr := client.Close(); closeErr != nil {
 			err = errors.Join(err, fmt.Errorf("close transport after start failure: %w", closeErr))
@@ -104,6 +119,9 @@ func NewClient(ctx context.Context, cfg Config, lggr logger.Logger) (*Client, er
 }
 
 func (c *Client) start(ctx context.Context) error {
+	if err := c.historyMonitor.Start(ctx); err != nil {
+		return fmt.Errorf("start history monitor: %w", err)
+	}
 	if err := c.multiNode.Start(ctx); err != nil {
 		return fmt.Errorf("start multinode: %w", err)
 	}
@@ -114,7 +132,7 @@ func (c *Client) start(ctx context.Context) error {
 }
 
 func (c *Client) Close() error {
-	return errors.Join(c.txSender.Close(), c.multiNode.Close())
+	return errors.Join(c.historyMonitor.Close(), c.txSender.Close(), c.multiNode.Close())
 }
 
 func (c *Client) Select(ctx context.Context) (solclient.ReaderWriter, error) {
