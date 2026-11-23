@@ -484,7 +484,11 @@ func (f *drainRPC) GetAccountInfoWithOpts(context.Context, solana.PublicKey, *rp
 func TestWriteChunks_DrainsRecoveredFailures(t *testing.T) {
 	t.Parallel()
 
-	run := func(t *testing.T, ctx context.Context, lastValid uint64) (*drainRPC, *bufferedExecution, error) {
+	type runResult struct {
+		fake *drainRPC
+		exec *bufferedExecution
+	}
+	run := func(t *testing.T, ctx context.Context, lastValid uint64) (runResult, error) {
 		pda := solana.NewWallet().PublicKey()
 		fake := &drainRPC{
 			lastValid: lastValid,
@@ -505,24 +509,24 @@ func TestWriteChunks_DrainsRecoveredFailures(t *testing.T) {
 			},
 			bufferPDA: pda,
 		}
-		return fake, b, b.writeChunks(ctx, []byte{1, 2}, [][]byte{{1}, {2}})
+		return runResult{fake: fake, exec: b}, b.writeChunks(ctx, []byte{1, 2}, [][]byte{{1}, {2}})
 	}
 
 	t.Run("waits until the failed writes can no longer land", func(t *testing.T) {
 		t.Parallel()
 		const lastValid = 3
-		fake, _, err := run(t, t.Context(), lastValid)
+		res, err := run(t, t.Context(), lastValid)
 		require.NoError(t, err)
-		require.Equal(t, uint64(lastValid+1), fake.height, "returned while a failed write could still land")
+		require.Equal(t, uint64(lastValid+1), res.fake.height, "returned while a failed write could still land")
 	})
 
 	t.Run("flow timeout fails the run while failed writes can still land", func(t *testing.T) {
 		t.Parallel()
 		ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
 		defer cancel()
-		fake, b, err := run(t, ctx, math.MaxUint64)
+		res, err := run(t, ctx, math.MaxUint64)
 		require.ErrorContains(t, err, "can still land")
-		require.Len(t, b.inFlightTxs, 2)
-		require.Positive(t, fake.height)
+		require.Len(t, res.exec.inFlightTxs, 2)
+		require.Positive(t, res.fake.height)
 	})
 }

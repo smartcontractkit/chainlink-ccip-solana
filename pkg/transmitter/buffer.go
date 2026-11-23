@@ -325,8 +325,6 @@ func (b *bufferedExecution) writeChunks(ctx context.Context, rawInputs []byte, c
 	recovered := false // recovered from unreliable RPC
 	for _, tx := range b.inFlightTxs {
 		if err := b.t.waitForFinalized(ctx, tx.id); err != nil {
-			// Sometimes with unreliable RPC, a failed wait may mean a duplicate chunk write failed 9016 BufferAlreadyContainsChunk
-			// on-chain after the original landed. If the buffer is already complete, do not fail the flow
 			complete, checkErr := b.isBufferComplete(ctx)
 			if checkErr != nil {
 				return fmt.Errorf("wait for finalized buffer tx %s: %w (completeness check: %w)", tx.id, err, checkErr)
