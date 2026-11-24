@@ -134,15 +134,17 @@ func (a *SolanaAdapter) GetDefaultTokenPrices() map[datastore.ContractType]*big.
 	}
 }
 
+// DefaultMaxDataBytes caps the message data a source FeeQuoter accepts for Solana as destination.
+// A larger message is accepted on the source but cannot execute on Solana, so it stays stuck. Raise
+// it only to a size verified to execute end-to-end on the OffRamp.
+const DefaultMaxDataBytes = 2_000
+
 // GetDefaultFeeQuoterDestChainConfig returns the default FeeQuoter dest chain config for Solana.
 // reference of the config value from https://github.com/smartcontractkit/chainlink-ccip/blob/3963310d2112b7873f92310807685c11feda8b81/chains/solana/deployment/v1_6_0/sequences/adapter.go#L96
 func (a *SolanaAdapter) GetDefaultFeeQuoterDestChainConfig(_, _ uint64, chainFamilySelector [4]byte) ccvadapters.FeeQuoterDestChainConfigOverrides {
 	return ccvadapters.FeeQuoterDestChainConfigOverrides{
-		IsEnabled: new(true),
-		// TODO(NONEVM-2544): with the custom heap allocator the offramp is no longer heap-bound, but
-		// 30_000 is still unverified end-to-end (compute budget is the practical ceiling). Verify
-		// this value is what we want and reconcile it with GetMaxDataBytes (devenv/messaging.go).
-		MaxDataBytes:                new(uint32(30_000)),
+		IsEnabled:                   new(true),
+		MaxDataBytes:                new(uint32(DefaultMaxDataBytes)),
 		MaxPerMsgGasLimit:           new(uint32(3_000_000)),
 		DestGasOverhead:             new(uint32(300_000)),
 		DestGasPerPayloadByteBase:   new(uint8(16)),
@@ -160,7 +162,7 @@ func (a *SolanaAdapter) GetDefaultFeeQuoterDestChainConfig(_, _ uint64, chainFam
 func (a *SolanaAdapter) GetFeeQuoterDestChainConfigForLanes() lanes.FeeQuoterDestChainConfig {
 	return lanes.FeeQuoterDestChainConfig{
 		IsEnabled:                   true,
-		MaxDataBytes:                30_000,
+		MaxDataBytes:                DefaultMaxDataBytes,
 		MaxPerMsgGasLimit:           3_000_000,
 		DestGasOverhead:             300_000,
 		DestGasPerPayloadByteBase:   16,
