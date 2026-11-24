@@ -35,10 +35,10 @@ func TestResolveTokenPoolMigration(t *testing.T) {
 	v200 := semver.MustParse("2.0.0")
 	v203 := semver.MustParse("2.0.3")
 
-	// CLL's shared BurnMint program and a white-glove one, registered under their 1.6 pool
-	// metadata, plus the refs the in-place upgrade registers at the CLL program.
+	// The shared BurnMint program and a separate one, registered under their 1.6 pool metadata,
+	// plus the refs the in-place upgrade registers at the shared program.
 	cll := solana.NewWallet().PublicKey()
-	whiteGlove := solana.NewWallet().PublicKey()
+	separate := solana.NewWallet().PublicKey()
 	mint := solana.NewWallet().PublicKey()
 
 	ref := func(selector uint64, typ string, version *semver.Version, qualifier string, address solana.PublicKey) datastore.AddressRef {
@@ -54,13 +54,13 @@ func TestResolveTokenPoolMigration(t *testing.T) {
 	legacy := []datastore.AddressRef{
 		ref(sel, string(solcommon.SPL2022Tokens), v160, "CCIP-BnM", mint),
 		ref(sel, bnm, v160, CLLPoolProgramQualifier, cll),
-		ref(sel, bnm, v160, "partner-x", whiteGlove),
+		ref(sel, bnm, v160, "pool-a", separate),
 		// Another chain's refs are ignored.
-		ref(other, bnm, v160, CLLPoolProgramQualifier, whiteGlove),
+		ref(other, bnm, v160, CLLPoolProgramQualifier, separate),
 	}
 	upgraded := append(append([]datastore.AddressRef{}, legacy...),
 		ref(sel, bnm, v203, solcommon.PoolProgramQualifier, cll),
-		ref(sel, bnm, v200, "partner-x-2", whiteGlove),
+		ref(sel, bnm, v200, "pool-a-2", separate),
 	)
 
 	t.Run("CLL program by default, registered at the upgraded version under the token qualifier", func(t *testing.T) {
@@ -85,10 +85,10 @@ func TestResolveTokenPoolMigration(t *testing.T) {
 		require.Equal(t, cll, target.Program)
 	})
 
-	t.Run("white-glove program by its qualifier", func(t *testing.T) {
-		target, err := ResolveTokenPoolMigration(build(upgraded...), sel, bnm, "partner-x", mint, "")
+	t.Run("separate program by its qualifier", func(t *testing.T) {
+		target, err := ResolveTokenPoolMigration(build(upgraded...), sel, bnm, "pool-a", mint, "")
 		require.NoError(t, err)
-		require.Equal(t, whiteGlove, target.Program)
+		require.Equal(t, separate, target.Program)
 		require.True(t, target.Version.Equal(v200))
 	})
 
@@ -106,7 +106,7 @@ func TestResolveTokenPoolMigration(t *testing.T) {
 	})
 
 	t.Run("2.x instance ref at another program", func(t *testing.T) {
-		refs := append(append([]datastore.AddressRef{}, upgraded...), ref(sel, bnm, v200, "CCIP-BnM", whiteGlove))
+		refs := append(append([]datastore.AddressRef{}, upgraded...), ref(sel, bnm, v200, "CCIP-BnM", separate))
 		_, err := ResolveTokenPoolMigration(build(refs...), sel, bnm, "", mint, "")
 		require.ErrorContains(t, err, "not at pool program")
 	})
@@ -129,8 +129,8 @@ func TestResolveTokenPoolMigration(t *testing.T) {
 	})
 
 	t.Run("programs at two addresses under one qualifier are ambiguous", func(t *testing.T) {
-		refs := append(append([]datastore.AddressRef{}, upgraded...), ref(sel, bnm, v200, "partner-x", cll))
-		_, err := ResolveTokenPoolMigration(build(refs...), sel, bnm, "partner-x", mint, "")
+		refs := append(append([]datastore.AddressRef{}, upgraded...), ref(sel, bnm, v200, "pool-a", cll))
+		_, err := ResolveTokenPoolMigration(build(refs...), sel, bnm, "pool-a", mint, "")
 		require.ErrorContains(t, err, "ambiguous")
 	})
 
@@ -247,7 +247,7 @@ func TestTokenPoolMigrationChecksAuthority(t *testing.T) {
 	require.NoError(t, checks.requireControlled("pool", deployerKey.PublicKey()))
 	require.NoError(t, checks.requireControlled("pool", *checks.Timelock))
 	require.ErrorContains(t, checks.requireControlled("pool", rmnSigner), `set mcms.qualifier to "RMNMCMS"`)
-	require.ErrorContains(t, checks.requireControlled("pool", solana.NewWallet().PublicKey()), "self-served pool is migrated by its owner")
+	require.ErrorContains(t, checks.requireControlled("pool", solana.NewWallet().PublicKey()), "neither the deployer nor the selected timelock")
 
 	noQualifier, err := NewTokenPoolMigrationChecks(refs, chain, sel, common_utils.BurnMintTokenPool.String(), "")
 	require.NoError(t, err, "no MCMS qualifier is valid when the deployer controls the pool")

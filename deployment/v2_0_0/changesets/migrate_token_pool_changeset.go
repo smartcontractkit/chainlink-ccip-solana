@@ -24,8 +24,8 @@ type MigrateTokenPoolToV2ChangesetInput struct {
 	PoolType string `json:"poolType"`
 	// TokenMint is the base58 mint whose pool instance migrates.
 	TokenMint string `json:"tokenMint"`
-	// PoolProgramQualifier selects the pool program: empty or CLLCCIP is CLL's shared program, any
-	// other value is a white-glove program registered under that qualifier.
+	// PoolProgramQualifier selects the pool program: empty or CLLCCIP is the shared program, any
+	// other value is the program registered under that qualifier.
 	PoolProgramQualifier string `json:"poolProgramQualifier,omitempty"`
 	// TokenPoolQualifier is the qualifier the migrated instance is registered under. Empty derives it
 	// from the mint's token ref.
@@ -46,8 +46,7 @@ type MigrateTokenPoolToV2ChangesetInput struct {
 //  2. Every remote in RemoteChainSelectors is a 2.0 lane on the Router and the 2.0 OffRamp, and the
 //     pool instance is already configured for it.
 //  3. The deployer or the timelock of MCMS.Qualifier controls the pool program, the pool and the
-//     Token Admin Registry entry. Only CLL's shared program and white-glove programs qualify; a
-//     self-served pool is its owner's to migrate.
+//     Token Admin Registry entry.
 //
 // Outputs: the pool signer and fee vault token accounts, sent directly by the deployer and listed in
 // the EnsurePoolTokenAccounts report; the ChainConfigV2 of each remote and the Token Admin Registry

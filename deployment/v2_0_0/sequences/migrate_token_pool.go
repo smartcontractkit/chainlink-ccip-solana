@@ -36,8 +36,8 @@ type MigrateTokenPoolToV2Input struct {
 	// PoolType is BurnMintTokenPool or LockReleaseTokenPool.
 	PoolType  string
 	TokenMint solana.PublicKey
-	// PoolProgramQualifier selects the pool program: empty or CLLCCIP is CLL's shared program, any
-	// other value is a white-glove program registered under that qualifier (the 1.6 pool metadata).
+	// PoolProgramQualifier selects the pool program: empty or CLLCCIP is the shared program, any
+	// other value is the program registered under that qualifier (the 1.6 pool metadata).
 	PoolProgramQualifier string
 	// TokenPoolQualifier is the qualifier the migrated instance is registered under. Empty derives it
 	// from the token's datastore ref, as 2.0 tooling looks pool instances up by the token qualifier.
@@ -183,16 +183,16 @@ func ValidateMigratablePoolType(poolType string) error {
 	}
 }
 
-// CLLPoolProgramQualifier is the 1.6 pool metadata of CLL's shared pool programs. An empty
-// qualifier means the same; any other qualifier is a white-glove program.
+// CLLPoolProgramQualifier is the 1.6 pool metadata of the shared pool programs. An empty
+// qualifier means the same; any other qualifier is a separate pool program.
 const CLLPoolProgramQualifier = "CLLCCIP"
 
 // ResolveTokenPoolMigration finds the pool program selected by programQualifier in the datastore,
 // checks it was upgraded to 2.x, and returns the instance ref the migration registers for mint.
 // tokenQualifier, when empty, is taken from the mint's token ref.
 //
-// The program is selected by its qualifier (the 1.6 pool metadata), never by address alone: CLL's
-// shared program and each white-glove program are registered under their own qualifier.
+// The program is selected by its qualifier (the 1.6 pool metadata), never by address alone: the
+// shared program and each separate pool program are registered under their own qualifier.
 func ResolveTokenPoolMigration(ds datastore.DataStore, chainSelector uint64, poolType, programQualifier string, mint solana.PublicKey, tokenQualifier string) (TokenPoolMigrationTarget, error) {
 	if err := ValidateMigratablePoolType(poolType); err != nil {
 		return TokenPoolMigrationTarget{}, err
@@ -375,13 +375,13 @@ func (c TokenPoolMigrationChecks) requireControlled(what string, key solana.Publ
 			what, qualifier, c.MCMSQualifier, qualifier)
 	}
 	if c.Timelock == nil {
-		return fmt.Errorf("%s is controlled by %s, which is neither the deployer nor a known timelock: set mcms.qualifier if it is a timelock signer; otherwise CLL does not control it and a self-served pool is migrated by its owner",
+		return fmt.Errorf("%s is controlled by %s, which is neither the deployer nor a known timelock: set mcms.qualifier if it is a timelock signer",
 			what, key)
 	}
-	return fmt.Errorf("%s is controlled by %s, which is not CLL's: a self-served pool is migrated by its owner", what, key)
+	return fmt.Errorf("%s is controlled by %s, which is neither the deployer nor the selected timelock", what, key)
 }
 
-// Run checks that CLL controls the pool (so it is CLL's or white-glove, not self-served), that the
+// Run checks that the deployer or the selected timelock controls the pool, that the
 // Token Admin Registry routes mint to program, and that every remote is a 2.0 lane in both
 // directions that the pool is already configured for.
 func (c TokenPoolMigrationChecks) Run(ctx context.Context, chain cldf_solana.Chain, program, mint solana.PublicKey, remotes []uint64) error {

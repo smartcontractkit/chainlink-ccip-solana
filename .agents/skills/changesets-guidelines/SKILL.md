@@ -1,6 +1,6 @@
 ---
 name: changesets-guidelines
-description: 'Rules for writing, reviewing and running CLDF changesets and durable pipelines for Solana CCIP (deployment/v2_0_0). Use when: writing a new changeset or sequence, reviewing a changeset PR, migrating token pools or lanes from 1.6 to 2.0, resolving address refs (pool programs, pool instances, tokens), choosing between direct send and MCMS, checking idempotency, or debugging a durable pipeline that failed on ref resolution ("expected to find exactly 1 ref ... found N").'
+description: 'Rules for writing and reviewing CLDF changesets and sequences for Solana CCIP in this repo (deployment/v2_0_0). Use when: writing a new changeset or sequence, reviewing a changeset PR, migrating token pools or lanes from 1.6 to 2.0, resolving address refs (pool programs, pool instances, tokens), choosing between direct send and MCMS, checking idempotency, or debugging ref resolution ("expected to find exactly 1 ref ... found N").'
 ---
 
 # Changeset guidelines
@@ -26,15 +26,12 @@ Solana-specific rules that make it concrete in this repo.
 6. **Compatible with the previous release.** A change to a shared account or format is checked
    against the previous version's reader, and both address widths are written.
 7. **Verifiable.** Success is confirmed at finalized commitment, the report lists what changed, and
-   a proposal contains only the expected operations and decodes in the analyzer.
-8. **Decodable.** A new program version ships with its decoder, and the analyzer decodes every
-   instruction its changesets produce before the changeset merges. A proposal that cannot be decoded
-   is a failing check, not something found at signing time.
-9. **Pinned releases only.** A changeset on a real network takes a pinned, CI-published release and
+   a proposal contains only the expected operations.
+8. **Pinned releases only.** A changeset on a real network takes a pinned, CI-published release and
    refuses a local build. The artifact hash is checked against the release provenance before
    anything is sent.
-10. **Ships with tests and a rollback.** A run-twice test, a proposal-mode test, and a rollback or
-    recovery path (a changeset or a documented input).
+9. **Ships with tests and a rollback.** A run-twice test, a proposal-mode test, and a rollback or
+   recovery path (a changeset or a documented input).
 
 ## Shape of a changeset in this repo
 
@@ -50,8 +47,8 @@ Solana-specific rules that make it concrete in this repo.
   such as `EnsurePoolTokenAccounts`) runs as a CLDF operation whose output lists what it created,
   so the report shows it.
 - An authority error names the fix: when the owner is another timelock, name its MCMS qualifier;
-  when no timelock is selected, say that `mcms.qualifier` may be missing before calling the pool
-  self-served. A named MCMS qualifier without a timelock ref is an error.
+  when no timelock is selected, say that `mcms.qualifier` may be missing. A named MCMS qualifier
+  without a timelock ref is an error.
 - Datastore output is additive: `ds.Addresses().Add` only for refs that are not there yet.
   Replacing a ref is an add plus `RemoteDelete` of the old key (see `UpgradeProgramChangeset`).
 - Document the rollback in the changeset comment (an existing changeset and its input, or a
@@ -91,8 +88,8 @@ per-mint state is the pool config PDA `[ccip_tokenpool_config, mint]`, the per-l
 - **Never resolve by address alone.** A shared pool program carries many refs (one per
   qualifier and version). Address-only lookups (`FindAndFormatRef` on an address) fail with
   `expected to find exactly 1 ref ... found N`. Resolve by type + qualifier (+ version).
-- Pool **program** qualifiers (1.6 pool metadata): empty or `CLLCCIP` is CLL's shared program; any
-  other qualifier is a white-glove program (separate program, owned by CLL). `TokenPoolProgram` is
+- Pool **program** qualifiers (1.6 pool metadata): empty or `CLLCCIP` is the shared program; any
+  other qualifier is a separate pool program registered under it. `TokenPoolProgram` is
   the 2.0 alias of the first upgraded legacy program, so do not use it to pick a specific program.
 - Pool **instance** refs use the token's qualifier (`solcommon.PoolRefByQualifier`). The instance
   ref's version is what 2.0 tooling uses to choose the adapter, so a migrated instance gets a 2.x ref
@@ -107,40 +104,33 @@ per-mint state is the pool config PDA `[ccip_tokenpool_config, mint]`, the per-l
   2.0 (this repo) adapters are linked, the 1.6 resolver handles address-only refs. Passing a pool
   config PDA goes through it.
 
-## Who migrates what
+## Authority checks
 
-Only pools CLL controls are changed by our changesets: CLL's shared program and white-glove
-programs. Check that the program upgrade authority, the pool owner and the TAR administrator are the
-deployer or the timelock signer (`solcommon.FindTimelockSignerPDA` with the MCMS qualifier). A
-self-served pool (customer owner or TAR admin) is the customer's responsibility: fail in verify
-with that message instead of building a proposal nobody can execute.
+A changeset acts only on pools whose program upgrade authority, pool owner and TAR administrator
+are the deployer or the timelock signer (`solcommon.FindTimelockSignerPDA` with the MCMS
+qualifier). Otherwise fail in verify, naming the controlling key, instead of building a proposal
+nobody can execute.
 
 ## Checking idempotency against a real environment
 
 Before claiming a changeset is safe on an environment, run its real resolution and check code
 read-only against that environment:
 
-1. Load the environment's `domains/<domain>/<env>/datastore/address_refs.json` from
-   chainlink-deployments into a memory datastore (use `Upsert`: the file can hold duplicate keys).
+1. Load the environment's address refs into a memory datastore (use `Upsert`: the file can hold
+   duplicate keys).
 2. Call the exported resolution and check functions with an RPC-only `cldf_solana.Chain` (no
    deployer key), and read each account a step would write.
 3. Write down, per step, the current state, what run 1 does (direct send, batch op or nothing) and
    what run 2 does after the proposal executes. Run 2 must produce no batch ops and no refs.
-4. Look at past runs before assuming state: archived durable pipeline inputs, decoded proposals and
-   operations reports in chainlink-deployments show what was already executed.
 
 ## Tests
 
 - Unit: input validation, datastore resolution and authority decisions, without RPC.
-- Decode: build every instruction the proposal can carry with the gobindings constructors and decode
-  it the way the CCV analyzer does (`ParseInstruction(data, nil, nil)` then
-  `PopulateFromAccountIndices`); see `TestMigrationProposalInstructionsDecode`.
 - Run-twice: a devenv test that applies the changeset, checks the on-chain result, applies it again
   on the merged datastore, and asserts no proposal, no refs and an unchanged deployer balance; see
   `devenv/tests/smoke/migrate_token_pool_test.go`. A test that changes shared devenv state is opt-in
   and skips attached environments (`SOLANA_PRIVATE_KEY` set).
-- Proposal mode needs a timelock-owned pool; the Solana devenv has no MCMS yet, so cover the
-  proposal contents with the decode test until it does.
+- Proposal mode needs a timelock-owned pool; the Solana devenv has no MCMS yet.
 
 ## Review checklist
 
@@ -148,7 +138,7 @@ read-only against that environment:
 - [ ] refs resolved by type + qualifier, never by address alone; both token types handled
 - [ ] signer read on chain; direct vs MCMS decided by `ConfirmOrBatch`
 - [ ] each step skips when already applied; run-twice test exists
-- [ ] proposal-mode test exists; proposal decodes in the analyzer
+- [ ] proposal-mode test exists
 - [ ] refs written are declared; cross-major refs kept; same-major superseded via `RemoteDelete`
-- [ ] only CLL-controlled pools touched; self-served rejected in verify
+- [ ] pools not controlled by the deployer or the timelock rejected in verify
 - [ ] rollback or recovery path documented
