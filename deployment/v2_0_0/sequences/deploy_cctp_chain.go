@@ -280,7 +280,7 @@ var DeployCCTPChain = cldf_ops.NewSequence(
 			return seq_core.OnChainOutput{}, lerr
 		}
 		for _, qualifier := range [][]byte{{}, mint.Bytes()} {
-			if verr := ensureFeeVaults(b.GetContext(), solChain, poolAddr, qualifier, fees); verr != nil {
+			if _, verr := ensureFeeVaults(b.GetContext(), solChain, poolAddr, qualifier, fees); verr != nil {
 				return seq_core.OnChainOutput{}, fmt.Errorf("cctp: %w", verr)
 			}
 		}

@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 
 	cldf_solana "github.com/smartcontractkit/chainlink-deployments-framework/chain/solana"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
+	cldf_ops "github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/fee_quoter"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/common"
@@ -58,8 +60,6 @@ func findLinkMint(addresses []datastore.AddressRef, chainSelector uint64) (solan
 	return mint, nil
 }
 
-// ensureFeeVaults creates the issuer's fee vault token account for each fee token, skipping
-// those that already exist. qualifier is nil for an unqualified vault.
 // accountExists reports whether an account exists. An RPC error other than not found is returned.
 func accountExists(ctx context.Context, chain cldf_solana.Chain, account solana.PublicKey) (bool, error) {
 	_, err := chain.Client.GetAccountInfoWithOpts(ctx, account, &rpc.GetAccountInfoOpts{
@@ -75,32 +75,113 @@ func accountExists(ctx context.Context, chain cldf_solana.Chain, account solana.
 	}
 }
 
-func ensureFeeVaults(ctx context.Context, chain cldf_solana.Chain, issuer solana.PublicKey, qualifier []byte, fees []feeToken) error {
+// ensureFeeVaults creates the issuer's fee vault token account for each fee token, skipping
+// those that already exist, and returns the accounts it created. qualifier is nil for an
+// unqualified vault.
+func ensureFeeVaults(ctx context.Context, chain cldf_solana.Chain, issuer solana.PublicKey, qualifier []byte, fees []feeToken) ([]solana.PublicKey, error) {
 	vault, _, err := state.FindFeeVaultPDA(issuer, qualifier)
 	if err != nil {
-		return fmt.Errorf("failed to find fee vault of %s: %w", issuer, err)
+		return nil, fmt.Errorf("failed to find fee vault of %s: %w", issuer, err)
 	}
+	var created []solana.PublicKey
 	for _, ft := range fees {
 		ata, _, err := tokens.FindAssociatedTokenAddress(ft.program, ft.mint, vault)
 		if err != nil {
-			return fmt.Errorf("failed to find fee vault account of %s for %s: %w", issuer, ft.mint, err)
+			return created, fmt.Errorf("failed to find fee vault account of %s for %s: %w", issuer, ft.mint, err)
 		}
 		exists, err := accountExists(ctx, chain, ata)
 		if err != nil {
-			return fmt.Errorf("failed to fetch fee vault account %s of %s for %s: %w", ata, issuer, ft.mint, err)
+			return created, fmt.Errorf("failed to fetch fee vault account %s of %s for %s: %w", ata, issuer, ft.mint, err)
 		}
 		if exists {
 			continue
 		}
 		ixn, _, err := tokens.CreateAssociatedTokenAccount(ft.program, ft.mint, vault, chain.DeployerKey.PublicKey())
 		if err != nil {
-			return fmt.Errorf("failed to build fee vault account of %s for %s: %w", issuer, ft.mint, err)
+			return created, fmt.Errorf("failed to build fee vault account of %s for %s: %w", issuer, ft.mint, err)
 		}
 		if err = chain.Confirm([]solana.Instruction{ixn}); err != nil {
-			return fmt.Errorf("failed to create fee vault account %s of %s for %s: %w", ata, issuer, ft.mint, err)
+			return created, fmt.Errorf("failed to create fee vault account %s of %s for %s: %w", ata, issuer, ft.mint, err)
 		}
+		created = append(created, ata)
 	}
-	return nil
+	return created, nil
+}
+
+// EnsurePoolTokenAccountsInput selects a 2.0 pool instance (pool program + mint).
+type EnsurePoolTokenAccountsInput struct {
+	Pool         solana.PublicKey `json:"pool"`
+	Mint         solana.PublicKey `json:"mint"`
+	TokenProgram solana.PublicKey `json:"tokenProgram"`
+	// LinkMint is the chain's LINK mint, or zero when it has none.
+	LinkMint solana.PublicKey `json:"linkMint"`
+}
+
+// EnsurePoolTokenAccountsOutput lists the token accounts the operation created.
+type EnsurePoolTokenAccountsOutput struct {
+	Created []solana.PublicKey `json:"created"`
+}
+
+// EnsurePoolTokenAccounts creates the token accounts a 2.0 pool instance needs and lacks: the pool
+// signer's, and a fee vault account per fee token (where ccip_send pays the pool's fee share) and for
+// the pool's own mint (where burn/lock_v2 move the BPS fee). ccip_send fails with
+// MissingAtaForReceiptIssuer once the pool charges a fee into a missing vault. Creating an associated
+// token account needs no authority, so the deployer sends them directly, also when the rest of the
+// changeset is an MCMS proposal; the output lists them.
+var EnsurePoolTokenAccounts = cldf_ops.NewOperation(
+	"token-pool:ensure-token-accounts",
+	solcommon.Version2_0_0,
+	"Creates the pool signer and fee vault token accounts of a 2.0 token pool instance",
+	func(b cldf_ops.Bundle, chain cldf_solana.Chain, input EnsurePoolTokenAccountsInput) (EnsurePoolTokenAccountsOutput, error) {
+		var out EnsurePoolTokenAccountsOutput
+		signer, err := tokens.TokenPoolSignerAddress(input.Mint, input.Pool)
+		if err != nil {
+			return out, fmt.Errorf("derive pool signer address: %w", err)
+		}
+		signerATA, _, err := tokens.FindAssociatedTokenAddress(input.TokenProgram, input.Mint, signer)
+		if err != nil {
+			return out, fmt.Errorf("derive pool signer token account: %w", err)
+		}
+		exists, err := accountExists(b.GetContext(), chain, signerATA)
+		if err != nil {
+			return out, fmt.Errorf("fetch pool signer token account %s: %w", signerATA, err)
+		}
+		if !exists {
+			if err = ensureAssociatedTokenAccount(b, chain, input.TokenProgram, input.Mint, signer); err != nil {
+				return out, fmt.Errorf("create pool signer token account: %w", err)
+			}
+			out.Created = append(out.Created, signerATA)
+		}
+
+		fees, err := feeTokens(b.GetContext(), chain, input.LinkMint)
+		if err != nil {
+			return out, err
+		}
+		if !slices.ContainsFunc(fees, func(ft feeToken) bool { return ft.mint.Equals(input.Mint) }) {
+			fees = append(fees, feeToken{mint: input.Mint, program: input.TokenProgram})
+		}
+		created, err := ensureFeeVaults(b.GetContext(), chain, input.Pool, input.Mint.Bytes(), fees)
+		out.Created = append(out.Created, created...)
+		if err != nil {
+			return out, fmt.Errorf("create fee vaults of pool %s for mint %s: %w", input.Pool, input.Mint, err)
+		}
+		return out, nil
+	},
+)
+
+// ensurePoolTokenAccounts runs EnsurePoolTokenAccounts for a pool instance, taking the LINK mint from refs.
+func ensurePoolTokenAccounts(b cldf_ops.Bundle, chain cldf_solana.Chain, refs []datastore.AddressRef, pool, mint, tokenProgram solana.PublicKey) error {
+	linkMint, err := findLinkMint(refs, chain.Selector)
+	if err != nil {
+		return err
+	}
+	_, err = cldf_ops.ExecuteOperation(b, EnsurePoolTokenAccounts, chain, EnsurePoolTokenAccountsInput{
+		Pool:         pool,
+		Mint:         mint,
+		TokenProgram: tokenProgram,
+		LinkMint:     linkMint,
+	})
+	return err
 }
 
 // EnsureIssuerFeeVaults creates, idempotently, the unqualified fee vault token accounts of a receipt
@@ -125,5 +206,6 @@ func EnsureIssuerFeeVaults(ctx context.Context, chain cldf_solana.Chain, feeQuot
 	if err != nil {
 		return err
 	}
-	return ensureFeeVaults(ctx, chain, issuer, nil, fees)
+	_, err = ensureFeeVaults(ctx, chain, issuer, nil, fees)
+	return err
 }
