@@ -19,7 +19,9 @@ import (
 	cldf_ops "github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/burnmint_token_pool"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/ccip_offramp"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/gobindings/v2/latest/ccip_router"
+	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/common"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/state"
 	"github.com/smartcontractkit/chainlink-ccip-solana/contracts/utils/tokens"
 	"github.com/smartcontractkit/chainlink-ccip-solana/deployment/solcommon"
@@ -72,16 +74,19 @@ type TokenPoolMigrationTarget struct {
 //
 //  1. The pool signer and fee vault token accounts (EnsurePoolTokenAccounts), which a 1.6 instance
 //     lacks.
-//  2. The pool's ChainConfigV2 of each migrated lane, so every 2.0 lane has its config account. A
+//  2. For each migrated lane, the native form of any remote pool address stored zero-padded beyond
+//     the width the 2.0 OffRamp passes (the source chain's legacy_address_length). The pool matches
+//     the source pool address byte for byte, so a padded entry alone rejects inbound transfers.
+//  3. The pool's ChainConfigV2 of each migrated lane, so every 2.0 lane has its config account. A
 //     missing one is initialized with the default config (WAIT_FOR_FINALITY, no pool CCVs, fee
 //     disabled), or with AllowedFinalityConfig when given; an existing one is left as is apart from
 //     that finality. It runs before the registry flip so the config is in place when 2.0 lanes
 //     start using the pool. It is signed by the pool owner, so it is batched into the MCMS
 //     proposal when the timelock owns the pool.
-//  3. The Token Admin Registry flip to interface version 2 with WithoutExtendedLookupTable
+//  4. The Token Admin Registry flip to interface version 2 with WithoutExtendedLookupTable
 //     resolution, the same state ConfigureTokenForTransfers leaves a fresh 2.0 pool in. The 1.6
 //     ccip_send path never reads the registry version, so live 1.6 lanes are unaffected.
-//  4. The instance's 2.x datastore ref at the program address, under the instance qualifier, so
+//  5. The instance's 2.x datastore ref at the program address, under the instance qualifier, so
 //     2.0 tooling (PoolRefByQualifier) resolves the pool at the upgraded version.
 //
 // The pool's lookup table needs no change: 1.6 and 2.0 use the same layout. Every step is
@@ -125,7 +130,27 @@ var MigrateTokenPoolToV2 = cldf_ops.NewSequence(
 			return result, err
 		}
 
-		// Step 2: ChainConfigV2 of every migrated lane.
+		// Step 2: remote pool addresses at the width the 2.0 OffRamp passes.
+		addPoolsOp := tokenpoolops.AddNativeRemotePoolsBurnMint
+		if input.PoolType == common_utils.LockReleaseTokenPool.String() {
+			addPoolsOp = tokenpoolops.AddNativeRemotePoolsLockRelease
+		}
+		for _, remote := range input.RemoteChainSelectors {
+			width, widthErr := checks.SourcePoolAddressWidth(b.GetContext(), chain, remote)
+			if widthErr != nil {
+				return seq_core.OnChainOutput{}, widthErr
+			}
+			if err = runOp(b, addPoolsOp, chain, tokenpoolops.AddNativeRemotePoolsInput{
+				TokenPool:      target.Program,
+				TokenMint:      input.TokenMint,
+				RemoteSelector: remote,
+				Width:          width,
+			}, &result.BatchOps); err != nil {
+				return seq_core.OnChainOutput{}, fmt.Errorf("add native remote pools for remote chain %d: %w", remote, err)
+			}
+		}
+
+		// Step 3: ChainConfigV2 of every migrated lane.
 		op, err := chainConfigV2Op(input.PoolType)
 		if err != nil {
 			return result, err
@@ -146,7 +171,7 @@ var MigrateTokenPoolToV2 = cldf_ops.NewSequence(
 			}
 		}
 
-		// Step 3: Token Admin Registry flip.
+		// Step 4: Token Admin Registry flip.
 		if err = runOp(b, routerops.SetPoolInterfaceImplementation, chain, routerops.SetPoolInterfaceImplParams{
 			Router:                      router,
 			TokenMint:                   input.TokenMint,
@@ -156,7 +181,7 @@ var MigrateTokenPoolToV2 = cldf_ops.NewSequence(
 			return seq_core.OnChainOutput{}, fmt.Errorf("set pool interface implementation: %w", err)
 		}
 
-		// Step 4: the instance's 2.x ref.
+		// Step 5: the instance's 2.x ref.
 		if target.RegisterRef {
 			result.Addresses = append(result.Addresses, datastore.AddressRef{
 				Address:       target.Program.String(),
@@ -434,8 +459,11 @@ func (c TokenPoolMigrationChecks) Run(ctx context.Context, chain cldf_solana.Cha
 	}
 	// SetPool writes the pool program at index 2 of the token's lookup table.
 	const poolProgramIndex = 2
-	if len(table.Addresses) <= poolProgramIndex || !table.Addresses[poolProgramIndex].Equals(program) {
+	if len(table.Addresses) <= poolProgramIndex {
 		return fmt.Errorf("token admin registry of mint %s does not route to pool program %s", mint, program)
+	}
+	if routed := table.Addresses[poolProgramIndex]; !routed.Equals(program) {
+		return fmt.Errorf("token admin registry of mint %s routes to pool program %s, not %s; set poolProgramQualifier to that program's qualifier", mint, routed, program)
 	}
 
 	for _, remote := range remotes {
@@ -448,25 +476,52 @@ func (c TokenPoolMigrationChecks) Run(ctx context.Context, chain cldf_solana.Cha
 		}
 		// The 2.0 OffRamp is its own program (the 1.6 one is not upgraded in place), so its source
 		// chain account exists only once the inbound 2.0 lane is configured.
-		sourceChain, _, srcErr := state.FindOfframpSourceChainPDA(remote, c.OffRamp)
-		if srcErr != nil {
-			return fmt.Errorf("derive OffRamp source chain for remote chain %d: %w", remote, srcErr)
-		}
-		if err = requireProgramAccount(ctx, chain, sourceChain, c.OffRamp); err != nil {
-			return fmt.Errorf("remote chain %d has no 2.0 inbound lane on OffRamp %s; upgrade the lane before migrating the pool: %w", remote, c.OffRamp, err)
+		width, widthErr := c.SourcePoolAddressWidth(ctx, chain, remote)
+		if widthErr != nil {
+			return widthErr
 		}
 		// The pool's base ChainConfig (remote pools, remote token, rate limits) is a required account of
 		// both the 1.6 and the 2.0 burn/mint instructions; ChainConfigV2 only adds to it. This reads
 		// Solana-side state only, whatever version the remote chain's pool runs.
-		chainConfig, _, cfgErr := tokens.TokenPoolChainConfigPDA(remote, mint, program)
+		chainConfigPDA, _, cfgErr := tokens.TokenPoolChainConfigPDA(remote, mint, program)
 		if cfgErr != nil {
 			return fmt.Errorf("derive pool chain config for remote chain %d: %w", remote, cfgErr)
 		}
-		if err = requireProgramAccount(ctx, chain, chainConfig, program); err != nil {
-			return fmt.Errorf("pool for mint %s is not configured for remote chain %d: %w", mint, remote, err)
+		// BurnMint and LockRelease share the ChainConfig layout.
+		chainConfig, cfgErr := common.GetInitializedAccount(ctx, chain.Client, chainConfigPDA, program, cldf_solana.SolDefaultCommitment, burnmint_token_pool.ParseAccount_ChainConfig)
+		if cfgErr != nil {
+			return fmt.Errorf("read pool chain config for remote chain %d: %w", remote, cfgErr)
+		}
+		if chainConfig == nil {
+			return fmt.Errorf("pool for mint %s is not configured for remote chain %d", mint, remote)
+		}
+		// The migration appends the native form of zero-padded addresses; anything else cannot match.
+		pools := make([][]byte, len(chainConfig.Base.Remote.PoolAddresses))
+		for i, p := range chainConfig.Base.Remote.PoolAddresses {
+			pools[i] = p.Address
+		}
+		if _, err = tokenpoolops.MissingRemotePoolAddresses(pools, width); err != nil {
+			return fmt.Errorf("pool for mint %s, remote chain %d: %w", mint, remote, err)
 		}
 	}
 	return nil
+}
+
+// SourcePoolAddressWidth returns the width the 2.0 OffRamp trims source pool addresses from remote
+// to (the source chain's legacy_address_length). It fails when the inbound 2.0 lane is missing.
+func (c TokenPoolMigrationChecks) SourcePoolAddressWidth(ctx context.Context, chain cldf_solana.Chain, remote uint64) (uint8, error) {
+	pda, _, err := state.FindOfframpSourceChainPDA(remote, c.OffRamp)
+	if err != nil {
+		return 0, fmt.Errorf("derive OffRamp source chain for remote chain %d: %w", remote, err)
+	}
+	sourceChain, err := common.GetInitializedAccount(ctx, chain.Client, pda, c.OffRamp, cldf_solana.SolDefaultCommitment, ccip_offramp.ParseAccount_SourceChain)
+	if err != nil {
+		return 0, fmt.Errorf("read OffRamp source chain for remote chain %d: %w", remote, err)
+	}
+	if sourceChain == nil {
+		return 0, fmt.Errorf("remote chain %d has no 2.0 inbound lane on OffRamp %s; upgrade the lane before migrating the pool", remote, c.OffRamp)
+	}
+	return sourceChain.Config.LegacyAddressLength, nil
 }
 
 // requireProgramAccount fails unless account exists and is owned by program.

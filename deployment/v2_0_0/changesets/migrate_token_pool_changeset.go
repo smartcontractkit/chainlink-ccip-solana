@@ -44,18 +44,19 @@ type MigrateTokenPoolToV2ChangesetInput struct {
 //  1. The pool program is upgraded in place to 2.0 with UpgradeProgramChangeset (programType
 //     BurnMintTokenPool or LockReleaseTokenPool), which registers a 2.x ref at its address.
 //  2. Every remote in RemoteChainSelectors is a 2.0 lane on the Router and the 2.0 OffRamp, and the
-//     pool instance is already configured for it.
+//     pool instance is already configured for it, with remote pool addresses at the width the 2.0
+//     OffRamp passes or zero-padded to a longer one.
 //  3. The deployer or the timelock of MCMS.Qualifier controls the pool program, the pool and the
 //     Token Admin Registry entry.
 //
 // Outputs: the pool signer and fee vault token accounts, sent directly by the deployer and listed in
-// the EnsurePoolTokenAccounts report; the ChainConfigV2 of each remote and the Token Admin Registry
-// flip, sent directly or as an MCMS proposal depending on who controls them; and the instance's 2.x
+// the EnsurePoolTokenAccounts report; the native form of zero-padded remote pool addresses, the
+// ChainConfigV2 of each remote and the Token Admin Registry flip, sent directly or as an MCMS proposal depending on who controls them; and the instance's 2.x
 // ref under the token qualifier, unless the datastore already has it.
 //
 // Rollback: SetPoolInterfaceImplementationChangeset with interfaceVersion 1 and NoResolution routes
 // the token back to the 1.6 interface. The token accounts and ChainConfigV2 are unused on 1.6 and can
-// stay. The 2.x instance ref is removed from the datastore with a RemoteDelete of its key.
+// stay, and the appended remote pool addresses are the width 1.6 lanes pass too. The 2.x instance ref is removed from the datastore with a RemoteDelete of its key.
 //
 // CCTP pools migrate with MigrateCctpTokenPoolToV2Changeset. The 1.6 lanes keep serving the token
 // throughout, as the 1.6 ccip_send path never reads the registry's interface version.

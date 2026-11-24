@@ -291,6 +291,18 @@ func TestMigrationProposalInstructionsDecode(t *testing.T) {
 	require.NoError(t, err)
 	require.IsType(t, &lockrelease_token_pool.InitChainConfigV2Instruction{}, decodeLikeAnalyzer(t, initLR, lockrelease_token_pool.ParseInstruction))
 
+	pools := []burnmint_token_pool.RemoteAddress{{Address: make([]byte, 20)}}
+	appendBnM, err := burnmint_token_pool.NewAppendRemotePoolAddressesInstruction(params.RemoteChainSelector, mint, pools, key(), key(), key(), solana.SystemProgramID)
+	require.NoError(t, err)
+	decodedAppend := decodeLikeAnalyzer(t, appendBnM, burnmint_token_pool.ParseInstruction)
+	require.IsType(t, &burnmint_token_pool.AppendRemotePoolAddressesInstruction{}, decodedAppend)
+	require.Equal(t, pools, decodedAppend.(*burnmint_token_pool.AppendRemotePoolAddressesInstruction).Addresses)
+
+	appendLR, err := lockrelease_token_pool.NewAppendRemotePoolAddressesInstruction(params.RemoteChainSelector, mint,
+		[]lockrelease_token_pool.RemoteAddress{{Address: make([]byte, 20)}}, key(), key(), key(), solana.SystemProgramID)
+	require.NoError(t, err)
+	require.IsType(t, &lockrelease_token_pool.AppendRemotePoolAddressesInstruction{}, decodeLikeAnalyzer(t, appendLR, lockrelease_token_pool.ParseInstruction))
+
 	flip, err := ccip_router.NewSetPoolInterfaceImplementationInstruction(ccip_router.SetPoolInterfaceImplementationParams{
 		Mint:              mint,
 		InterfaceVersion:  2,
