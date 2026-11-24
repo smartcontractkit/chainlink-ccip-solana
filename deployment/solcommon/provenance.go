@@ -99,12 +99,21 @@ func ReadProvenance(programsPath string) (Provenance, bool, error) {
 // verifier that clones the repository builds from its root unless the record says otherwise.
 const ContractsMountPath = "contracts"
 
+// LegacyBaseImage is the image every release up to contracts/v2.1.0 was built with, resolved locally from
+// [workspace.metadata.cli] solana = "4.3.0". A verifier mounting the repository root cannot resolve it, falls back to
+// the solana-program version in Cargo.lock and picks an image whose cargo cannot build the workspace.
+const LegacyBaseImage = "solanafoundation/solana-verifiable-build:4.3.0"
+
 // BuildRecordFor turns provenance into the registry record for one program.
-// Releases published before buildArgs carried --mount-path are given ContractsMountPath.
+// Releases published before buildArgs carried --mount-path are given ContractsMountPath, and those published before
+// they carried --base-image are given LegacyBaseImage.
 func (p Provenance) BuildRecordFor(programID, authority solana.PublicKey, programName string, deploySlot uint64) BuildRecord {
 	var args []string
 	if !slices.Contains(p.BuildArgs, "--mount-path") {
 		args = append(args, "--mount-path", ContractsMountPath)
+	}
+	if !slices.Contains(p.BuildArgs, "--base-image") {
+		args = append(args, "--base-image", LegacyBaseImage)
 	}
 	args = append(args, "--library-name", programName)
 	args = append(args, p.BuildArgs...)

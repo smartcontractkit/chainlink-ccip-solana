@@ -5,10 +5,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/bits"
 	"slices"
 	"time"
 
 	"github.com/gagliardetto/solana-go"
+	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/google/uuid"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
@@ -320,12 +322,50 @@ func (b *bufferedExecution) writeChunks(ctx context.Context, rawInputs []byte, c
 	b.lggr().Infow("buffered flow: enqueued and waiting for buffer txs to finalize", "txCount", len(b.inFlightTxs), "bufferPDA", b.bufferPDA)
 
 	// b.inFlight holds only the chunk writes here, because writeChunks is the first step that enqueues.
+	recovered := false // recovered from unreliable RPC
 	for _, tx := range b.inFlightTxs {
 		if err := b.t.waitForFinalized(ctx, tx.id); err != nil {
-			return fmt.Errorf("wait for finalized buffer tx %s: %w", tx.id, err)
+			complete, checkErr := b.isBufferComplete(ctx)
+			if checkErr != nil {
+				return fmt.Errorf("wait for finalized buffer tx %s: %w (completeness check: %w)", tx.id, err, checkErr)
+			}
+			if !complete {
+				return fmt.Errorf("wait for finalized buffer tx %s: %w", tx.id, err)
+			}
+			recovered = true
+			b.lggr().Debugw("buffered flow: chunk write failed but buffer is complete, continuing",
+				"failedTxID", tx.id, "bufferPDA", b.bufferPDA)
+		}
+	}
+
+	// A failed write can still land and recreate the closed buffer PDA after execution, so drain first.
+	if recovered {
+		b.waitUntilNoTxCanLand(ctx, "drain failed writes before execution")
+		if len(b.inFlightTxs) > 0 {
+			return fmt.Errorf("failed buffer writes can still land: %+v", b.inFlightTxs)
 		}
 	}
 	return nil
+}
+
+// isBufferComplete reports whether the on-chain buffer holds every chunk (bitmap popcount ==
+// num_chunks, mirroring buffering.rs). A missing buffer account is an error, not "incomplete".
+func (b *bufferedExecution) isBufferComplete(ctx context.Context) (bool, error) {
+	// The wait loop polls at Finalized, so landed writes are visible here.
+	resp, err := b.t.rpcClient.GetAccountInfoWithOpts(ctx, b.bufferPDA, &rpc.GetAccountInfoOpts{
+		Commitment: rpc.CommitmentFinalized,
+	})
+	if err != nil {
+		return false, fmt.Errorf("fetch buffer account %s: %w", b.bufferPDA, err)
+	}
+	if resp == nil || resp.Value == nil {
+		return false, fmt.Errorf("buffer account %s not found", b.bufferPDA)
+	}
+	buf, err := ccip_offramp.ParseAccount_Buffer(resp.GetBinary())
+	if err != nil {
+		return false, fmt.Errorf("parse buffer account %s: %w", b.bufferPDA, err)
+	}
+	return buf.NumChunks > 0 && bits.OnesCount64(buf.ChunkBitmap) == int(buf.NumChunks), nil
 }
 
 // resolveAndFetchLUTs simulates the on-chain execute_v2 to discover account metas

@@ -8,12 +8,15 @@
 # the release tarball so deployments can be checked against them.
 set -euo pipefail
 
-# The programs require the v3 ISA. The build image comes from [workspace.metadata.cli]
-# solana in Cargo.toml. Keep the build args in sync with buildArgs in
+# The programs require the v3 ISA. Keep the build args in sync with buildArgs in
 # .github/workflows/contract-release.yml, which the on-chain build record reproduces.
 # NOTE: the current test-validator cannot load v3 artifacts yet, so release artifacts
 # are validated structurally, not by deploying.
 ARCH="${ARCH:-v3}"
+# Pinned because a remote verifier cannot resolve it: it mounts the repository root
+# and misses [workspace.metadata.cli] in contracts/Cargo.toml. Keep the tag equal to
+# that solana version.
+BASE_IMAGE="solanafoundation/solana-verifiable-build:4.3.0"
 
 CONTRACTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$CONTRACTS_DIR"
@@ -28,7 +31,7 @@ echo "Building $count programs with solana-verify (arch $ARCH)..."
 for lib in $programs; do
   echo "=== $lib"
   log="$(mktemp)"
-  if ! solana-verify build --library-name "$lib" --cargo-build-sbf-args="--arch $ARCH" 2>&1 | tee "$log"; then
+  if ! solana-verify build --library-name "$lib" --base-image "$BASE_IMAGE" --cargo-build-sbf-args="--arch $ARCH" 2>&1 | tee "$log"; then
     rm -f "$log"
     echo "error: solana-verify build failed for $lib" >&2
     exit 1

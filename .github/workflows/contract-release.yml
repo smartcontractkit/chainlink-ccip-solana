@@ -95,7 +95,7 @@ jobs:
             "release": "${RELEASE_NAME}",
             "commit": "${RELEASE_COMMIT}",
             "repoUrl": "https://github.com/${GITHUB_REPOSITORY}",
-            "buildArgs": ["--mount-path", "contracts", "--cargo-build-sbf-args=--arch v3"],
+            "buildArgs": ["--mount-path", "contracts", "--base-image", "solanafoundation/solana-verifiable-build:4.3.0", "--cargo-build-sbf-args=--arch v3"],
             "verifierVersion": "0.5.2"
           }
           JSON

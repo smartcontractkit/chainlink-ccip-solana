@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/gagliardetto/solana-go"
@@ -282,19 +283,28 @@ func TestClearedAuthorityParsesAsNone(t *testing.T) {
 	require.Nil(t, acct.Authority, "an all-zero authority means none, not the zero address")
 }
 
-// largeDocument builds a document that will not compress below the inline
-// limit, so the plan is forced down the buffer path.
-func largeDocument(t *testing.T, size int) []byte {
+// largeDocument returns a document whose compressed size falls in
+// (MaxInlineDocument, compressedMax]. It retries because zlib sometimes
+// emits a stored block for random input, which varies by Go version.
+func largeDocument(t *testing.T, size, compressedMax int) []byte {
 	t.Helper()
 
-	noise := make([]byte, size)
-	_, err := rand.Read(noise)
-	require.NoError(t, err)
+	for range 100 {
+		noise := make([]byte, size)
+		_, err := rand.Read(noise)
+		require.NoError(t, err)
 
-	doc, err := json.Marshal(map[string]string{"name": "rmn_remote", "blob": hex.EncodeToString(noise)})
-	require.NoError(t, err)
+		doc, err := json.Marshal(map[string]string{"name": "rmn_remote", "blob": hex.EncodeToString(noise)})
+		require.NoError(t, err)
 
-	return doc
+		payload, err := Compress(doc)
+		require.NoError(t, err)
+		if len(payload) > MaxInlineDocument && len(payload) <= compressedMax {
+			return doc
+		}
+	}
+	t.Fatalf("no %d byte document compressed into (%d, %d] after 100 tries", size, MaxInlineDocument, compressedMax)
+	return nil
 }
 
 func TestPlanPublishSplitsBySigner(t *testing.T) {
@@ -311,7 +321,7 @@ func TestPlanPublishSplitsBySigner(t *testing.T) {
 		RentExemptFor: stubRent,
 		Seed:          SeedIDL,
 		Format:        FormatJSON,
-		Document:      largeDocument(t, 8*1024),
+		Document:      largeDocument(t, 8*1024, MaxDataIncrease),
 	})
 	require.NoError(t, err)
 
@@ -367,7 +377,7 @@ func TestPlanPublishStepsUpOversizedDocuments(t *testing.T) {
 		RentExemptFor: stubRent,
 		Seed:          SeedIDL,
 		Format:        FormatJSON,
-		Document:      largeDocument(t, 64*1024),
+		Document:      largeDocument(t, 64*1024, math.MaxInt),
 	})
 	require.NoError(t, err)
 
@@ -396,7 +406,7 @@ func TestPlanPublishSkipsInitializeWhenAccountExists(t *testing.T) {
 		RentExemptFor: stubRent,
 		Seed:          SeedIDL,
 		Format:        FormatJSON,
-		Document:      largeDocument(t, 8*1024),
+		Document:      largeDocument(t, 8*1024, MaxDataIncrease),
 		Exists:        true,
 	})
 	require.NoError(t, err)
@@ -429,7 +439,7 @@ func TestPlanPublishValidates(t *testing.T) {
 	// A buffer is only required once the document outgrows the inline limit.
 	noBuffer := base
 	noBuffer.Buffer = solana.PublicKey{}
-	noBuffer.Document = largeDocument(t, 8*1024)
+	noBuffer.Document = largeDocument(t, 8*1024, MaxDataIncrease)
 	_, err = PlanPublish(noBuffer)
 	require.Error(t, err)
 }

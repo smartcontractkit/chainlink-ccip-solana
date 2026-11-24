@@ -53,12 +53,11 @@ func resolveCommitteeVerifierAddresses(ds datastore.DataStore, chainSelector uin
 }
 
 func resolveLombardVerifierAddresses(ds datastore.DataStore, chainSelector uint64, qualifier string) ([]string, error) {
-	ref, err := ds.Addresses().Get(datastore.NewAddressRefKey(
-		chainSelector,
-		datastore.ContractType(lvops.ContractType),
-		lvops.Version,
-		qualifier,
-	))
+	ref, err := solcommon.FindAndFormatCompatibleRef(ds, datastore.AddressRef{
+		Type:      datastore.ContractType(lvops.ContractType),
+		Version:   lvops.Version,
+		Qualifier: qualifier,
+	}, chainSelector, dsutil.FullRef)
 	if err != nil {
 		return nil, &ccvadapters.MissingIndexerVerifierAddressesError{
 			Kind:          ccvadapters.LombardVerifierKind,
@@ -68,7 +67,7 @@ func resolveLombardVerifierAddresses(ds datastore.DataStore, chainSelector uint6
 	}
 	hexAddr, err := solcommon.Base58To0xHex(ref.Address)
 	if err != nil {
-		return nil, fmt.Errorf("lombard token pool ref for chain %d qualifier %q: %w", chainSelector, qualifier, err)
+		return nil, fmt.Errorf("lombard verifier ref for chain %d qualifier %q: %w", chainSelector, qualifier, err)
 	}
 	return []string{hexAddr}, nil
 }
