@@ -71,14 +71,20 @@ func committeeVerifier0xHex(ds datastore.DataStore, chainSelector uint64, qualif
 // CommitteeVerifier address ref in the datastore for the given qualifier, on
 // cvops.Version's major like committeeVerifierRef.
 func getCommitteeVerifierDeployedChains(ds datastore.DataStore, qualifier string) []uint64 {
+	return committeeVerifierChains(ds, datastore.AddressRefByQualifier(qualifier))
+}
+
+// committeeVerifierChains returns every Solana chain selector with a CommitteeVerifier ref on
+// cvops.Version's major, narrowed by extra filters (e.g. one qualifier).
+func committeeVerifierChains(ds datastore.DataStore, extra ...datastore.FilterFunc[datastore.AddressRefKey, datastore.AddressRef]) []uint64 {
 	if ds == nil {
 		return nil
 	}
-	selectors := solcommon.GetDeployedChainSelectors(ds,
-		datastore.AddressRefByQualifier(qualifier),
+	filters := append([]datastore.FilterFunc[datastore.AddressRefKey, datastore.AddressRef]{
 		datastore.AddressRefByType(datastore.ContractType(cvops.ContractType)),
 		solcommon.AddressRefByMajorVersion(cvops.Version),
-	)
+	}, extra...)
+	selectors := solcommon.GetDeployedChainSelectors(ds, filters...)
 	chains := make([]uint64, 0, len(selectors))
 	for _, sel := range selectors {
 		family, err := chainsel.GetSelectorFamily(sel)
