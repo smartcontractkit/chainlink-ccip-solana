@@ -733,9 +733,8 @@ func TestEVM2Solana(t *testing.T) {
 	})
 
 	t.Run("ArbMessaging/LargePayload", func(t *testing.T) {
-		// Sends the offramp's known-good max data size (see Chain.GetMaxDataBytes), exercising the
-		// buffered execute flow end-to-end. With the custom 256KB heap allocator in the offramp and
-		// the test receiver, the cap is 8KB; the compute budget, not the heap, is now the limit.
+		// Sends the lane's max data size (see Chain.GetMaxDataBytes), exercising the buffered
+		// execute flow end-to-end.
 		tc := basic.MaxDataSize(lib, evmSelector, solSelector, basic.Args{
 			Send: tcapi.SendArgs{
 				ExecutionGasLimit: devenvutils.MaxComputeUnits,

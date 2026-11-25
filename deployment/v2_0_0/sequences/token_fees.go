@@ -98,6 +98,18 @@ func (a *SolanaAdapter) SetTokenTransferFee(e *deployment.Environment) *operatio
 					return sequences.OnChainOutput{}, err
 				}
 				dests := input.Settings[poolAddress]
+				// ccip_send pays an enabled pool fee into the pool's fee vaults and fails if one is missing.
+				if slices.ContainsFunc(slices.Collect(maps.Values(dests)), func(cfg *tokenapi.TokenTransferFeeConfig) bool {
+					return cfg != nil && cfg.IsEnabled
+				}) {
+					tokenProgram, tpErr := solcommon.FetchTokenProgramID(b.GetContext(), chain, pool.mint)
+					if tpErr != nil {
+						return sequences.OnChainOutput{}, tpErr
+					}
+					if err = ensurePoolTokenAccounts(b, chain, e.DataStore.Addresses().Filter(), pool.program, pool.mint, tokenProgram); err != nil {
+						return sequences.OnChainOutput{}, err
+					}
+				}
 				for _, dst := range slices.Sorted(maps.Keys(dests)) {
 					fee := toSolanaTokenTransferFeeConfig(dests[dst])
 					out, err := operations.ExecuteOperation(b, op, chain, tokenpoolops.SetChainConfigV2Input{

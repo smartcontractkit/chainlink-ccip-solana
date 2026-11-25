@@ -28,6 +28,7 @@ import (
 	executorops "github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/operations/executor"
 	offrampops "github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/operations/offramp"
 	routerops "github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/operations/router"
+	solseq "github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/sequences"
 )
 
 // sendComputeUnitLimit is the compute budget requested for ccip_send_v2. The 200k default
@@ -864,13 +865,8 @@ func (c *Chain) GetMaxDataBytes(_ context.Context, remoteChainSelector uint64) (
 	if remoteChainSelector != c.ChainSelector() {
 		return 0, fmt.Errorf("GetMaxDataBytes: chain %d not found in environment chains %v", remoteChainSelector, c.ChainSelector())
 	}
-	// Hardcoded known-good ceiling. The offramp and the test receiver now request a 256KB heap via
-	// the custom bump allocator, so buffered payloads are no longer bounded by the default 32KB
-	// heap; the compute budget is the next ceiling.
-	// TODO(NONEVM-2544): read the real per-lane limit from the fee quoter dest chain config instead
-	// (DestChainConfigV2.max_data_bytes, defaulted to 30_000 in
-	// deployment/v2_0_0/sequences/adapter.go) once that value is confirmed executable end-to-end.
-	return 8192, nil
+	// The lanes are configured with the adapter default, so the largest payload a source accepts.
+	return solseq.DefaultMaxDataBytes, nil
 }
 
 func (c *Chain) ManuallyExecuteMessage(_ context.Context, _ protocol.Message, _ uint64, _ []protocol.UnknownAddress, _ [][]byte) (cciptestinterfaces.ExecutionStateChangedEvent, error) {

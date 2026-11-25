@@ -315,10 +315,10 @@ var DeployLombardChain = cldf_ops.NewSequence(
 		if err != nil {
 			return seq_core.OnChainOutput{}, err
 		}
-		if err = ensureFeeVaults(b.GetContext(), solChain, poolAddr, []byte{}, fees); err != nil {
+		if _, err = ensureFeeVaults(b.GetContext(), solChain, poolAddr, []byte{}, fees); err != nil {
 			return seq_core.OnChainOutput{}, fmt.Errorf("lombard verifier: %w", err)
 		}
-		if err = ensureFeeVaults(b.GetContext(), solChain, poolAddr, token.Bytes(), fees); err != nil {
+		if _, err = ensureFeeVaults(b.GetContext(), solChain, poolAddr, token.Bytes(), fees); err != nil {
 			return seq_core.OnChainOutput{}, fmt.Errorf("lombard token pool: %w", err)
 		}
 
