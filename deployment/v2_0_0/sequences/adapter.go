@@ -137,7 +137,7 @@ func (a *SolanaAdapter) GetDefaultTokenPrices() map[datastore.ContractType]*big.
 // DefaultMaxDataBytes caps the message data a source FeeQuoter accepts for Solana as destination.
 // A larger message is accepted on the source but cannot execute on Solana, so it stays stuck. Raise
 // it only to a size verified to execute end-to-end on the OffRamp.
-const DefaultMaxDataBytes = 2_000
+const DefaultMaxDataBytes = 5_000
 
 // GetDefaultFeeQuoterDestChainConfig returns the default FeeQuoter dest chain config for Solana.
 // reference of the config value from https://github.com/smartcontractkit/chainlink-ccip/blob/3963310d2112b7873f92310807685c11feda8b81/chains/solana/deployment/v1_6_0/sequences/adapter.go#L96
