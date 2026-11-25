@@ -61,6 +61,30 @@ func cvRef(chain uint64, qualifier, version, address string) datastore.AddressRe
 	}
 }
 
+func TestDeployedCommitteeVerifierChains_anyQualifier(t *testing.T) {
+	t.Parallel()
+	ds := datastore.NewMemoryDataStore()
+	solMain := chainsel.SOLANA_MAINNET.Selector
+	solDev := chainsel.SOLANA_DEVNET.Selector
+	for _, r := range []datastore.AddressRef{
+		cvRef(solMain, "default", "2.0.0", "program-a"),
+		cvRef(solMain, "secondary", "2.1.0", "program-b"),
+		cvRef(solDev, "", "2.0.0", "program-c"),
+		cvRef(chainsel.SOLANA_TESTNET.Selector, "default", "1.0.0", "program-d"),   // other major
+		cvRef(chainsel.ETHEREUM_MAINNET.Selector, "default", "2.0.0", "program-e"), // other family
+	} {
+		require.NoError(t, ds.Addresses().Add(r))
+	}
+
+	adapter := &SolanaCommitteeVerifierOnchainAdapter{}
+	got := adapter.DeployedCommitteeVerifierChains(ds.Seal())
+	want := []uint64{solMain, solDev}
+	slices.Sort(got)
+	slices.Sort(want)
+	require.Equal(t, want, got, "every qualifier counts, other majors and families do not")
+	require.Empty(t, adapter.DeployedCommitteeVerifierChains(nil))
+}
+
 func TestCommitteeVerifierRef_findsInPlaceUpgrade(t *testing.T) {
 	t.Parallel()
 	solMain := chainsel.SOLANA_MAINNET.Selector

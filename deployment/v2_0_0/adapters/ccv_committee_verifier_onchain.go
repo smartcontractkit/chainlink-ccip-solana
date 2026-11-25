@@ -11,6 +11,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
 	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	mcmstypes "github.com/smartcontractkit/mcms/types"
@@ -24,7 +25,10 @@ import (
 // SolanaCommitteeVerifierOnchainAdapter implements the CCV CommitteeVerifierOnchainAdapter.
 type SolanaCommitteeVerifierOnchainAdapter struct{}
 
-var _ ccvadapters.CommitteeVerifierOnchainAdapter = (*SolanaCommitteeVerifierOnchainAdapter)(nil)
+var (
+	_ ccvadapters.CommitteeVerifierOnchainAdapter = (*SolanaCommitteeVerifierOnchainAdapter)(nil)
+	_ ccvadapters.CommitteeVerifierChainDiscovery = (*SolanaCommitteeVerifierOnchainAdapter)(nil)
+)
 
 // ScanCommitteeStates lists RemoteChainConfig PDAs via getProgramAccounts (pubkeys
 // only) then fetches them via batched getMultipleAccounts. Two-step to stay under RPC
@@ -72,6 +76,13 @@ func (a *SolanaCommitteeVerifierOnchainAdapter) ScanCommitteeStates(
 		})
 	}
 	return states, nil
+}
+
+// DeployedCommitteeVerifierChains implements [ccvadapters.CommitteeVerifierChainDiscovery]:
+// every Solana chain with a CommitteeVerifier ref on cvops.Version's major, any qualifier,
+// so inventory scans do not depend on aggregator configs mentioning the chain.
+func (a *SolanaCommitteeVerifierOnchainAdapter) DeployedCommitteeVerifierChains(ds datastore.DataStore) []uint64 {
+	return committeeVerifierChains(ds)
 }
 
 // scanRemoteChainConfigs lists then fetches RemoteChainConfig PDAs owned by the given
