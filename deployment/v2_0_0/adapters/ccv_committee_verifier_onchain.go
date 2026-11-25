@@ -11,7 +11,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
 	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
-	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	mcmstypes "github.com/smartcontractkit/mcms/types"
@@ -42,11 +41,10 @@ func (a *SolanaCommitteeVerifierOnchainAdapter) ScanCommitteeStates(
 		return nil, errors.New("datastore is required")
 	}
 
-	committeeRefs := env.DataStore.Addresses().Filter(
-		datastore.AddressRefByType(datastore.ContractType(cvops.ContractType)),
-		datastore.AddressRefByChainSelector(chainSelector),
-		datastore.AddressRefByVersion(cvops.Version),
-	)
+	committeeRefs, err := latestCommitteeVerifierRefs(env.DataStore, chainSelector)
+	if err != nil {
+		return nil, err
+	}
 	if len(committeeRefs) == 0 {
 		return nil, nil
 	}
@@ -58,9 +56,6 @@ func (a *SolanaCommitteeVerifierOnchainAdapter) ScanCommitteeStates(
 
 	states := make([]*ccvadapters.CommitteeState, 0, len(committeeRefs))
 	for _, ref := range committeeRefs {
-		if ref.Qualifier == "" {
-			continue
-		}
 		programID, err := solana.PublicKeyFromBase58(ref.Address)
 		if err != nil {
 			return nil, fmt.Errorf("invalid committee verifier program ID %q for qualifier %q: %w", ref.Address, ref.Qualifier, err)

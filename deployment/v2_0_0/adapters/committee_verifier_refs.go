@@ -2,6 +2,7 @@ package adapters
 
 import (
 	"fmt"
+	"slices"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -10,13 +11,14 @@ import (
 	cvops "github.com/smartcontractkit/chainlink-ccip-solana/deployment/v2_0_0/operations/committeeverifier"
 )
 
+// committeeVerifierRef resolves the qualifier's CommitteeVerifier at the latest version on
+// cvops.Version's major, so a program upgraded in place (which bumps its ref version) is still found.
 func committeeVerifierRef(ds datastore.DataStore, chainSelector uint64, qualifier string) (datastore.AddressRef, error) {
-	ref, err := ds.Addresses().Get(datastore.NewAddressRefKey(
+	ref, err := solcommon.FindCompatibleRefInRefs(
+		ds.Addresses().Filter(datastore.AddressRefByQualifier(qualifier)),
 		chainSelector,
-		datastore.ContractType(cvops.ContractType),
-		cvops.Version,
-		qualifier,
-	))
+		datastore.AddressRef{Type: datastore.ContractType(cvops.ContractType), Version: cvops.Version, Qualifier: qualifier},
+	)
 	if err != nil {
 		return datastore.AddressRef{}, fmt.Errorf("committee verifier not found for chain %d qualifier %q: %w", chainSelector, qualifier, err)
 	}
@@ -24,6 +26,33 @@ func committeeVerifierRef(ds datastore.DataStore, chainSelector uint64, qualifie
 		return datastore.AddressRef{}, fmt.Errorf("committee verifier ref for chain %d qualifier %q has empty address", chainSelector, qualifier)
 	}
 	return ref, nil
+}
+
+// latestCommitteeVerifierRefs returns committeeVerifierRef's result for every qualified
+// CommitteeVerifier on chainSelector, once per qualifier even when refs exist at several versions.
+func latestCommitteeVerifierRefs(ds datastore.DataStore, chainSelector uint64) ([]datastore.AddressRef, error) {
+	refs := ds.Addresses().Filter(
+		datastore.AddressRefByType(datastore.ContractType(cvops.ContractType)),
+		datastore.AddressRefByChainSelector(chainSelector),
+		solcommon.AddressRefByMajorVersion(cvops.Version),
+	)
+	var qualifiers []string
+	for _, r := range refs {
+		if r.Qualifier != "" && !slices.Contains(qualifiers, r.Qualifier) {
+			qualifiers = append(qualifiers, r.Qualifier)
+		}
+	}
+	slices.Sort(qualifiers)
+
+	latest := make([]datastore.AddressRef, 0, len(qualifiers))
+	for _, qualifier := range qualifiers {
+		ref, err := committeeVerifierRef(ds, chainSelector, qualifier)
+		if err != nil {
+			return nil, err
+		}
+		latest = append(latest, ref)
+	}
+	return latest, nil
 }
 
 func committeeVerifier0xHex(ds datastore.DataStore, chainSelector uint64, qualifier string) (string, error) {
@@ -39,8 +68,8 @@ func committeeVerifier0xHex(ds datastore.DataStore, chainSelector uint64, qualif
 }
 
 // getCommitteeVerifierDeployedChains returns every Solana chain selector that has a
-// CommitteeVerifier address ref in the datastore for the given qualifier (same key
-// shape as committeeVerifierRef).
+// CommitteeVerifier address ref in the datastore for the given qualifier, on
+// cvops.Version's major like committeeVerifierRef.
 func getCommitteeVerifierDeployedChains(ds datastore.DataStore, qualifier string) []uint64 {
 	if ds == nil {
 		return nil
@@ -48,7 +77,7 @@ func getCommitteeVerifierDeployedChains(ds datastore.DataStore, qualifier string
 	selectors := solcommon.GetDeployedChainSelectors(ds,
 		datastore.AddressRefByQualifier(qualifier),
 		datastore.AddressRefByType(datastore.ContractType(cvops.ContractType)),
-		datastore.AddressRefByVersion(cvops.Version),
+		solcommon.AddressRefByMajorVersion(cvops.Version),
 	)
 	chains := make([]uint64, 0, len(selectors))
 	for _, sel := range selectors {
