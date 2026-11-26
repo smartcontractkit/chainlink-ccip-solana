@@ -36,10 +36,6 @@ inputs:
     description: "Override LOAD_TEST_SEND_INTERVAL, e.g. 30s; overrides RPS when set (empty = Go default disabled)"
     required: false
     default: ""
-  load_test_fire_and_forget:
-    description: "Override LOAD_TEST_FIRE_AND_FORGET (true/false; empty = Go default true) for EVM->Solana sends"
-    required: false
-    default: ""
 
 runs:
   using: "composite"
@@ -176,7 +172,6 @@ runs:
         LOAD_TEST_DURATION: ${{ inputs.load_test_duration }}
         LOAD_TEST_POOL_SIZE: ${{ inputs.load_test_pool_size }}
         LOAD_TEST_SEND_INTERVAL: ${{ inputs.load_test_send_interval }}
-        LOAD_TEST_FIRE_AND_FORGET: ${{ inputs.load_test_fire_and_forget }}
       run: |
         run_one() {
           LOAD_TEST_OUT_FILE=../../env-phased-out.toml LOAD_TEST_METRICS_DIR=../../ \

@@ -36,7 +36,6 @@ const (
 	poolSizeEnvVar                            = "LOAD_TEST_POOL_SIZE"
 	sendIntervalEnvVar                        = "LOAD_TEST_SEND_INTERVAL"
 	messageSizeEnvVar                         = "LOAD_TEST_MSG_SIZE"
-	fireAndForgetEnvVar                       = "LOAD_TEST_FIRE_AND_FORGET"
 )
 
 func loadEnvConfigPath() string {
@@ -66,19 +65,6 @@ func loadMessageSize() int64 {
 		return ms
 	}
 	return defaultLoadTestMsgSize
-}
-
-// loadTestFireAndForget reports whether EVM sends should use fire-and-forget mode
-// (submit without waiting for confirmation). Defaults to enabled; set "false" to
-// use synchronous send+confirm.
-func loadTestFireAndForget() bool {
-	if v := os.Getenv(fireAndForgetEnvVar); v != "" {
-		b, err := strconv.ParseBool(v)
-		if err == nil {
-			return b
-		}
-	}
-	return true
 }
 
 func loadTestDuration() time.Duration {
@@ -120,11 +106,10 @@ func loadTestSendInterval() time.Duration {
 // loadTestConfigFromEnv builds the load config from LOAD_TEST_* env vars.
 func loadTestConfigFromEnv() loadTestConfig {
 	return loadTestConfig{
-		rps:           loadTestRPS(),
-		duration:      loadTestDuration(),
-		sendInterval:  loadTestSendInterval(),
-		msgSize:       loadMessageSize(),
-		fireAndForget: loadTestFireAndForget(),
+		rps:          loadTestRPS(),
+		duration:     loadTestDuration(),
+		sendInterval: loadTestSendInterval(),
+		msgSize:      loadMessageSize(),
 	}
 }
 
