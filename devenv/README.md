@@ -33,12 +33,15 @@ This will:
 1. Build the CCV Docker images (aggregator, indexer, verifier, etc.) from `../chainlink-ccv`
 2. Build the Solana-specific verifier Docker image (`cmd/committeeverifier/Dockerfile` --> `solana-verifier:latest`)
 3. Build the Solana executor Docker image (`cmd/executor/Dockerfile` --> `solana-executor:latest`)
-4. Tear down any existing containers
-5. Spin up the devenv in **phased mode** (`ccv up devenv/env-phased.toml --env-mode phased`): 1 EVM (Anvil) + 1 Solana validator carrying two Solana chain selectors, with verifiers and executors for both directions (Solana→EVM and EVM→Solana)
+4. Build the Solana validator Docker image (`devenv/images/solana-validator/Dockerfile` --> `solana-validator:agave-<version>`)
+5. Tear down any existing containers
+6. Spin up the devenv in **phased mode** (`ccv up devenv/env-phased.toml --env-mode phased`): 1 EVM (Anvil) + 1 Solana validator carrying two Solana chain selectors, with verifiers and executors for both directions (Solana→EVM and EVM→Solana)
 
 During startup, the devenv pre-loads the router and offramp programs onto each validator via CTF (`--upgradeable-program`), then initializes them via CLDF operations.
 
 Once running, the environment config is written to `env-phased-out.toml` at the repo root (the output file is `<config>-out.toml`, derived from the config name). The containers (verifiers, aggregator, indexer, DBs, executor, etc.) will keep running in the background.
+
+Agave only ships x86_64 Linux binaries, so on Apple Silicon the validator image is compiled from source. The first build takes a while.
 
 ### Startup modes (phased vs. legacy)
 
