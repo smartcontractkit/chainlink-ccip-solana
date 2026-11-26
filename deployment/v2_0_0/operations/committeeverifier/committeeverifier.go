@@ -278,7 +278,7 @@ var SetAllowedFinalityConfig = operations.NewOperation(
 			return sequences.OnChainOutput{}, fmt.Errorf("failed to derive event authority PDA: %w", err)
 		}
 
-		authority, err := getAuthority(b.GetContext(), chain, input.CommitteeVerifier)
+		authority, err := GetAuthority(b.GetContext(), chain, input.CommitteeVerifier)
 		if err != nil {
 			return sequences.OnChainOutput{}, err
 		}
@@ -355,7 +355,7 @@ var SetChainConfig = operations.NewOperation(
 			return sequences.OnChainOutput{}, errors.New("missing Solana deployer key")
 		}
 
-		authority, err := getAuthority(b.GetContext(), chain, input.CommitteeVerifier)
+		authority, err := GetAuthority(b.GetContext(), chain, input.CommitteeVerifier)
 		if err != nil {
 			return sequences.OnChainOutput{}, err
 		}
@@ -407,7 +407,7 @@ var SetSignerConfig = operations.NewOperation(
 			return sequences.OnChainOutput{}, errors.New("missing Solana deployer key")
 		}
 
-		authority, err := getAuthority(b.GetContext(), chain, input.CommitteeVerifier)
+		authority, err := GetAuthority(b.GetContext(), chain, input.CommitteeVerifier)
 		if err != nil {
 			return sequences.OnChainOutput{}, err
 		}
@@ -441,7 +441,7 @@ var RemoveSignerConfig = operations.NewOperation(
 			return sequences.OnChainOutput{}, errors.New("missing Solana deployer key")
 		}
 
-		authority, err := getAuthority(b.GetContext(), chain, input.CommitteeVerifier)
+		authority, err := GetAuthority(b.GetContext(), chain, input.CommitteeVerifier)
 		if err != nil {
 			return sequences.OnChainOutput{}, err
 		}
@@ -488,7 +488,7 @@ var SetAllowlist = operations.NewOperation(
 			b.Logger.Infof("CommitteeVerifier allowlist for remote chain %d is up to date", input.DestChainSelector)
 			return sequences.OnChainOutput{}, nil
 		}
-		owner, err := getAuthority(b.GetContext(), chain, input.CommitteeVerifier)
+		owner, err := GetAuthority(b.GetContext(), chain, input.CommitteeVerifier)
 		if err != nil {
 			return sequences.OnChainOutput{}, err
 		}
@@ -526,7 +526,7 @@ var TransferOwnership = operations.NewOperation(
 	"Transfers ownership of the CommitteeVerifier contract to a new authority",
 	func(b operations.Bundle, chain cldf_solana.Chain, input solcommon.TransferOwnershipParams) (sequences.OnChainOutput, error) {
 		solcommon.SetProgramID(&committee_verifier.ProgramID, committee_verifier.ParseInstructionWithoutAccounts, input.Program)
-		authority, err := getAuthority(b.GetContext(), chain, input.Program)
+		authority, err := GetAuthority(b.GetContext(), chain, input.Program)
 		if err != nil {
 			return sequences.OnChainOutput{}, err
 		}
@@ -599,8 +599,8 @@ func readConfig(ctx context.Context, chain cldf_solana.Chain, program solana.Pub
 	return configPDA, eventAuthorityPDA, config, nil
 }
 
-// getAuthority returns the owner of program, or the deployer key before the program is initialized.
-func getAuthority(ctx context.Context, chain cldf_solana.Chain, program solana.PublicKey) (solana.PublicKey, error) {
+// GetAuthority returns the owner of program, or the deployer key before the program is initialized.
+func GetAuthority(ctx context.Context, chain cldf_solana.Chain, program solana.PublicKey) (solana.PublicKey, error) {
 	configPDA, _, err := state.FindConfigPDA(program)
 	if err != nil {
 		return solana.PublicKey{}, fmt.Errorf("failed to derive config PDA: %w", err)
