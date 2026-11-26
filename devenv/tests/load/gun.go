@@ -31,14 +31,20 @@ type Lane struct {
 // SolanaTXGun implements the wasp gun contract and load.LoadGun interface
 // for Solana as source CCIP load tests.
 type SolanaTXGun struct {
-	sources             map[uint64]cciptestinterfaces.ChainAsSource
-	v3Sources           map[uint64]cciptestinterfaces.MessageV3Source
-	dests               map[uint64]cciptestinterfaces.MessageV3Destination
-	signerSelector      map[uint64]func() solana.PrivateKey
-	lanes               []Lane
-	laneIndex           atomic.Uint32
-	sentMsgCh           chan load.SentMessage
-	closeOnce           sync.Once
+	sources        map[uint64]cciptestinterfaces.ChainAsSource
+	v3Sources      map[uint64]cciptestinterfaces.MessageV3Source
+	dests          map[uint64]cciptestinterfaces.MessageV3Destination
+	signerSelector map[uint64]func() solana.PrivateKey
+	lanes          []Lane
+	laneIndex      atomic.Uint32
+	sentMsgCh      chan load.SentMessage
+	closeOnce      sync.Once
+	// closeMu guards sends against teardown races: wasp abandons timed-out Call goroutines.
+	closeMu sync.RWMutex
+	closed  bool
+
+	// shutdownCh wakes senders parked on a full sentMsgCh during teardown.
+	shutdownCh          chan struct{}
 	logger              zerolog.Logger
 	executorArgsParams  any // optional, passed to BuildV3ExtraArgs
 	tokenReceiverParams any // optional, passed to BuildV3ExtraArgs
@@ -133,6 +139,7 @@ func NewSolanaTXGun(
 		signerSelector: signerSelector,
 		lanes:          lanes,
 		sentMsgCh:      make(chan load.SentMessage, sentMessageChannelBufferSize),
+		shutdownCh:     make(chan struct{}),
 		logger:         logger,
 	}
 	for _, opt := range opts {
@@ -213,12 +220,12 @@ func (g *SolanaTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		return &wasp.Response{Error: err.Error(), Failed: true}
 	}
 
-	g.sentMsgCh <- load.SentMessage{
+	g.sendSent(load.SentMessage{
 		SeqNo:     uint64(sentEvt.Message.SequenceNumber),
 		MessageID: sentEvt.MessageID,
 		SentTime:  sentTime,
 		ChainPair: load.SrcDest{Src: lane.Src, Dest: lane.Dst},
-	}
+	})
 
 	g.logger.Debug().
 		Str("signer", signer.PublicKey().String()).
@@ -232,8 +239,27 @@ func (g *SolanaTXGun) Call(_ *wasp.Generator) *wasp.Response {
 // Safe to call multiple times.
 func (g *SolanaTXGun) CloseSentChannel() {
 	g.closeOnce.Do(func() {
+		// close(shutdownCh) first: parked senders hold closeMu.RLock.
+		close(g.shutdownCh)
+		g.closeMu.Lock()
+		defer g.closeMu.Unlock()
+		g.closed = true
 		close(g.sentMsgCh)
 	})
+}
+
+// sendSent pushes a SentMessage to the verification pipeline, dropping it if the gun is closed.
+func (g *SolanaTXGun) sendSent(msg load.SentMessage) {
+	g.closeMu.RLock()
+	defer g.closeMu.RUnlock()
+	if g.closed {
+		return
+	}
+	select {
+	case g.sentMsgCh <- msg:
+	case <-g.shutdownCh:
+		// drop: wasp already counted the timeout.
+	}
 }
 
 // SentMessages returns the channel of sent messages for the verification pipeline.

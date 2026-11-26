@@ -125,7 +125,7 @@ jobs:
       always() && needs.contracts-build.result == 'success' &&
       (needs['detect-changes'].outputs.contracts == 'true' || needs['detect-changes'].outputs.pkg == 'true' || needs['detect-changes'].outputs.devenv == 'true' || needs['detect-changes'].outputs.deployment == 'true')
     name: Devenv Load
-    timeout-minutes: ${{ fromJSON(vars.LOAD_TEST_TIMEOUT_MINUTES || '30') }}
+    timeout-minutes: 360
     runs-on: ubuntu-latest-8cores-32GB
     permissions:
       id-token: write
@@ -148,4 +148,3 @@ jobs:
           load_test_duration: ${{ vars.LOAD_TEST_DURATION }}
           load_test_pool_size: ${{ vars.LOAD_TEST_POOL_SIZE }}
           load_test_send_interval: ${{ vars.LOAD_TEST_SEND_INTERVAL }}
-          load_test_fire_and_forget: ${{ vars.LOAD_TEST_FIRE_AND_FORGET }}

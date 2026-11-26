@@ -17,15 +17,15 @@ import (
 )
 
 // TestEVM2SolanaLoad fires sustained EVM→Solana arbitrary messages with the
-// chainlink-ccv EVMTransactionGun, with an optional fire-and-forget mode (true by default):
-// if enabled EVM txs are submitted without waiting for confirmation (SentTime = block timestamp of the block
+// chainlink-ccv EVMTransactionGun in fire-and-forget mode: EVM txs are submitted
+// without waiting for confirmation (SentTime = block timestamp of the block
 // containing the tx), avoiding RPC-throttling timeouts on public testnets under load.
 func TestEVM2SolanaLoad(t *testing.T) {
 	cfg := loadTestConfigFromEnv()
-	runEVMLoadTest(t, cfg, cfg.fireAndForget)
+	runEVMLoadTest(t, cfg)
 }
 
-func runEVMLoadTest(t *testing.T, cfg loadTestConfig, useFireAndForget bool) {
+func runEVMLoadTest(t *testing.T, cfg loadTestConfig) {
 	t.Helper()
 
 	ctx, env := setupCrossFamilyLoadEnv(t)
@@ -80,10 +80,7 @@ func runEVMLoadTest(t *testing.T, cfg loadTestConfig, useFireAndForget bool) {
 		},
 	}
 
-	opts := []ccve2e.EVMTXGunOption{ccve2e.WithExecutorArgsParams(arbExecutorArgs)}
-	if useFireAndForget {
-		opts = append(opts, ccve2e.WithFireAndForget())
-	}
+	opts := []ccve2e.EVMTXGunOption{ccve2e.WithExecutorArgsParams(arbExecutorArgs), ccve2e.WithFireAndForget()}
 
 	gun, err := ccve2e.NewEVMTransactionGunFromTestConfig(
 		env.cfg, testProfile, messageProfiles, env.deployEnv, env.impls, opts...,

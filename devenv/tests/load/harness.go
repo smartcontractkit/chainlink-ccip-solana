@@ -35,9 +35,8 @@ type loadTestConfig struct {
 	duration time.Duration
 	// sendInterval > 0 selects ticker mode (fixed interval between sends, for
 	// sub-1 RPS schedules wasp cannot express) and overrides rps.
-	sendInterval  time.Duration
-	msgSize       int64
-	fireAndForget bool
+	sendInterval time.Duration
+	msgSize      int64
 }
 
 // runLoadProfile is the shared harness for both directions: start verification before

@@ -44,18 +44,8 @@ on:
         type: string
         required: false
         default: ""
-      LOAD_TEST_FIRE_AND_FORGET:
-        description: "EVM->Solana: submit txs without waiting for confirmation, true/false (default: true)"
-        type: string
-        required: false
-        default: ""
       LOAD_TEST_SEND_INTERVAL:
         description: "Fixed interval between sends, e.g. 30s; overrides RPS when set (default: disabled)"
-        type: string
-        required: false
-        default: ""
-      LOAD_TEST_TIMEOUT_MINUTES:
-        description: "Job timeout in minutes — the only timeout ceiling (go test panic timeout is disabled); both directions run in parallel (default: 30, GitHub-hosted cap: 360)"
         type: string
         required: false
         default: ""
@@ -75,7 +65,7 @@ jobs:
        !github.event.pull_request.head.repo.fork)
     name: load-test (${{ matrix.target_environment }})
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ fromJSON(inputs.LOAD_TEST_TIMEOUT_MINUTES || vars.LOAD_TEST_TIMEOUT_MINUTES || '25') }}
+    timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
@@ -122,7 +112,6 @@ jobs:
           LOAD_TEST_POOL_SIZE: ${{ inputs.LOAD_TEST_POOL_SIZE || vars.LOAD_TEST_POOL_SIZE }}
           LOAD_TEST_SEND_INTERVAL: ${{ inputs.LOAD_TEST_SEND_INTERVAL || vars.LOAD_TEST_SEND_INTERVAL }}
           LOAD_TEST_MSG_SIZE: ${{ inputs.LOAD_TEST_MSG_SIZE || vars.LOAD_TEST_MSG_SIZE }}
-          LOAD_TEST_FIRE_AND_FORGET: ${{ inputs.LOAD_TEST_FIRE_AND_FORGET || vars.LOAD_TEST_FIRE_AND_FORGET }}
           PRIVATE_KEY: ${{ secrets.E2E_EVM_PRIVATE_KEY }}
           SOLANA_PRIVATE_KEY: ${{ secrets.E2E_SOLANA_PRIVATE_KEY }}
         run: |
