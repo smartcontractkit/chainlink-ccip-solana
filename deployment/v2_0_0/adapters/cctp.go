@@ -315,16 +315,13 @@ func (a *CCTPChainAdapter) poolProgram(ds datastore.DataStore, chainSelector uin
 }
 
 func (a *CCTPChainAdapter) usdcMint(ds datastore.DataStore, chainSelector uint64) (solana.PublicKey, error) {
-	splTypes := []cldf_deployment.ContractType{solcommon.SPLTokens, solcommon.SPL2022Tokens}
-	for _, contractType := range splTypes {
-		ref, err := solcommon.FindLatestRef(ds, datastore.AddressRef{
-			Type:      datastore.ContractType(contractType),
-			Qualifier: USDCTokenQualifier,
-		}, chainSelector)
-		if err == nil {
-			return solcommon.ToAddress(ref)
-		}
+	ref, err := solcommon.FindLatestRef(ds, datastore.AddressRef{
+		Type:      datastore.ContractType(solcommon.SPLTokens),
+		Qualifier: USDCTokenQualifier,
+	}, chainSelector)
+	if err != nil {
+		return solana.PublicKey{}, fmt.Errorf("find USDC mint on chain %d (looked for %s with qualifier %q)",
+			chainSelector, solcommon.SPLTokens, USDCTokenQualifier)
 	}
-	return solana.PublicKey{}, fmt.Errorf("find USDC mint on chain %d (looked for %s/%s with qualifier %q)",
-		chainSelector, solcommon.SPLTokens, solcommon.SPL2022Tokens, USDCTokenQualifier)
+	return solcommon.ToAddress(ref)
 }
