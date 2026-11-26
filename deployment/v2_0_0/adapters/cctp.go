@@ -198,7 +198,7 @@ func (a *CCTPChainAdapter) MigrateHybridLockReleaseLiquidity() *operations.Seque
 }
 
 // TokenAddress returns the chain's USDC mint. Solana's DeployToken registers mints under their
-// actual SPL program type (SPLTokens or SPL2022Tokens) rather than a generic "Token" type, so
+// actual SPL program type (SPLTokens) rather than a generic "Token" type, so
 // both are tried.
 func (a *CCTPChainAdapter) TokenAddress(ds datastore.DataStore, _ cldf_chain.BlockChains, chainSelector uint64) ([]byte, error) {
 	mint, err := a.usdcMint(ds, chainSelector)
