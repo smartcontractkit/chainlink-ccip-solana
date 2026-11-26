@@ -208,24 +208,26 @@ func configureChainForLanes(
 		result.Addresses = append(result.Addresses, routerOut.Output.Addresses...)
 		result.BatchOps = append(result.BatchOps, routerOut.Output.BatchOps...)
 
-		// Source-side: add dest chain on default Executor
-		executorOut, err := cldf_ops.ExecuteOperation(
-			b,
-			executorops.SetChainConfig,
-			solChain,
-			executorops.SetChainConfigParams{
-				LocalChainSelector:  solChain.Selector,
-				Executor:            executorPubkey,
-				RemoteChainSelector: remoteSelector,
-				UsdCentsFee:         0,
-				Enabled:             true,
-			},
-		)
-		if err != nil {
-			return seq_core.OnChainOutput{}, fmt.Errorf("failed to apply dest chain updates to default executor: %w", err)
+		if !remoteConfig.SkipExecutorConfig {
+			// Source-side: add dest chain on default Executor
+			executorOut, err := cldf_ops.ExecuteOperation(
+				b,
+				executorops.SetChainConfig,
+				solChain,
+				executorops.SetChainConfigParams{
+					LocalChainSelector:  solChain.Selector,
+					Executor:            executorPubkey,
+					RemoteChainSelector: remoteSelector,
+					UsdCentsFee:         remoteConfig.ExecutorDestChainConfig.USDCentsFee,
+					Enabled:             remoteConfig.ExecutorDestChainConfig.Enabled,
+				},
+			)
+			if err != nil {
+				return seq_core.OnChainOutput{}, fmt.Errorf("failed to apply dest chain updates to default executor: %w", err)
+			}
+			result.Addresses = append(result.Addresses, executorOut.Output.Addresses...)
+			result.BatchOps = append(result.BatchOps, executorOut.Output.BatchOps...)
 		}
-		result.Addresses = append(result.Addresses, executorOut.Output.Addresses...)
-		result.BatchOps = append(result.BatchOps, executorOut.Output.BatchOps...)
 
 		// Source-side: configure committee verifiers
 		for _, cv := range input.CommitteeVerifiers {
