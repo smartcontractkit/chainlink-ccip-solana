@@ -210,7 +210,7 @@ func configureChainForLanes(
 
 		if !remoteConfig.SkipExecutorConfig {
 			// Source-side: add dest chain on default Executor
-			executorOut, err := cldf_ops.ExecuteOperation(
+			executorOut, nerr := cldf_ops.ExecuteOperation(
 				b,
 				executorops.SetChainConfig,
 				solChain,
@@ -222,8 +222,8 @@ func configureChainForLanes(
 					Enabled:             remoteConfig.ExecutorDestChainConfig.Enabled,
 				},
 			)
-			if err != nil {
-				return seq_core.OnChainOutput{}, fmt.Errorf("failed to apply dest chain updates to default executor: %w", err)
+			if nerr != nil {
+				return seq_core.OnChainOutput{}, fmt.Errorf("failed to apply dest chain updates to default executor: %w", nerr)
 			}
 			result.Addresses = append(result.Addresses, executorOut.Output.Addresses...)
 			result.BatchOps = append(result.BatchOps, executorOut.Output.BatchOps...)
