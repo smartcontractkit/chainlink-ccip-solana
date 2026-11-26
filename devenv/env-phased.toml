@@ -78,7 +78,8 @@ enabled = true
   contracts_dir = "contracts/target/deploy"
   # Without this the validator prunes after ~1k slots and the token verifier's backfill and finality
   # checker keep hitting "Block N cleaned up, does not exist on node".
-  docker_cmd_params = ["--limit-ledger-size", "200000000"]
+  docker_cmd_params = ["--limit-ledger-size", "200000000", "--alpenglow"]
+  image = "solana-validator:agave-4.4.1"
   [blockchains.solana_programs]
     ccip_router = "Ccip842gzYHhvdDkSyi2YVCoAWPbYJoApMFzSxQroE9C"
     ccip_offramp = "off43sBHBsmWTU6VbfwKYCNwyJ4rSDhunYvz3QL7bF9"

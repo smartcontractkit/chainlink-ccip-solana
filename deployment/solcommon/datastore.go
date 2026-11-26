@@ -351,6 +351,19 @@ func latestRef(matches []datastore.AddressRef, criteria datastore.AddressRef) (d
 	return latest, nil
 }
 
+// AddressRefByMajorVersion is the filter form of RefVersionMatches: it keeps refs on want's major.
+func AddressRefByMajorVersion(want *semver.Version) datastore.FilterFunc[datastore.AddressRefKey, datastore.AddressRef] {
+	return func(refs []datastore.AddressRef) []datastore.AddressRef {
+		out := make([]datastore.AddressRef, 0, len(refs))
+		for _, r := range refs {
+			if RefVersionMatches(r.Version, want) {
+				out = append(out, r)
+			}
+		}
+		return out
+	}
+}
+
 // RefVersionMatches reports whether a stored ref version is on the wanted version's major.
 // A nil stored version never matches; a nil wanted version matches any stored version.
 func RefVersionMatches(have, want *semver.Version) bool {

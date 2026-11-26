@@ -25,7 +25,10 @@ import (
 // SolanaCommitteeVerifierOnchainAdapter implements the CCV CommitteeVerifierOnchainAdapter.
 type SolanaCommitteeVerifierOnchainAdapter struct{}
 
-var _ ccvadapters.CommitteeVerifierOnchainAdapter = (*SolanaCommitteeVerifierOnchainAdapter)(nil)
+var (
+	_ ccvadapters.CommitteeVerifierOnchainAdapter = (*SolanaCommitteeVerifierOnchainAdapter)(nil)
+	_ ccvadapters.CommitteeVerifierChainDiscovery = (*SolanaCommitteeVerifierOnchainAdapter)(nil)
+)
 
 // ScanCommitteeStates lists RemoteChainConfig PDAs via getProgramAccounts (pubkeys
 // only) then fetches them via batched getMultipleAccounts. Two-step to stay under RPC
@@ -42,11 +45,10 @@ func (a *SolanaCommitteeVerifierOnchainAdapter) ScanCommitteeStates(
 		return nil, errors.New("datastore is required")
 	}
 
-	committeeRefs := env.DataStore.Addresses().Filter(
-		datastore.AddressRefByType(datastore.ContractType(cvops.ContractType)),
-		datastore.AddressRefByChainSelector(chainSelector),
-		datastore.AddressRefByVersion(cvops.Version),
-	)
+	committeeRefs, err := latestCommitteeVerifierRefs(env.DataStore, chainSelector)
+	if err != nil {
+		return nil, err
+	}
 	if len(committeeRefs) == 0 {
 		return nil, nil
 	}
@@ -58,9 +60,6 @@ func (a *SolanaCommitteeVerifierOnchainAdapter) ScanCommitteeStates(
 
 	states := make([]*ccvadapters.CommitteeState, 0, len(committeeRefs))
 	for _, ref := range committeeRefs {
-		if ref.Qualifier == "" {
-			continue
-		}
 		programID, err := solana.PublicKeyFromBase58(ref.Address)
 		if err != nil {
 			return nil, fmt.Errorf("invalid committee verifier program ID %q for qualifier %q: %w", ref.Address, ref.Qualifier, err)
@@ -77,6 +76,13 @@ func (a *SolanaCommitteeVerifierOnchainAdapter) ScanCommitteeStates(
 		})
 	}
 	return states, nil
+}
+
+// DeployedCommitteeVerifierChains implements [ccvadapters.CommitteeVerifierChainDiscovery]:
+// every Solana chain with a CommitteeVerifier ref on cvops.Version's major, any qualifier,
+// so inventory scans do not depend on aggregator configs mentioning the chain.
+func (a *SolanaCommitteeVerifierOnchainAdapter) DeployedCommitteeVerifierChains(ds datastore.DataStore) []uint64 {
+	return committeeVerifierChains(ds)
 }
 
 // scanRemoteChainConfigs lists then fetches RemoteChainConfig PDAs owned by the given

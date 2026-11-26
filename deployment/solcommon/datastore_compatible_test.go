@@ -20,6 +20,17 @@ func TestRefVersionMatches(t *testing.T) {
 	require.True(t, RefVersionMatches(v("1.6.0"), nil))
 }
 
+func TestAddressRefByMajorVersion(t *testing.T) {
+	refs := []datastore.AddressRef{
+		{Address: "a", Version: semver.MustParse("1.6.0")},
+		{Address: "b", Version: semver.MustParse("2.0.0")},
+		{Address: "c", Version: semver.MustParse("2.1.0")},
+		{Address: "d"},
+	}
+	got := AddressRefByMajorVersion(semver.MustParse("2.0.0"))(refs)
+	require.Equal(t, []datastore.AddressRef{refs[1], refs[2]}, got)
+}
+
 func TestFindCompatibleRef(t *testing.T) {
 	const sel = uint64(16423721717087811551)
 	typ := datastore.ContractType("Router")

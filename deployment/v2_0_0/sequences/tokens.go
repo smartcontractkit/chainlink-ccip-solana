@@ -3,6 +3,7 @@ package sequences
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/gagliardetto/solana-go"
 
@@ -137,6 +138,13 @@ func (a *SolanaAdapter) ConfigureTokenForTransfersSequence() *operations.Sequenc
 					return sequences.OnChainOutput{}, fmt.Errorf("failed to set pool interface implementation: %w", spiErr)
 				}
 				mergeOnChainOutput(&result, spiOut.Output)
+				// A pool initialized before 2.0 lacks the token accounts 2.0 transfers use.
+				if input.PoolType == common_utils.BurnMintTokenPool.String() || input.PoolType == common_utils.LockReleaseTokenPool.String() {
+					if err = ensurePoolTokenAccounts(b, chain, input.ExistingDataStore.Addresses().Filter(),
+						tpAddr, solana.MustPublicKeyFromBase58(tokenAddr.Address), tokenProgramID); err != nil {
+						return sequences.OnChainOutput{}, err
+					}
+				}
 			}
 
 			tokenMint := solana.MustPublicKeyFromBase58(tokenAddr.Address)
@@ -231,14 +239,35 @@ func (a *SolanaAdapter) DeriveTokenAddress(e deployment.Environment, chainSelect
 	}
 	// Otherwise the token (SPL mint) and pool share the same qualifier (symbol).
 	// Look up the token by its qualifier in the datastore.
-	tokenRef, err := solcommon.FindLatestRef(e.DataStore, datastore.AddressRef{
-		Type:      datastore.ContractType(solcommon.SPLTokens),
-		Qualifier: poolRef.Qualifier,
-	}, chainSelector)
-	if err != nil {
-		return "", fmt.Errorf("failed to find token address for pool qualifier %q on chain %d: %w", poolRef.Qualifier, chainSelector, err)
+	return deriveTokenAddressFromQualifier(e.DataStore, chainSelector, poolRef.Qualifier)
+}
+
+// deriveTokenAddressFromQualifier returns the mint registered under qualifier, as an SPL Token or a
+// Token-2022 mint. A qualifier registered under both token types at different addresses is ambiguous.
+func deriveTokenAddressFromQualifier(ds datastore.DataStore, chainSelector uint64, qualifier string) (string, error) {
+	var found []datastore.AddressRef
+	for _, tokenType := range []deployment.ContractType{solcommon.SPLTokens, solcommon.SPL2022Tokens} {
+		ref, err := solcommon.FindLatestRef(ds, datastore.AddressRef{
+			Type:      datastore.ContractType(tokenType),
+			Qualifier: qualifier,
+		}, chainSelector)
+		switch {
+		case errors.Is(err, solcommon.ErrAddressRefNotFound):
+			continue
+		case err != nil:
+			return "", fmt.Errorf("failed to find %s token for pool qualifier %q on chain %d: %w", tokenType, qualifier, chainSelector, err)
+		}
+		found = append(found, ref)
 	}
-	return tokenRef.Address, nil
+	switch {
+	case len(found) == 0:
+		return "", fmt.Errorf("failed to find token address for pool qualifier %q on chain %d: %w: no %s or %s ref",
+			qualifier, chainSelector, solcommon.ErrAddressRefNotFound, solcommon.SPLTokens, solcommon.SPL2022Tokens)
+	case len(found) == 2 && found[0].Address != found[1].Address:
+		return "", fmt.Errorf("ambiguous token for pool qualifier %q on chain %d: %s %s and %s %s",
+			qualifier, chainSelector, found[0].Type, found[0].Address, found[1].Type, found[1].Address)
+	}
+	return found[0].Address, nil
 }
 
 // DeriveTokenDecimals reads the decimals from the on-chain SPL token mint account.
@@ -848,6 +877,11 @@ func (a *SolanaAdapter) DeployTokenPoolForToken() *operations.Sequence[tokenapi.
 			fees, err := feeTokens(b.GetContext(), chain, linkMint)
 			if err != nil {
 				return sequences.OnChainOutput{}, err
+			}
+			// burn_v2/lock_v2 move the in-token BPS fee into the vault's account for the pool's own
+			// mint and fail with MissingFeeVaultTokenAccount once that fee is set, so it is created too.
+			if !slices.ContainsFunc(fees, func(ft feeToken) bool { return ft.mint.Equals(tokenMint) }) {
+				fees = append(fees, feeToken{mint: tokenMint, program: tokenProgramID})
 			}
 			for _, ft := range fees {
 				vaultPda, _, aerr := state.FindFeeVaultPDA(tokenPool, tokenMint.Bytes())
