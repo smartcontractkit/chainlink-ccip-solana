@@ -68,9 +68,9 @@ func TestSolanaTXGun_FullBufferShutdown(t *testing.T) {
 func TestSolanaTXGun_SendAfterClose(t *testing.T) {
 	g := newTestSolanaTXGun()
 	g.CloseSentChannel()
-	// Straggler sends after close must be dropped, not panic (CI regression).
+	// Sends after close must be dropped, not panic.
 	g.sendSent(load.SentMessage{SeqNo: 1})
-	require.Len(t, g.sentMsgCh, 0)
+	require.Empty(t, g.sentMsgCh)
 
 	g.CloseSentChannel() // idempotent
 }
