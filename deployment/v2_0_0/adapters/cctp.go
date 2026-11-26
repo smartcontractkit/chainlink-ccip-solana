@@ -314,21 +314,17 @@ func (a *CCTPChainAdapter) poolProgram(ds datastore.DataStore, chainSelector uin
 	return solcommon.ToAddress(ref)
 }
 
-// usdcMint resolves the chain's USDC mint, preferring the USDC qualifier and falling back to a
-// wildcard (empty qualifier) lookup for datastores that registered the mint unqualified.
 func (a *CCTPChainAdapter) usdcMint(ds datastore.DataStore, chainSelector uint64) (solana.PublicKey, error) {
 	splTypes := []cldf_deployment.ContractType{solcommon.SPLTokens, solcommon.SPL2022Tokens}
-	for _, qualifier := range []string{USDCTokenQualifier, ""} {
-		for _, contractType := range splTypes {
-			ref, err := solcommon.FindLatestRef(ds, datastore.AddressRef{
-				Type:      datastore.ContractType(contractType),
-				Qualifier: qualifier,
-			}, chainSelector)
-			if err == nil {
-				return solcommon.ToAddress(ref)
-			}
+	for _, contractType := range splTypes {
+		ref, err := solcommon.FindLatestRef(ds, datastore.AddressRef{
+			Type:      datastore.ContractType(contractType),
+			Qualifier: USDCTokenQualifier,
+		}, chainSelector)
+		if err == nil {
+			return solcommon.ToAddress(ref)
 		}
 	}
-	return solana.PublicKey{}, fmt.Errorf("find USDC mint on chain %d (looked for %s/%s with qualifier %q then unqualified)",
+	return solana.PublicKey{}, fmt.Errorf("find USDC mint on chain %d (looked for %s/%s with qualifier %q)",
 		chainSelector, solcommon.SPLTokens, solcommon.SPL2022Tokens, USDCTokenQualifier)
 }
