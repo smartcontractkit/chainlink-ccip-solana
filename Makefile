@@ -268,10 +268,24 @@ build-solana-token-verifier-image:
 build-solana-executor-image:
 	docker build -f cmd/executor/Dockerfile -t solana-executor:latest .
 
+# Always native: Agave needs io_uring, which Rosetta doesn't support.
+# Keep AGAVE_VERSION in sync with the image tag in devenv/env-*.toml.
+AGAVE_VERSION ?= 4.4.1
+SOLANA_VALIDATOR_ARCH := $(if $(filter arm64 aarch64,$(shell uname -m)),arm64,amd64)
+SOLANA_VALIDATOR_TARGET := $(if $(filter arm64,$(SOLANA_VALIDATOR_ARCH)),source,release)
+.PHONY: build-solana-validator-image
+build-solana-validator-image:
+	docker build -f devenv/images/solana-validator/Dockerfile \
+		--platform linux/$(SOLANA_VALIDATOR_ARCH) \
+		--target $(SOLANA_VALIDATOR_TARGET) \
+		--build-arg AGAVE_VERSION=$(AGAVE_VERSION) \
+		-t solana-validator:agave-$(AGAVE_VERSION) \
+		devenv/images/solana-validator
+
 # Start unified devenv (1 EVM + 2 Solana chains) in standalone mode.
 # Supports S2S, EVM→Solana, and Solana→EVM directions.
 .PHONY: start-devenv
-start-devenv: ensure-contract-deploy-dir sync-ccv-checkout build-ccv-images build-solana-verifier-image build-solana-token-verifier-image build-solana-executor-image restart-devenv
+start-devenv: ensure-contract-deploy-dir sync-ccv-checkout build-ccv-images build-solana-verifier-image build-solana-token-verifier-image build-solana-executor-image build-solana-validator-image restart-devenv
 
 # Tear-down & spin back up the devenv, without rebuilding images or doing other checks
 .PHONY: restart-devenv

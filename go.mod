@@ -39,7 +39,7 @@ require (
 	github.com/smartcontractkit/chainlink-framework/metrics v0.0.0-20260814143946-b5a88c16af02
 	github.com/smartcontractkit/chainlink-framework/multinode v0.0.0-20260814143946-b5a88c16af02
 	github.com/smartcontractkit/chainlink-solana v1.3.1-0.20261119150854-853ba654e093
-	github.com/smartcontractkit/chainlink-testing-framework/framework v0.16.6
+	github.com/smartcontractkit/chainlink-testing-framework/framework v0.17.0
 	github.com/smartcontractkit/chainlink-testing-framework/wasp v1.53.0
 	github.com/smartcontractkit/freeport v0.1.3-0.20250828155247-add56fa28aad
 	github.com/stretchr/testify v1.12.1

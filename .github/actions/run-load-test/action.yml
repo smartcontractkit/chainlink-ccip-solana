@@ -157,6 +157,11 @@ runs:
       working-directory: chainlink-ccip-solana
       run: make build-solana-executor-image
 
+    - name: Build solana validator docker image
+      shell: bash
+      working-directory: chainlink-ccip-solana
+      run: make build-solana-validator-image
+
     # 5. spin up devenv
     - name: Spin up CCIP environment
       shell: bash
