@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.0](https://github.com/smartcontractkit/chainlink-ccip-solana/compare/v0.3.0...v0.4.0) (2026-11-27)
+
+
+### Features
+
+* **deployment:** Add changeset to migrate token pool to v2 ([#32](https://github.com/smartcontractkit/chainlink-ccip-solana/issues/32)) ([02de195](https://github.com/smartcontractkit/chainlink-ccip-solana/commit/02de195edeff325dfdce9aebf1ad7800b5500107))
+* **deployment:** implement CommitteeVerifierChainDiscovery for Solana ([#36](https://github.com/smartcontractkit/chainlink-ccip-solana/issues/36)) ([3e5a26d](https://github.com/smartcontractkit/chainlink-ccip-solana/commit/3e5a26d322bdbbb0d3d329749278af8207ba43f1))
+* **deployment:** support a remote (KMS) Solana signer ([#16](https://github.com/smartcontractkit/chainlink-ccip-solana/issues/16)) ([e9329c3](https://github.com/smartcontractkit/chainlink-ccip-solana/commit/e9329c33a0fea19bc7ba4529a457056d5c0bff78))
+
 ## [0.3.0](https://github.com/smartcontractkit/chainlink-ccip-solana/compare/v0.2.0...v0.3.0) (2026-11-23)
 
 
