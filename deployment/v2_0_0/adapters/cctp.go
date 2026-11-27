@@ -198,7 +198,7 @@ func (a *CCTPChainAdapter) MigrateHybridLockReleaseLiquidity() *operations.Seque
 }
 
 // TokenAddress returns the chain's USDC mint. Solana's DeployToken registers mints under their
-// actual SPL program type (SPLTokens or SPL2022Tokens) rather than a generic "Token" type, so
+// actual SPL program type (SPLTokens) rather than a generic "Token" type, so
 // both are tried.
 func (a *CCTPChainAdapter) TokenAddress(ds datastore.DataStore, _ cldf_chain.BlockChains, chainSelector uint64) ([]byte, error) {
 	mint, err := a.usdcMint(ds, chainSelector)
@@ -314,21 +314,14 @@ func (a *CCTPChainAdapter) poolProgram(ds datastore.DataStore, chainSelector uin
 	return solcommon.ToAddress(ref)
 }
 
-// usdcMint resolves the chain's USDC mint, preferring the USDC qualifier and falling back to a
-// wildcard (empty qualifier) lookup for datastores that registered the mint unqualified.
 func (a *CCTPChainAdapter) usdcMint(ds datastore.DataStore, chainSelector uint64) (solana.PublicKey, error) {
-	splTypes := []cldf_deployment.ContractType{solcommon.SPLTokens, solcommon.SPL2022Tokens}
-	for _, qualifier := range []string{USDCTokenQualifier, ""} {
-		for _, contractType := range splTypes {
-			ref, err := solcommon.FindLatestRef(ds, datastore.AddressRef{
-				Type:      datastore.ContractType(contractType),
-				Qualifier: qualifier,
-			}, chainSelector)
-			if err == nil {
-				return solcommon.ToAddress(ref)
-			}
-		}
+	ref, err := solcommon.FindLatestRef(ds, datastore.AddressRef{
+		Type:      datastore.ContractType(solcommon.SPLTokens),
+		Qualifier: USDCTokenQualifier,
+	}, chainSelector)
+	if err != nil {
+		return solana.PublicKey{}, fmt.Errorf("find USDC mint on chain %d (looked for %s with qualifier %q)",
+			chainSelector, solcommon.SPLTokens, USDCTokenQualifier)
 	}
-	return solana.PublicKey{}, fmt.Errorf("find USDC mint on chain %d (looked for %s/%s with qualifier %q then unqualified)",
-		chainSelector, solcommon.SPLTokens, solcommon.SPL2022Tokens, USDCTokenQualifier)
+	return solcommon.ToAddress(ref)
 }
