@@ -286,7 +286,7 @@ var UpgradeProgram = cldf_ops.NewSequence(
 			return seq_core.OnChainOutput{}, err
 		}
 
-		if chain.DeployerKey == nil {
+		if chain.Deployer() == nil {
 			return seq_core.OnChainOutput{}, errors.New("missing Solana deployer key")
 		}
 
@@ -301,7 +301,7 @@ var UpgradeProgram = cldf_ops.NewSequence(
 		if err != nil {
 			return seq_core.OnChainOutput{}, fmt.Errorf("resolve timelock signer for upgrade authority handoff: %w", err)
 		}
-		deployer := chain.DeployerKey.PublicKey()
+		deployer := chain.Deployer().PublicKey()
 		if err = checkUpgradeAuthority(authority, deployer, timelock, timelockFound, chainHasTimelock(input.ExistingAddresses, input.ChainSelector), input.MCMSQualifier); err != nil {
 			return seq_core.OnChainOutput{}, err
 		}
@@ -391,7 +391,7 @@ var VerifyBuild = cldf_ops.NewSequence(
 			return seq_core.OnChainOutput{}, err
 		}
 
-		if chain.DeployerKey == nil {
+		if chain.Deployer() == nil {
 			return seq_core.OnChainOutput{}, errors.New("missing Solana deployer key")
 		}
 		err = solcommon.VerifyUpgradedProgram(chain, programID, entry.programName)

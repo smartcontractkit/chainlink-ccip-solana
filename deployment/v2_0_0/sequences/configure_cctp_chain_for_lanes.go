@@ -436,7 +436,7 @@ func ensureLaneLookupTable(
 	if existing != nil && existing.Cctp.LookupTable != nil && !existing.Cctp.LookupTable.IsZero() {
 		table = *existing.Cctp.LookupTable
 	} else {
-		if table, err = common.CreateLookupTable(b.GetContext(), solChain.Client, *solChain.DeployerKey); err != nil {
+		if table, err = solcommon.CreateLookupTable(b.GetContext(), solChain); err != nil {
 			return solana.PublicKey{}, false, fmt.Errorf("create lookup table: %w", err)
 		}
 		if err = common.AwaitSlotChange(b.GetContext(), solChain.Client); err != nil {

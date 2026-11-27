@@ -284,7 +284,7 @@ func ensureFeeAggregatorATA(
 	}
 
 	createIx, created, err := tokens.CreateAssociatedTokenAccount(
-		tokenProgram, mint, feeAggregator, chain.DeployerKey.PublicKey())
+		tokenProgram, mint, feeAggregator, chain.Deployer().PublicKey())
 	if err != nil {
 		return fmt.Errorf("failed to build ATA creation for fee aggregator %s and mint %s on chain %d: %w",
 			feeAggregator, mint, chain.Selector, err)

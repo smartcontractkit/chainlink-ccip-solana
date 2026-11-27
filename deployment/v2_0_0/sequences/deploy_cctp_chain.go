@@ -327,7 +327,7 @@ func ensureAssociatedTokenAccount(b cldf_ops.Bundle, solChain cldf_solana.Chain,
 		b.Logger.Infow("Associated token account already exists, skipping", "mint", mint, "owner", owner, "ata", ata)
 		return nil
 	}
-	ixn, _, err := tokens.CreateAssociatedTokenAccount(tokenProgram, mint, owner, solChain.DeployerKey.PublicKey())
+	ixn, _, err := tokens.CreateAssociatedTokenAccount(tokenProgram, mint, owner, solChain.Deployer().PublicKey())
 	if err != nil {
 		return fmt.Errorf("build create associated token account instruction (mint %s, owner %s, ata %s): %w", mint, owner, ata, err)
 	}

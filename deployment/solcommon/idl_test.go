@@ -27,30 +27,50 @@ func TestPublishingIsMandatoryOnlyOffLocalValidators(t *testing.T) {
 	require.True(t, network.RequireSecurityTxt)
 }
 
+// chainWithRemoteDeployer returns a chain whose deployer only exposes a signer,
+// as a KMS-backed deployer does.
+func chainWithRemoteDeployer(t *testing.T, url string, deployer solana.PrivateKey) cldf_solana.Chain {
+	t.Helper()
+
+	return cldf_solana.Chain{URL: url, DeployerSigner: cldf_solana.NewPrivateKeySigner(deployer)}
+}
+
 func TestIDLBufferKeyIsStableAndPerDeployerPerProgram(t *testing.T) {
-	deployer, err := solana.NewRandomPrivateKey()
-	require.NoError(t, err)
-	other, err := solana.NewRandomPrivateKey()
-	require.NoError(t, err)
+	for name, newChain := range map[string]func(*testing.T, string, solana.PrivateKey) cldf_solana.Chain{
+		"local deployer key": chainWithDeployer,
+		"remote deployer":    chainWithRemoteDeployer,
+	} {
+		t.Run(name, func(t *testing.T) {
+			deployer, err := solana.NewRandomPrivateKey()
+			require.NoError(t, err)
+			other, err := solana.NewRandomPrivateKey()
+			require.NoError(t, err)
 
-	programA := solana.NewWallet().PublicKey()
-	programB := solana.NewWallet().PublicKey()
+			programA := solana.NewWallet().PublicKey()
+			programB := solana.NewWallet().PublicKey()
 
-	chain := chainWithDeployer(t, "https://api.devnet.solana.com", deployer)
+			chain := newChain(t, "https://api.devnet.solana.com", deployer)
+			bufferKey := func(chain cldf_solana.Chain, program solana.PublicKey) solana.PrivateKey {
+				key, err := idlBufferKey(t.Context(), chain, program)
+				require.NoError(t, err)
+				return key
+			}
 
-	// Stable across runs: this is what makes a leftover buffer reclaimable
-	// instead of a permanent loss of rent.
-	first := idlBufferKey(chain, programA)
-	require.Equal(t, first.PublicKey(), idlBufferKey(chain, programA).PublicKey())
+			// Stable across runs: this is what makes a leftover buffer reclaimable
+			// instead of a permanent loss of rent.
+			first := bufferKey(chain, programA)
+			require.Equal(t, first.PublicKey(), bufferKey(chain, programA).PublicKey())
 
-	// Distinct per program, so two publishes cannot fight over one buffer.
-	require.NotEqual(t, first.PublicKey(), idlBufferKey(chain, programB).PublicKey())
+			// Distinct per program, so two publishes cannot fight over one buffer.
+			require.NotEqual(t, first.PublicKey(), bufferKey(chain, programB).PublicKey())
 
-	// Distinct per deployer, so two deployers cannot collide.
-	require.NotEqual(t, first.PublicKey(),
-		idlBufferKey(chainWithDeployer(t, "https://api.devnet.solana.com", other), programA).PublicKey())
+			// Distinct per deployer, so two deployers cannot collide.
+			require.NotEqual(t, first.PublicKey(),
+				bufferKey(newChain(t, "https://api.devnet.solana.com", other), programA).PublicKey())
 
-	// It must be a usable signing key, not just 32 bytes.
-	require.Len(t, first, 64)
-	require.True(t, first.PublicKey().IsOnCurve())
+			// It must be a usable signing key, not just 32 bytes.
+			require.Len(t, first, 64)
+			require.True(t, first.PublicKey().IsOnCurve())
+		})
+	}
 }

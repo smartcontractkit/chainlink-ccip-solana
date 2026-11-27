@@ -554,7 +554,7 @@ var SetAllowlist = operations.NewOperation(
 		if err != nil {
 			return sequences.OnChainOutput{}, err
 		}
-		accounts.authority, err = allowlist.Signer(current, owner, accounts.authority, chain.DeployerKey.PublicKey())
+		accounts.authority, err = allowlist.Signer(current, owner, accounts.authority, chain.Deployer().PublicKey())
 		if err != nil {
 			return sequences.OnChainOutput{}, fmt.Errorf("remote chain %d on CCTP verifier %s: %w", input.DestChainSelector, input.CctpVerifier, err)
 		}
@@ -725,7 +725,7 @@ func requireProgram(chain cldf_solana.Chain, program solana.PublicKey) error {
 		return errors.New("cctp verifier program is required")
 	}
 	solcommon.SetProgramID(&cctp_token_pool.ProgramID, cctp_token_pool.ParseInstructionWithoutAccounts, program)
-	if chain.DeployerKey == nil {
+	if chain.Deployer() == nil {
 		return errors.New("missing Solana deployer key")
 	}
 	return nil

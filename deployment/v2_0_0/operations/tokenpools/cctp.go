@@ -613,7 +613,7 @@ var FundPoolSignerCctp = operations.NewOperation(
 
 		// Funding is a plain system transfer from the deployer, never an MCMS batch: the timelock
 		// holds no SOL to send.
-		ixns, err := solcommon.FundFromAddressIxs(chain, chain.DeployerKey.PublicKey(), []solana.PublicKey{poolSigner}, target-balance)
+		ixns, err := solcommon.FundFromAddressIxs(chain, chain.Deployer().PublicKey(), []solana.PublicKey{poolSigner}, target-balance)
 		if err != nil {
 			return sequences.OnChainOutput{}, fmt.Errorf("build pool signer funding instructions: %w", err)
 		}
@@ -635,7 +635,7 @@ func requireProgramCctp(chain cldf_solana.Chain, program solana.PublicKey) error
 		return errors.New("cctp token pool program is required")
 	}
 	solcommon.SetProgramID(&cctp_token_pool.ProgramID, cctp_token_pool.ParseInstructionWithoutAccounts, program)
-	if chain.DeployerKey == nil {
+	if chain.Deployer() == nil {
 		return errors.New("missing Solana deployer key")
 	}
 	return nil

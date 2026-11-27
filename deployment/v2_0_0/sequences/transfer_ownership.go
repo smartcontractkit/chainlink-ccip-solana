@@ -214,7 +214,7 @@ func resolveTransferOwners(chain cldf_solana.Chain, in deployops.TransferOwnersh
 	if err != nil {
 		return solana.PublicKey{}, solana.PublicKey{}, fmt.Errorf("invalid proposed owner for chain %d: %w", in.ChainSelector, err)
 	}
-	currentOwner = chain.DeployerKey.PublicKey()
+	currentOwner = chain.Deployer().PublicKey()
 	if in.CurrentOwner != "" {
 		currentOwner, err = solcommon.ParseOwnerAddress(in.CurrentOwner)
 		if err != nil {
@@ -290,7 +290,7 @@ func (a *SolanaAdapter) ShouldAcceptOwnershipWithTransferOwnership(e deployment.
 	if err != nil {
 		return false, fmt.Errorf("failed to parse current owner %q for chain %d: %w", in.CurrentOwner, in.ChainSelector, err)
 	}
-	return currentOwner == chain.DeployerKey.PublicKey(), nil
+	return currentOwner == chain.Deployer().PublicKey(), nil
 }
 
 func (a *SolanaAdapter) SequenceAcceptOwnership() *cldf_ops.Sequence[deployops.TransferOwnershipPerChainInput, sequences.OnChainOutput, cldf_chain.BlockChains] {

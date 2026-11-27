@@ -59,7 +59,7 @@ var DeployLINK = operations.NewOperation(
 			b.GetContext(),
 			solana.TokenProgramID,
 			input.TokenPrivKey.PublicKey(),
-			chain.DeployerKey.PublicKey(),
+			chain.Deployer().PublicKey(),
 			input.TokenDecimals,
 			chain.Client,
 			cldf_solana.SolDefaultCommitment,
@@ -90,11 +90,11 @@ var DeploySolanaToken = operations.NewOperation(
 		if err != nil {
 			return datastore.AddressRef{}, err
 		}
-		tokenAdminPubKey := chain.DeployerKey.PublicKey()
+		tokenAdminPubKey := chain.Deployer().PublicKey()
 		// if we're disabling the freeze authority, we first set it to the deployer key so it can
 		// immediately revoke it - and the timelock is not looked up at all, so a chain without
 		// MCMS (the devenv) can deploy a token by opting out of a freeze authority explicitly.
-		freezeAuthority := chain.DeployerKey.PublicKey()
+		freezeAuthority := chain.Deployer().PublicKey()
 		if !input.DisableFreezeAuthority {
 			freezeAuthority, err = solcommon.GetTimelockSignerPDA(input.ExistingAddresses, chain.Selector, common_utils.CLLQualifier)
 			if err != nil {
@@ -148,7 +148,7 @@ var DeploySolanaToken = operations.NewOperation(
 				tokenProgramID,
 				mint,
 				sender,
-				chain.DeployerKey.PublicKey(),
+				chain.Deployer().PublicKey(),
 			)
 			if err != nil {
 				return datastore.AddressRef{}, err
@@ -173,7 +173,7 @@ var DeploySolanaToken = operations.NewOperation(
 						continue
 					}
 				}
-				mintToI, err1 := soltokens.MintTo(input.PreMint, tokenProgramID, mint, ata, chain.DeployerKey.PublicKey())
+				mintToI, err1 := soltokens.MintTo(input.PreMint, tokenProgramID, mint, ata, chain.Deployer().PublicKey())
 				if err1 != nil {
 					return datastore.AddressRef{}, err1
 				}
@@ -335,7 +335,7 @@ var CreateTokenMultisig = operations.NewOperation(
 			return sequences.OnChainOutput{}, err
 		}
 
-		ixs, err := soltokens.IxsInitTokenMultisig(input.TokenProgram, lamports, chain.DeployerKey.PublicKey(), multisig.PublicKey(), m, input.Signers)
+		ixs, err := soltokens.IxsInitTokenMultisig(input.TokenProgram, lamports, chain.Deployer().PublicKey(), multisig.PublicKey(), m, input.Signers)
 		if err != nil {
 			return sequences.OnChainOutput{}, fmt.Errorf("failed to create multisig instructions: %w", err)
 		}
@@ -383,7 +383,7 @@ var ExtendTokenPoolLookupTable = operations.NewOperation(
 			b.Logger.Info("no accounts provided - skipping token pool lookup table extension")
 			return sequences.OnChainOutput{}, nil
 		}
-		if chain.DeployerKey == nil {
+		if chain.Deployer() == nil {
 			return sequences.OnChainOutput{}, fmt.Errorf("solana deployer key is nil for chain selector %d", chain.Selector)
 		}
 
@@ -407,8 +407,8 @@ var ExtendTokenPoolLookupTable = operations.NewOperation(
 		if !lut.IsActive() {
 			return sequences.OnChainOutput{}, fmt.Errorf("token pool lookup table %s is not active", lookupTable)
 		}
-		if lut.Authority == nil || !lut.Authority.Equals(chain.DeployerKey.PublicKey()) {
-			return sequences.OnChainOutput{}, fmt.Errorf("token pool lookup table %s is not owned by the deployer key %s", lookupTable, chain.DeployerKey.PublicKey())
+		if lut.Authority == nil || !lut.Authority.Equals(chain.Deployer().PublicKey()) {
+			return sequences.OnChainOutput{}, fmt.Errorf("token pool lookup table %s is not owned by the deployer key %s", lookupTable, chain.Deployer().PublicKey())
 		}
 
 		seen := make(map[solana.PublicKey]bool, len(lut.Addresses)+len(input.Accounts))
@@ -430,7 +430,7 @@ var ExtendTokenPoolLookupTable = operations.NewOperation(
 			return sequences.OnChainOutput{}, nil
 		}
 
-		if err = common.ExtendLookupTable(ctx, chain.Client, lookupTable, *chain.DeployerKey, toAdd); err != nil {
+		if err = solcommon.AppendLookupTableEntries(chain, lookupTable, toAdd); err != nil {
 			return sequences.OnChainOutput{}, fmt.Errorf("failed to extend token pool lookup table %s: %w", lookupTable, err)
 		}
 		if err = common.AwaitSlotChange(ctx, chain.Client); err != nil {
@@ -455,7 +455,7 @@ var UpsertTokenMetadata = operations.NewOperation(
 		}
 
 		// Determine the update authority: default to deployer, override if specified.
-		updateAuthority := chain.DeployerKey.PublicKey()
+		updateAuthority := chain.Deployer().PublicKey()
 		if input.Metadata.UpdateAuthority != "" {
 			updateAuthority, err = solana.PublicKeyFromBase58(input.Metadata.UpdateAuthority)
 			if err != nil {
@@ -490,8 +490,8 @@ var UpsertTokenMetadata = operations.NewOperation(
 				},
 				metadataPDA,
 				mint,
-				chain.DeployerKey.PublicKey(), // mint authority must sign
-				chain.DeployerKey.PublicKey(), // payer
+				chain.Deployer().PublicKey(), // mint authority must sign
+				chain.Deployer().PublicKey(), // payer
 				updateAuthority,
 				solana.SystemProgramID,
 				solana.SysVarRentPubkey,
