@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.1](https://github.com/smartcontractkit/chainlink-ccip-solana/compare/contracts/v2.1.0...contracts/v2.1.1) (2026-11-27)
+
+
+### Bug Fixes
+
+* **deployment:** verify build ([#27](https://github.com/smartcontractkit/chainlink-ccip-solana/issues/27)) ([bc75b34](https://github.com/smartcontractkit/chainlink-ccip-solana/commit/bc75b34705d3d2944fa7c2b9437201b254bfb947))
+
 ## [2.1.0](https://github.com/smartcontractkit/chainlink-ccip-solana/compare/contracts/v2.0.2...contracts/v2.1.0) (2026-11-13)
 
 
