@@ -364,8 +364,8 @@ func NewTokenPoolMigrationChecks(refs []datastore.AddressRef, chain cldf_solana.
 		MCMSQualifier:  mcmsQualifier,
 		OtherTimelocks: map[solana.PublicKey]string{},
 	}
-	if chain.DeployerKey != nil {
-		deployer := chain.DeployerKey.PublicKey()
+	if signer := chain.Deployer(); signer != nil {
+		deployer := signer.PublicKey()
 		checks.Deployer = &deployer
 	}
 	for _, ref := range refs {
